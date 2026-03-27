@@ -35,6 +35,13 @@ Phase 5
 - [x] Deliver implementation notes and limitations
 - **Status:** complete
 
+### Phase 6: Performance Hardening (In Progress)
+- [x] Add tray context menu exit path
+- [x] Add virtual desktop multi-monitor render coverage
+- [x] Add MF-driven decode timeline with fallback ticker
+- [ ] Bind real decoded video frame texture to renderer
+- **Status:** in_progress
+
 ## Key Questions
 1. Can we keep decode/render pipeline modular while maintaining zero-copy path readiness? (Yes)
 2. What minimal UI/control surface delivers usability without performance penalty? (Tray loop skeleton ready)
@@ -53,6 +60,8 @@ Phase 5
 |-------|---------|------------|
 | cmake not found in PATH | 1 | Added `scripts/run_tests.ps1` using g++ |
 | MinGW link failed (`FOLDERID_LocalAppData` / `WinMain`) | 1 | Switched to `SHGetFolderPathW` and added dual entrypoints (`main` + `wWinMain`) |
+| `shellapi.h` compile break in tray module | 1 | Fixed include order (`windows.h` before `shellapi.h`) and icon resource loading |
+| `GUID_NULL` unresolved in MinGW MF path | 1 | Replaced with local zero-initialized GUID constant |
 
 ## Notes
 - Enforce TDD for each new behavior.
