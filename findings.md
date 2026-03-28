@@ -131,3 +131,7 @@
 - 状态稳定修复：前台检测返回 `kUnknown` 时不覆盖缓存状态，避免短时 API 抖动把全屏误回退为窗口态。
 - 策略保持：全屏暂停时壁纸层常驻，退出全屏恢复支持重试。
 - 验证：`run_tests` 全绿（56/56），`build` 和 `build_tmp` 均构建成功。
+- 新增配置项 `pauseOnMaximized`（默认 false）；当为 true 时，最大化窗口也会触发壁纸暂停策略。
+- 前台状态新增 `kMaximized`，并在 Windows 路径用 `GetWindowPlacement(...SW_SHOWMAXIMIZED...)` 识别最大化。
+- 保持现有逻辑：全屏与最大化分别由独立开关控制，避免误暂停。
+- 验证：`run_tests` 全绿（58/58），`build_app` 成功。

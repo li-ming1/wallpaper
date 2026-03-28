@@ -16,6 +16,21 @@ TEST_CASE(ResourceArbiter_KeepsRunningOnNormalWindow) {
   EXPECT_TRUE(!arbiter.ShouldPause());
 }
 
+TEST_CASE(ResourceArbiter_DoesNotPauseOnMaximizedByDefault) {
+  wallpaper::ResourceArbiter arbiter;
+
+  arbiter.SetForegroundState(wallpaper::ForegroundState::kMaximized);
+  EXPECT_TRUE(!arbiter.ShouldPause());
+}
+
+TEST_CASE(ResourceArbiter_PausesOnMaximizedWhenEnabled) {
+  wallpaper::ResourceArbiter arbiter;
+
+  arbiter.SetPauseOnMaximized(true);
+  arbiter.SetForegroundState(wallpaper::ForegroundState::kMaximized);
+  EXPECT_TRUE(arbiter.ShouldPause());
+}
+
 TEST_CASE(ResourceArbiter_PausesWhenSessionInactive) {
   wallpaper::ResourceArbiter arbiter;
 

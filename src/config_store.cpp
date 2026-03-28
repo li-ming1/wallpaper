@@ -209,6 +209,9 @@ Config ConfigStore::Load() const {
   if (ExtractBool(json, "pauseOnFullscreen", &flag)) {
     config.pauseOnFullscreen = flag;
   }
+  if (ExtractBool(json, "pauseOnMaximized", &flag)) {
+    config.pauseOnMaximized = flag;
+  }
   if (ExtractBool(json, "adaptiveQuality", &flag)) {
     config.adaptiveQuality = flag;
   }
@@ -235,6 +238,8 @@ void ConfigStore::Save(const Config& config) const {
   out << "  \"fpsCap\": " << NormalizeFpsCap(config.fpsCap) << ",\n";
   out << "  \"autoStart\": " << (config.autoStart ? "true" : "false") << ",\n";
   out << "  \"pauseOnFullscreen\": " << (config.pauseOnFullscreen ? "true" : "false")
+      << ",\n";
+  out << "  \"pauseOnMaximized\": " << (config.pauseOnMaximized ? "true" : "false")
       << ",\n";
   out << "  \"adaptiveQuality\": " << (config.adaptiveQuality ? "true" : "false") << ",\n";
   out << "  \"codecPolicy\": \""

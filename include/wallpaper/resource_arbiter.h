@@ -6,12 +6,14 @@ enum class ForegroundState {
   kUnknown = 0,
   kWindowed = 1,
   kFullscreen = 2,
+  kMaximized = 3,
 };
 
 class ResourceArbiter final {
  public:
   void SetForegroundState(ForegroundState state) noexcept;
   void SetPauseOnFullscreen(bool enabled) noexcept;
+  void SetPauseOnMaximized(bool enabled) noexcept;
   void SetSessionActive(bool active) noexcept;
   void SetDesktopVisible(bool visible) noexcept;
 
@@ -20,6 +22,7 @@ class ResourceArbiter final {
  private:
   ForegroundState foregroundState_ = ForegroundState::kUnknown;
   bool pauseOnFullscreen_ = true;
+  bool pauseOnMaximized_ = false;
   bool sessionActive_ = true;
   bool desktopVisible_ = true;
 };

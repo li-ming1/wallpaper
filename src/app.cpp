@@ -106,6 +106,7 @@ ForegroundState DetectForegroundState() {
   if (GetClassNameW(hwnd, className, 255) == 0) {
     return ForegroundState::kUnknown;
   }
+  const std::wstring foregroundClass(className);
 
   RECT windowRect{};
   if (!GetWindowRect(hwnd, &windowRect)) {
@@ -144,8 +145,17 @@ ForegroundState DetectForegroundState() {
   const bool likelyFullscreenByCoverage = isBorderlessPopup && coverageRatio >= 0.90;
   const bool coversMonitor = nearlyCoversMonitor || likelyFullscreenByCoverage;
   const bool isVisible = IsWindowVisible(hwnd) != FALSE;
-  if (ShouldTreatForegroundAsFullscreen(std::wstring(className), coversMonitor, isVisible)) {
+  if (ShouldTreatForegroundAsFullscreen(foregroundClass, coversMonitor, isVisible)) {
     return ForegroundState::kFullscreen;
+  }
+
+  WINDOWPLACEMENT placement{};
+  placement.length = sizeof(placement);
+  const bool isMaximized =
+      GetWindowPlacement(hwnd, &placement) != FALSE && placement.showCmd == SW_SHOWMAXIMIZED;
+  // 最大化单独建模，允许通过配置决定是否暂停，而不是和全屏绑定。
+  if (isMaximized && !IsShellForegroundClass(foregroundClass)) {
+    return ForegroundState::kMaximized;
   }
   return ForegroundState::kWindowed;
 }
@@ -277,6 +287,7 @@ bool App::Initialize() {
   qualityGovernor_.SetEnabled(config_.adaptiveQuality);
   ApplyRenderFpsCap(qualityGovernor_.CurrentFps());
   arbiter_.SetPauseOnFullscreen(config_.pauseOnFullscreen);
+  arbiter_.SetPauseOnMaximized(config_.pauseOnMaximized);
 
   wallpaperHost_ = CreateWallpaperHost();
   decodePipeline_ = CreateDecodePipeline();

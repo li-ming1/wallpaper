@@ -14,6 +14,7 @@ struct Config final {
   int fpsCap = 30;
   bool autoStart = false;
   bool pauseOnFullscreen = true;
+  bool pauseOnMaximized = false;
   bool adaptiveQuality = true;
   CodecPolicy codecPolicy = CodecPolicy::kH264;
 };

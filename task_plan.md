@@ -158,3 +158,10 @@ Phase 6
 - [x] Green: 保持壁纸层与恢复重试逻辑继续生效
 - [x] Verification: 单测通过 + 构建通过
 - **Status:** complete
+
+### Phase 16: 最大化暂停开关（Completed）
+- [x] Red: 新增配置与仲裁测试（pauseOnMaximized / kMaximized）
+- [x] Green: 增加 Config 字段与持久化
+- [x] Green: 前台状态新增 maximized 判定并接入 ResourceArbiter
+- [x] Verification: 单测通过 + 构建通过
+- **Status:** complete

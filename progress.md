@@ -540,3 +540,22 @@
   - task_plan.md
   - findings.md
   - progress.md
+### Phase 16: 最大化暂停开关
+- **Status:** complete
+- Actions taken:
+  - Red: 修改 `tests/config_store_tests.cpp` 与 `tests/resource_arbiter_tests.cpp`，新增 `pauseOnMaximized` 与 `kMaximized` 行为测试并验证失败。
+  - Green: 更新 `Config` 与 `ConfigStore` 的读写字段（`pauseOnMaximized`）。
+  - Green: 扩展 `ForegroundState` 与 `ResourceArbiter`（新增 `kMaximized` 和 `SetPauseOnMaximized`）。
+  - Green: `DetectForegroundState` 增加最大化识别，`App::Initialize` 接入新开关。
+  - Verification: `./scripts/run_tests.ps1` 与 `./scripts/build_app.ps1` 均通过。
+- Files created/modified:
+  - include/wallpaper/config.h
+  - src/config_store.cpp
+  - tests/config_store_tests.cpp
+  - include/wallpaper/resource_arbiter.h
+  - src/resource_arbiter.cpp
+  - tests/resource_arbiter_tests.cpp
+  - src/app.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md
