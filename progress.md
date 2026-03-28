@@ -921,3 +921,17 @@
   - task_plan.md
   - findings.md
   - progress.md
+### Phase 37: 图标修复与遮挡降载
+- **Status:** complete
+- Actions taken:
+  - Green: `resources/app_icon.rc` 增加 `1 ICON` 标准资源 ID，并保留 `101 ICON` 兼容既有托盘加载路径。
+  - Green: `tray_controller_win` 和 `wallpaper_host_win` 的窗口类注册补齐 `hIcon/hIconSm`。
+  - Green: `wallpaper_host_win` 增加 occlusion 处理：`DXGI_STATUS_OCCLUDED` 时暂停提交并按 250ms 节流探测恢复。
+  - Verification: `./scripts/run_tests.ps1` 全绿（89/89）；`./scripts/build_app.ps1` 构建通过。
+- Files created/modified:
+  - resources/app_icon.rc
+  - src/win/tray_controller_win.cpp
+  - src/win/wallpaper_host_win.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md

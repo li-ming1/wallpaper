@@ -209,3 +209,6 @@
 - 验证：`run_tests` 全绿（89/89），`build_app` 成功。
 - 用户现场反馈“没用”后做稳定优先处置：默认关闭 waitable-object 门控与对应 swapchain 标志，仅保留代码实现，避免不同驱动组合下再次触发显示回归。
 - 结论：先保证动态壁纸稳定可见，再做设备白名单/运行时探测后按机型启用该优化。
+- 原因复盘（结合 Win 官方“waiting when occluded”文档）：壁纸窗口在某些桌面合成路径下可能进入 occluded 状态，waitable-object 与非阻塞跳帧叠加后会放大“长期不 present”风险。
+- 新增遮挡降载策略：`Present` 返回 `DXGI_STATUS_OCCLUDED` 时停止提交并按 250ms 节流探测恢复，降低不可见时无效 CPU/GPU 消耗。
+- 图标修复：资源文件增加标准图标 ID `1`，并在托盘/壁纸窗口类上设置 `hIcon/hIconSm`，改善任务管理器中显示默认图标的问题。

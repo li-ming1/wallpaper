@@ -20,7 +20,7 @@ namespace {
 constexpr wchar_t kTrayWindowClassName[] = L"WallpaperTrayMessageWindow";
 constexpr UINT kTrayIconMessage = WM_APP + 1;
 constexpr UINT kTrayIconId = 1;
-constexpr UINT_PTR kAppIconResourceId = 101;
+constexpr UINT_PTR kAppIconResourceId = 1;
 constexpr UINT_PTR kMenuSet30FpsId = 1001;
 constexpr UINT_PTR kMenuSet60FpsId = 1002;
 constexpr UINT_PTR kMenuSelectVideoId = 1003;
@@ -172,6 +172,8 @@ class TrayControllerWin final : public ITrayController {
     wc.cbSize = sizeof(wc);
     wc.lpfnWndProc = &TrayControllerWin::WindowProc;
     wc.hInstance = GetModuleHandleW(nullptr);
+    wc.hIcon = LoadIconW(wc.hInstance, MAKEINTRESOURCEW(kAppIconResourceId));
+    wc.hIconSm = wc.hIcon;
     wc.lpszClassName = kTrayWindowClassName;
     return RegisterClassExW(&wc) != 0 || GetLastError() == ERROR_CLASS_ALREADY_EXISTS;
   }

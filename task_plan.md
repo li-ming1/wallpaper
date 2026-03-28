@@ -310,3 +310,10 @@ Phase 6
 - [x] Green: swapchain 创建不再默认携带 waitable-object 标志
 - [x] Verification: 单测通过（89/89） + 构建通过
 - **Status:** complete
+
+### Phase 37: 图标修复与遮挡降载（Completed）
+- [x] Green: 应用图标资源增加标准 ID `1`，提升进程管理器识别命中率
+- [x] Green: 托盘/壁纸窗口类注册补齐 `hIcon/hIconSm`
+- [x] Green: 接入 DXGI occlusion 降载策略（`DXGI_STATUS_OCCLUDED` + 250ms 探测）
+- [x] Verification: 单测通过（89/89） + 构建通过
+- **Status:** complete

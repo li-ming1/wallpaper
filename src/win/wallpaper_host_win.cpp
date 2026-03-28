@@ -31,6 +31,7 @@ void SafeRelease(T** ptr) {
 }
 
 constexpr wchar_t kWallpaperWindowClassName[] = L"WallpaperRenderHostWindow";
+constexpr UINT_PTR kAppIconResourceId = 1;
 // 某些驱动/桌面组合下 waitable-object 可能引入显示回归，默认关闭，后续按设备白名单再启用。
 constexpr bool kEnableFrameLatencyWaitableObject = false;
 
@@ -113,6 +114,8 @@ bool RegisterWallpaperWindowClass(HINSTANCE instance) {
   wc.cbSize = sizeof(WNDCLASSEXW);
   wc.lpfnWndProc = WallpaperWndProc;
   wc.hInstance = instance;
+  wc.hIcon = LoadIconW(instance, MAKEINTRESOURCEW(kAppIconResourceId));
+  wc.hIconSm = wc.hIcon;
   wc.lpszClassName = kWallpaperWindowClassName;
   wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
   return RegisterClassExW(&wc) != 0 || GetLastError() == ERROR_CLASS_ALREADY_EXISTS;
@@ -368,6 +371,21 @@ class WallpaperHostWin final : public IWallpaperHost {
     if (context_ == nullptr || renderTargetView_ == nullptr || swapChain_ == nullptr) {
       return;
     }
+
+    const ULONGLONG nowTick = GetTickCount64();
+    if (swapChainOccluded_) {
+      if (nowTick < nextOcclusionProbeAtTick_) {
+        return;
+      }
+      const HRESULT probeHr = swapChain_->Present(0, DXGI_PRESENT_TEST);
+      if (probeHr == DXGI_STATUS_OCCLUDED) {
+        nextOcclusionProbeAtTick_ = nowTick + kOcclusionProbeIntervalMs;
+        return;
+      }
+      swapChainOccluded_ = false;
+      nextOcclusionProbeAtTick_ = 0;
+    }
+
     if (frameLatencyWaitableEnabled_ && frameLatencyWaitableObject_ != nullptr &&
         frameLatencyGateArmed_) {
       const DWORD waitResult = WaitForSingleObjectEx(frameLatencyWaitableObject_, 0, FALSE);
@@ -427,7 +445,16 @@ class WallpaperHostWin final : public IWallpaperHost {
     }
 
     const HRESULT presentHr = swapChain_->Present(1, 0);
+    if (presentHr == DXGI_STATUS_OCCLUDED) {
+      swapChainOccluded_ = true;
+      nextOcclusionProbeAtTick_ = nowTick + kOcclusionProbeIntervalMs;
+      frameLatencyGateArmed_ = false;
+      frameLatencyTimeoutSkips_ = 0;
+      return;
+    }
     if (SUCCEEDED(presentHr)) {
+      swapChainOccluded_ = false;
+      nextOcclusionProbeAtTick_ = 0;
       frameLatencyGateArmed_ = true;
     }
   }
@@ -521,6 +548,8 @@ class WallpaperHostWin final : public IWallpaperHost {
     frameLatencyWaitableEnabled_ = false;
     frameLatencyGateArmed_ = false;
     frameLatencyTimeoutSkips_ = 0;
+    swapChainOccluded_ = false;
+    nextOcclusionProbeAtTick_ = 0;
     frameLatencyWaitableObject_ = nullptr;
     SafeRelease(&swapChain2_);
     if (kEnableFrameLatencyWaitableObject &&
@@ -793,6 +822,8 @@ class WallpaperHostWin final : public IWallpaperHost {
     frameLatencyWaitableEnabled_ = false;
     frameLatencyGateArmed_ = false;
     frameLatencyTimeoutSkips_ = 0;
+    swapChainOccluded_ = false;
+    nextOcclusionProbeAtTick_ = 0;
     if (frameLatencyWaitableObject_ != nullptr) {
       CloseHandle(frameLatencyWaitableObject_);
       frameLatencyWaitableObject_ = nullptr;
@@ -820,6 +851,9 @@ class WallpaperHostWin final : public IWallpaperHost {
   bool frameLatencyWaitableEnabled_ = false;
   bool frameLatencyGateArmed_ = false;
   int frameLatencyTimeoutSkips_ = 0;
+  static constexpr ULONGLONG kOcclusionProbeIntervalMs = 250;
+  bool swapChainOccluded_ = false;
+  ULONGLONG nextOcclusionProbeAtTick_ = 0;
   ID3D11RenderTargetView* renderTargetView_ = nullptr;
 
   bool videoPipelineReady_ = false;
