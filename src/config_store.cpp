@@ -209,6 +209,9 @@ Config ConfigStore::Load() const {
   if (ExtractBool(json, "pauseOnFullscreen", &flag)) {
     config.pauseOnFullscreen = flag;
   }
+  if (ExtractBool(json, "adaptiveQuality", &flag)) {
+    config.adaptiveQuality = flag;
+  }
 
   std::string codecValue;
   if (ExtractString(json, "codecPolicy", &codecValue)) {
@@ -233,6 +236,7 @@ void ConfigStore::Save(const Config& config) const {
   out << "  \"autoStart\": " << (config.autoStart ? "true" : "false") << ",\n";
   out << "  \"pauseOnFullscreen\": " << (config.pauseOnFullscreen ? "true" : "false")
       << ",\n";
+  out << "  \"adaptiveQuality\": " << (config.adaptiveQuality ? "true" : "false") << ",\n";
   out << "  \"codecPolicy\": \""
       << (config.codecPolicy == CodecPolicy::kH264PlusHevc ? "h264+hevc" : "h264")
       << "\"\n";

@@ -17,11 +17,25 @@ $output = Join-Path $BuildDir "wallpaper_tests.exe"
 $sources = @(
   "tests/test_main.cpp",
   "tests/config_store_tests.cpp",
+  "tests/desktop_attach_policy_tests.cpp",
+  "tests/frame_bridge_tests.cpp",
+  "tests/foreground_policy_tests.cpp",
+  "tests/metrics_log_line_tests.cpp",
+  "tests/metrics_log_file_tests.cpp",
+  "tests/quality_governor_tests.cpp",
   "tests/render_scheduler_tests.cpp",
   "tests/resource_arbiter_tests.cpp",
+  "tests/video_path_matcher_tests.cpp",
   "src/config_store.cpp",
+  "src/desktop_attach_policy.cpp",
+  "src/frame_bridge.cpp",
+  "src/foreground_policy.cpp",
+  "src/metrics_log_line.cpp",
+  "src/metrics_log_file.cpp",
+  "src/quality_governor.cpp",
   "src/render_scheduler.cpp",
-  "src/resource_arbiter.cpp"
+  "src/resource_arbiter.cpp",
+  "src/video_path_matcher.cpp"
 )
 
 $compileArgs = @(
@@ -34,6 +48,9 @@ $compileArgs = @(
 
 Write-Host "Compiling tests with $($gxx.Source)..."
 & $gxx.Source @compileArgs
+if ($LASTEXITCODE -ne 0) {
+  exit $LASTEXITCODE
+}
 
 Write-Host "Running tests..."
 & $output

@@ -13,15 +13,58 @@
 - Repository started empty; now bootstrapped with core C++20 architecture.
 - cmake tool is unavailable in current PATH; g++ is available at D:\msys64\ucrt64\bin\g++.exe.
 - Tests are runnable and green via PowerShell script.
+- Tray controller now has actual notify icon + context menu exit flow.
+- Wallpaper host now sizes by virtual desktop metrics for multi-monitor coverage.
+- Decode pipeline now tries Media Foundation first and falls back to internal ticker mode.
+- MF sample now publishes RGBA frame to frame bridge; renderer consumes bridge for on-screen video texture draw.
+- App now supports tray-driven hot updates: 30/60fps, select video, clear video, enable/disable auto-start.
+- App now supports adaptive quality: when runtime load spikes it drops to 30fps, and recovers to target fps after stable samples.
+- Tray menu now supports enable/disable adaptive quality, with config persistence.
+- Runtime metrics now append once per second through a bounded writer, auto-truncating to header when file size threshold is exceeded.
+- Metrics log now writes daily shards (`metrics_YYYYMMDD.csv`) and keeps a rolling retention window (last 7 days).
+- Metrics rows now include session and runtime policy context (`session_id`, `target_fps`, `effective_fps`, `adaptive_quality`, `decode_mode`).
+- Fixed MF decode open path: enabled Source Reader video processing/hardware transform attributes so RGB32 output negotiation succeeds on common Windows setups.
+- Fixed desktop interaction path: corrected WorkerW target selection and pumped main-thread window messages to avoid busy cursor + blocked desktop icons.
+- Hardened attach path by attempting multiple WorkerW candidates and falling back safely, with child-window coordinates normalized to parent space.
+- Replaced unsafe attach fallback (`Progman`/`Desktop`) with safe attach order (`WorkerW` then `SHELLDLL_DefView`), preventing icon-layer occlusion.
+- Verified runtime probe: render host parent is now `SHELLDLL_DefView` with full desktop bounds (`1536x864` in current environment).
+- Added explicit `WM_SETCURSOR` handling to force arrow cursor on wallpaper host and avoid inherited busy cursor state.
+- Added path-equivalence matcher for selected videos (absolute/relative, separator, case) to avoid unnecessary decoder restart on same file reselect.
+- Added icon-layer visibility reinforcement (`SysListView32` show + top z-order) after wallpaper attach/resize to reduce desktop file visibility regressions.
+- Restored non-WorkerW fallback to `DefView-child` and explicitly keeps `SysListView32` above wallpaper host in same parent z-order, fixing “select video no visual change” regression.
+- Reduced MF decode memory pressure: reused frame publish buffer, selected video stream only, and enabled low-latency source-reader mode.
+- Fixed tray wide-string to UTF-8 conversion to avoid non-ASCII path corruption when selecting videos with Chinese filenames.
+- Reworked fullscreen pause detection to exclude shell classes (`Progman`/`WorkerW`/`DefView`/`SysListView32`/wallpaper host), preventing pause when user clicks desktop.
+- Render loop now re-presents last frame when decoder has no new sample, avoiding false drop accounting and visible stutter on 30fps content under 60fps scheduling.
+- Added source-timestamp based render-cap path (30/60) so scheduler can track decoded stream cadence rather than blindly running at target cap.
+- Added dedicated GUI-subsystem build script (`-mwindows`) so startup no longer shows console window.
 
 ## Technical Decisions
 | Decision | Rationale |
 |----------|-----------|
 | Single process architecture | Avoid IPC overhead and simplify resource control |
 | WorkerW host abstraction | Native wallpaper integration model on Windows |
-| MF decode abstraction (stub for now) | Keep interface stable while iterating implementation |
+| MF timeline decode with fallback mode | Preserve dynamic output even when media init fails |
+| Frame bridge between decode and render | Decouple decode timing from render thread while keeping latest-frame semantics |
 | Bounded and deterministic scheduling | Prevent memory/latency drift |
 | Config I/O with async wrappers | Align with async-first I/O requirement |
+| Adaptive quality governor with hysteresis | Avoid FPS oscillation while preserving high-FPS targets under stable load |
+| Bounded metrics log with threshold truncate | Prevent long-running disk growth while keeping recent samples |
+| Daily metrics shards + retention cleanup | Keep observability history while bounding disk usage over long uptime |
+| Extended metrics row context fields | Make adaptive-quality and decode-path behavior analyzable across process sessions |
+| Enable MF Source Reader video processing | Avoid false fallback when RGB32 output type negotiation fails |
+| Correct WorkerW parenting + message pump | Keep wallpaper behind icons and prevent UI non-responsiveness symptoms |
+| Multi-candidate WorkerW attach fallback | Avoid no-op wallpaper when one shell host denies child window creation |
+| Safe attach order: WorkerW first, DefView second, no Progman/Desktop | Avoid icon occlusion and DPI-virtualized parent size issues |
+| Path equivalence compare before decode reopen | Prevent reselecting same video from triggering heavy MF reopen and memory spikes |
+| Force desktop list view visible/top after host placement | Stabilize desktop icon visibility when shell child z-order fluctuates |
+| DefView fallback + ListView top z-order in same parent | Keep icons visible while ensuring wallpaper content is rendered behind icons |
+| SourceReader low-latency + reusable publish buffer | Lower high-resolution video runtime memory footprint |
+| Safe UTF-8 conversion in tray file picker path | Ensure Chinese/non-ASCII video paths can be selected and opened correctly |
+| Foreground shell-class exclusion in fullscreen policy | Prevent click-on-desktop from being misdetected as fullscreen app |
+| Present-last-frame strategy on no-new-sample | Smooth rendering cadence and avoid quality governor being driven by synthetic drops |
+| Source timestamp aware render cap | Reduce cadence jitter when source fps is below configured cap |
+| Windows subsystem build (`-mwindows`) | Remove startup console window for desktop app UX |
 | Hard fallback on pipeline failures | Protect foreground performance target |
 
 ## Issues Encountered
@@ -30,6 +73,17 @@
 | Empty repo means no baseline tests | Created new lightweight native test harness |
 | Missing CMake in shell PATH | Added scripts/run_tests.ps1 with g++ path detection |
 | MinGW link errors (`FOLDERID_LocalAppData`, `WinMain`) | Reworked entry to dual `main`/`wWinMain`, switched config path lookup to `SHGetFolderPathW` |
+| Tray module failed to compile with MinGW due include order | Included `windows.h` before `shellapi.h` |
+| MF `GUID_NULL` unresolved with MinGW linker | Used local zero-GUID constant for seek call |
+| `psapi.h` compile failure | Fixed include order (`windows.h` before `psapi.h`) and used portable memory counter fields |
+| `run_tests.ps1` false-green on compile failure | Added compile exit-code check before executing test binary |
+| Wallpaper stuck in fallback color despite selected video | Enabled `MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING` and hardware transform attr during reader creation |
+| Cursor showed busy state and desktop icons disappeared | Parented to proper WorkerW and added per-loop `PeekMessage` pumping on main thread |
+| Dynamic wallpaper selected but visually no effect | Added multi-parent attach attempts and parent-relative placement |
+| Dynamic wallpaper selected but render host attached to Progman (`1229x691`) and icon layer could be occluded | Introduced attach policy (`WorkerW -> DefView`) and removed Progman/Desktop fallback path |
+| `main.cpp` failed to compile due constexpr integer-to-pointer cast | Replaced constexpr cast with runtime conversion and added `SetProcessDPIAware` fallback |
+| Selecting same video could still reopen pipeline due path representation mismatch | Added `IsSameVideoPath` canonical matcher and switched `ApplyVideoPath` guard to equivalence check |
+| 4K video playback memory stayed near 800MB | Enabled SourceReader low-latency and video-only stream, reused frame publish buffer; observed runtime drop to ~300-360MB in local measurement |
 
 ## Resources
 - task_plan.md

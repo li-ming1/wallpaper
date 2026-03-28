@@ -4,7 +4,7 @@
 Implement a Windows 10/11 dynamic wallpaper app from an empty repo with strict performance-first architecture (WorkerW + MF + D3D11), plus tests for core logic.
 
 ## Current Phase
-Phase 5
+Phase 6
 
 ## Phases
 ### Phase 1: Requirements & Discovery
@@ -39,7 +39,27 @@ Phase 5
 - [x] Add tray context menu exit path
 - [x] Add virtual desktop multi-monitor render coverage
 - [x] Add MF-driven decode timeline with fallback ticker
-- [ ] Bind real decoded video frame texture to renderer
+- [x] Bind real decoded video frame texture to renderer
+- [x] Add adaptive quality governor (load spike -> 30fps, stable -> target fps)
+- [x] Add tray toggles for adaptive quality and persist to config
+- [x] Add bounded metrics log writer with auto-truncate on threshold
+- [x] Add daily metrics shards with retention window (keep last 7 days)
+- [x] Add metrics session-level fields (session_id/target/effective/adaptive)
+- [x] Add decode mode field in metrics (mf/fallback/unknown)
+- [x] Fix MF RGB32 negotiation to avoid false fallback on valid videos
+- [x] Fix desktop interaction regression (cursor busy + icons hidden)
+- [x] Harden wallpaper parent attach (multi-candidate WorkerW + parent-relative coordinates)
+- [x] Replace unsafe Progman/Desktop fallback with safe attach order (WorkerW -> DefView)
+- [x] Fix main entry DPI initialization compile break
+- [x] Prevent duplicate decode restart when selecting equivalent video path (relative/absolute/case mismatch)
+- [x] Reinforce desktop icon layer visibility when wallpaper host attaches/resizes
+- [x] Restore DefView fallback with strict icon-list z-order control (video visible + icons visible)
+- [x] Reduce MF decode path memory footprint (buffer reuse + low-latency source reader + video-only stream)
+- [x] Fix tray UTF-8 conversion for non-ASCII video paths
+- [x] Fix false fullscreen pause when clicking desktop shell windows
+- [x] Keep presenting last frame when decode has no new sample to remove 30fps-source stutter artifact
+- [x] Build wallpaper_app as Windows subsystem binary (no console window on startup)
+- [x] Apply source-frame-rate aware render cap path to reduce cadence jitter
 - **Status:** in_progress
 
 ## Key Questions

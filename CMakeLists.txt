@@ -13,13 +13,20 @@ endif()
 
 add_library(wallpaper_core STATIC
   src/config_store.cpp
+  src/desktop_attach_policy.cpp
+  src/foreground_policy.cpp
+  src/metrics_log_line.cpp
+  src/metrics_log_file.cpp
+  src/quality_governor.cpp
+  src/video_path_matcher.cpp
   src/render_scheduler.cpp
   src/resource_arbiter.cpp
   src/metrics_sampler.cpp
+  src/frame_bridge.cpp
 )
 target_include_directories(wallpaper_core PUBLIC include)
 
-add_executable(wallpaper_app
+add_executable(wallpaper_app WIN32
   src/main.cpp
   src/app.cpp
   src/platform_stubs.cpp
@@ -34,7 +41,18 @@ if (WIN32)
     src/win/tray_controller_win.cpp
   )
   target_compile_definitions(wallpaper_app PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-  target_link_libraries(wallpaper_app PRIVATE user32 shell32 advapi32 d3d11 dxgi dwmapi)
+  target_link_libraries(wallpaper_app PRIVATE
+    user32
+    shell32
+    advapi32
+    comdlg32
+    psapi
+    winmm
+    d3d11
+    dxgi
+    dwmapi
+    d3dcompiler
+  )
   target_link_libraries(wallpaper_app PRIVATE mfplat mfreadwrite mfuuid ole32)
 endif()
 
@@ -43,11 +61,25 @@ enable_testing()
 add_executable(wallpaper_tests
   tests/test_main.cpp
   tests/config_store_tests.cpp
+  tests/desktop_attach_policy_tests.cpp
+  tests/frame_bridge_tests.cpp
+  tests/foreground_policy_tests.cpp
+  tests/metrics_log_line_tests.cpp
+  tests/metrics_log_file_tests.cpp
+  tests/quality_governor_tests.cpp
   tests/render_scheduler_tests.cpp
   tests/resource_arbiter_tests.cpp
+  tests/video_path_matcher_tests.cpp
   src/config_store.cpp
+  src/desktop_attach_policy.cpp
+  src/frame_bridge.cpp
+  src/foreground_policy.cpp
+  src/metrics_log_line.cpp
+  src/metrics_log_file.cpp
+  src/quality_governor.cpp
   src/render_scheduler.cpp
   src/resource_arbiter.cpp
+  src/video_path_matcher.cpp
 )
 
 target_include_directories(wallpaper_tests PRIVATE include)

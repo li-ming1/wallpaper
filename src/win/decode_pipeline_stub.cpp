@@ -1,8 +1,13 @@
 #include "wallpaper/interfaces.h"
 
+#include "wallpaper/frame_bridge.h"
+
 #include <chrono>
+#include <cstring>
 #include <filesystem>
+#include <memory>
 #include <mutex>
+#include <vector>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -121,47 +126,127 @@ class DecodePipelineStub final : public IDecodePipeline {
 
     sequence_ = expectedIndex;
     frame->sequence = sequence_;
+    frame->decodeMode = DecodeMode::kFallbackTicker;
     // 100ns 单位，便于未来与 MF 时间戳对齐。
     frame->timestamp100ns = static_cast<std::int64_t>(sequence_ * 333333);
     return true;
   }
 
 #ifdef _WIN32
+  static void QueryDesktopFrameHint(UINT32* outWidth, UINT32* outHeight) {
+    if (outWidth == nullptr || outHeight == nullptr) {
+      return;
+    }
+    const int width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+    const int height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+    if (width > 0 && height > 0) {
+      *outWidth = static_cast<UINT32>(width);
+      *outHeight = static_cast<UINT32>(height);
+      return;
+    }
+    *outWidth = 0;
+    *outHeight = 0;
+  }
+
   bool TryOpenMediaFoundationLocked(const std::string& path) {
     if (!EnsureMfStartupLocked()) {
       return false;
     }
 
-    std::filesystem::path fsPath(path);
+    const std::filesystem::path fsPath(path);
     const std::wstring widePath = fsPath.wstring();
     if (widePath.empty()) {
       return false;
     }
 
+    IMFAttributes* readerAttributes = nullptr;
+    HRESULT hr = MFCreateAttributes(&readerAttributes, 2);
+    if (SUCCEEDED(hr) && readerAttributes != nullptr) {
+      // 启用视频处理后，Source Reader 可将解码结果转换到 RGB32，避免直设 RGB32 失败。
+      hr = readerAttributes->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, TRUE);
+    }
+    if (SUCCEEDED(hr) && readerAttributes != nullptr) {
+      // 低延迟模式可减少解码链路内部排队帧数，从而降低内存峰值。
+      hr = readerAttributes->SetUINT32(MF_LOW_LATENCY, TRUE);
+    }
+
     IMFSourceReader* reader = nullptr;
-    HRESULT hr =
-        MFCreateSourceReaderFromURL(widePath.c_str(), nullptr, &reader);
+    hr = MFCreateSourceReaderFromURL(widePath.c_str(), readerAttributes, &reader);
+    if (readerAttributes != nullptr) {
+      readerAttributes->Release();
+      readerAttributes = nullptr;
+    }
     if (FAILED(hr) || reader == nullptr) {
       return false;
     }
-
-    IMFMediaType* outType = nullptr;
-    hr = MFCreateMediaType(&outType);
+    // 仅保留视频流，避免不必要的音频流缓存与转换开销。
+    hr = reader->SetStreamSelection(MF_SOURCE_READER_ALL_STREAMS, FALSE);
     if (SUCCEEDED(hr)) {
-      hr = outType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
+      hr = reader->SetStreamSelection(MF_SOURCE_READER_FIRST_VIDEO_STREAM, TRUE);
     }
-    if (SUCCEEDED(hr)) {
-      hr = outType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_NV12);
-    }
-    if (SUCCEEDED(hr)) {
-      hr = reader->SetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, nullptr, outType);
-    }
-    if (outType != nullptr) {
-      outType->Release();
+    if (FAILED(hr)) {
+      reader->Release();
+      return false;
     }
 
-    // SetCurrentMediaType 失败不视为致命错误，保持 reader 可读时间戳即可。
+    const auto setOutType = [&](const bool withDesktopHint) -> HRESULT {
+      IMFMediaType* outType = nullptr;
+      HRESULT localHr = MFCreateMediaType(&outType);
+      if (SUCCEEDED(localHr)) {
+        localHr = outType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
+      }
+      if (SUCCEEDED(localHr)) {
+        // 直接输出 RGB32，渲染链路保持简单稳定。
+        localHr = outType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32);
+      }
+      if (SUCCEEDED(localHr) && withDesktopHint) {
+        UINT32 hintWidth = 0;
+        UINT32 hintHeight = 0;
+        QueryDesktopFrameHint(&hintWidth, &hintHeight);
+        if (hintWidth > 0 && hintHeight > 0) {
+          // 提示输出尺寸不超过当前桌面，降低高分辨率视频的解码缓冲占用。
+          localHr = MFSetAttributeSize(outType, MF_MT_FRAME_SIZE, hintWidth, hintHeight);
+        }
+      }
+      if (SUCCEEDED(localHr)) {
+        localHr = reader->SetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, nullptr, outType);
+      }
+      if (outType != nullptr) {
+        outType->Release();
+      }
+      return localHr;
+    };
+
+    hr = setOutType(true);
+    if (FAILED(hr)) {
+      // 某些编解码链路不接受帧大小提示，回退到默认输出协商。
+      hr = setOutType(false);
+    }
+    if (FAILED(hr)) {
+      reader->Release();
+      return false;
+    }
+
+    IMFMediaType* currentType = nullptr;
+    hr = reader->GetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, &currentType);
+    if (FAILED(hr) || currentType == nullptr) {
+      reader->Release();
+      return false;
+    }
+
+    UINT32 width = 0;
+    UINT32 height = 0;
+    hr = MFGetAttributeSize(currentType, MF_MT_FRAME_SIZE, &width, &height);
+    currentType->Release();
+    if (FAILED(hr) || width == 0 || height == 0) {
+      reader->Release();
+      return false;
+    }
+
     sourceReader_ = reader;
+    frameWidth_ = width;
+    frameHeight_ = height;
+    frameStride_ = width * 4;
     mfBaseOffset100ns_ = 0;
     mfLastRawTimestamp100ns_ = -1;
     mfLastOutputTimestamp100ns_ = -1;
@@ -189,6 +274,9 @@ class DecodePipelineStub final : public IDecodePipeline {
       MFShutdown();
       mfStarted_ = false;
     }
+    frameWidth_ = 0;
+    frameHeight_ = 0;
+    frameStride_ = 0;
     mfBaseOffset100ns_ = 0;
     mfLastRawTimestamp100ns_ = -1;
     mfLastOutputTimestamp100ns_ = -1;
@@ -208,6 +296,45 @@ class DecodePipelineStub final : public IDecodePipeline {
     return SUCCEEDED(hr);
   }
 
+  bool PublishSampleToBridgeLocked(IMFSample* sample, const std::uint64_t sequence,
+                                   const std::int64_t timestamp100ns) const {
+    if (sample == nullptr || frameWidth_ == 0 || frameHeight_ == 0 || frameStride_ == 0) {
+      return false;
+    }
+
+    IMFMediaBuffer* mediaBuffer = nullptr;
+    HRESULT hr = sample->ConvertToContiguousBuffer(&mediaBuffer);
+    if (FAILED(hr) || mediaBuffer == nullptr) {
+      return false;
+    }
+
+    BYTE* rawData = nullptr;
+    DWORD maxLength = 0;
+    DWORD currentLength = 0;
+    hr = mediaBuffer->Lock(&rawData, &maxLength, &currentLength);
+    if (FAILED(hr) || rawData == nullptr || currentLength == 0) {
+      if (mediaBuffer != nullptr) {
+        mediaBuffer->Release();
+      }
+      return false;
+    }
+
+    if (currentFramePixels_ == nullptr) {
+      currentFramePixels_ = std::make_shared<std::vector<std::uint8_t>>();
+    }
+    if (currentFramePixels_->size() != currentLength) {
+      currentFramePixels_->resize(currentLength);
+    }
+    std::memcpy(currentFramePixels_->data(), rawData, currentLength);
+    mediaBuffer->Unlock();
+    mediaBuffer->Release();
+
+    frame_bridge::PublishLatestFrame(static_cast<int>(frameWidth_), static_cast<int>(frameHeight_),
+                                     static_cast<int>(frameStride_), timestamp100ns, sequence,
+                                     currentFramePixels_);
+    return true;
+  }
+
   bool TryAcquireMediaFoundationFrameLocked(FrameToken* frame) {
     if (sourceReader_ == nullptr) {
       return false;
@@ -217,8 +344,8 @@ class DecodePipelineStub final : public IDecodePipeline {
     DWORD flags = 0;
     LONGLONG rawTimestamp100ns = 0;
     IMFSample* sample = nullptr;
-    HRESULT hr = sourceReader_->ReadSample(MF_SOURCE_READER_FIRST_VIDEO_STREAM, 0, &streamIndex,
-                                           &flags, &rawTimestamp100ns, &sample);
+    const HRESULT hr = sourceReader_->ReadSample(MF_SOURCE_READER_FIRST_VIDEO_STREAM, 0, &streamIndex,
+                                                 &flags, &rawTimestamp100ns, &sample);
     if (FAILED(hr)) {
       if (sample != nullptr) {
         sample->Release();
@@ -243,7 +370,6 @@ class DecodePipelineStub final : public IDecodePipeline {
       }
       return false;
     }
-    sample->Release();
 
     if (mfLastRawTimestamp100ns_ >= 0 && rawTimestamp100ns < mfLastRawTimestamp100ns_) {
       // 文件循环或时间戳回绕时，增加基线偏移，保证对上层输出时间戳始终单调。
@@ -255,15 +381,20 @@ class DecodePipelineStub final : public IDecodePipeline {
     const std::int64_t outputTimestamp100ns = rawTimestamp100ns + mfBaseOffset100ns_;
     if (mfLastOutputTimestamp100ns_ >= 0 &&
         outputTimestamp100ns <= mfLastOutputTimestamp100ns_) {
+      sample->Release();
       return false;
     }
 
     ++sequence_;
     frame->sequence = sequence_;
+    frame->decodeMode = DecodeMode::kMediaFoundation;
     frame->timestamp100ns = outputTimestamp100ns;
     mfLastRawTimestamp100ns_ = rawTimestamp100ns;
     mfLastOutputTimestamp100ns_ = outputTimestamp100ns;
-    return true;
+
+    const bool published = PublishSampleToBridgeLocked(sample, sequence_, outputTimestamp100ns);
+    sample->Release();
+    return published;
   }
 #endif
 
@@ -275,6 +406,8 @@ class DecodePipelineStub final : public IDecodePipeline {
     sequence_ = 0;
     path_.clear();
     mode_ = Mode::kFallbackTicker;
+    currentFramePixels_.reset();
+    frame_bridge::ClearLatestFrame();
 #ifdef _WIN32
     ReleaseMfLocked();
 #endif
@@ -288,10 +421,14 @@ class DecodePipelineStub final : public IDecodePipeline {
   Clock::time_point timelineStart_{};
   Clock::time_point pauseAt_{};
   std::uint64_t sequence_ = 0;
+  mutable std::shared_ptr<std::vector<std::uint8_t>> currentFramePixels_;
 
 #ifdef _WIN32
   IMFSourceReader* sourceReader_ = nullptr;
   bool mfStarted_ = false;
+  std::uint32_t frameWidth_ = 0;
+  std::uint32_t frameHeight_ = 0;
+  std::uint32_t frameStride_ = 0;
   std::int64_t mfBaseOffset100ns_ = 0;
   std::int64_t mfLastRawTimestamp100ns_ = -1;
   std::int64_t mfLastOutputTimestamp100ns_ = -1;

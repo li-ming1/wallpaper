@@ -2,11 +2,18 @@
 
 #include <atomic>
 #include <filesystem>
+#include <future>
+#include <mutex>
 #include <memory>
+#include <string>
+#include <thread>
+#include <vector>
 
 #include "wallpaper/config_store.h"
 #include "wallpaper/interfaces.h"
+#include "wallpaper/metrics_log_file.h"
 #include "wallpaper/metrics_sampler.h"
+#include "wallpaper/quality_governor.h"
 #include "wallpaper/render_scheduler.h"
 #include "wallpaper/resource_arbiter.h"
 
@@ -22,21 +29,49 @@ class App final {
   void RequestStop();
 
  private:
+  bool HandleTrayActions();
+  bool ApplyVideoPath(const std::string& newPath);
+  void ApplyRenderFpsCap(int governorFps);
+  void StartDecodePump();
+  void StopDecodePump();
+  void ScheduleConfigSave();
   void Tick();
+  void MaybeSampleAndLogMetrics(bool attemptedRender, bool frameDropped, double presentMs);
 
   ConfigStore configStore_;
   Config config_{};
   RenderScheduler scheduler_;
   ResourceArbiter arbiter_;
+  MetricsLogFile metricsLogFile_;
   MetricsSampler metrics_;
+  QualityGovernor qualityGovernor_;
+  std::string metricsSessionId_;
 
   std::unique_ptr<IWallpaperHost> wallpaperHost_;
   std::unique_ptr<IDecodePipeline> decodePipeline_;
   std::unique_ptr<ITrayController> trayController_;
+  std::thread decodePumpThread_;
+  std::atomic<bool> decodePumpRunning_{false};
+  std::mutex decodedTokenMu_;
+  FrameToken latestDecodedToken_{};
+  bool hasLatestDecodedToken_ = false;
 
   std::atomic<bool> running_{false};
-  bool decodeOpened_ = false;
-  bool decodeRunning_ = false;
+  std::atomic<bool> decodeOpened_{false};
+  std::atomic<bool> decodeRunning_{false};
+  std::future<void> pendingSave_;
+  RenderScheduler::Clock::time_point lastMetricsAt_{};
+  std::vector<double> presentSamplesMs_;
+  DecodeMode lastDecodeMode_ = DecodeMode::kUnknown;
+  FrameToken lastPresentedFrame_{};
+  bool hasLastPresentedFrame_ = false;
+  std::uint64_t syntheticSequence_ = 0;
+  std::int64_t lastDecodedTimestamp100ns_ = -1;
+  int sourceFpsCap_ = 60;
+  int sourceFpsHint30_ = 0;
+  int sourceFpsHint60_ = 0;
+  std::size_t droppedFrames_ = 0;
+  std::size_t totalFrames_ = 0;
 };
 
 }  // namespace wallpaper

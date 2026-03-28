@@ -8,9 +8,20 @@
 
 namespace wallpaper {
 
+enum class DecodeMode {
+  kUnknown = 0,
+  kMediaFoundation = 1,
+  kFallbackTicker = 2,
+};
+
 struct FrameToken final {
   std::uint64_t sequence = 0;
   std::int64_t timestamp100ns = 0;
+  DecodeMode decodeMode = DecodeMode::kUnknown;
+  bool hasColor = false;
+  float colorR = 0.0f;
+  float colorG = 0.0f;
+  float colorB = 0.0f;
 };
 
 class IWallpaperHost {
@@ -34,6 +45,24 @@ class IDecodePipeline {
   virtual bool TryAcquireLatestFrame(FrameToken* frame) = 0;
 };
 
+enum class TrayActionType {
+  kNone = 0,
+  kExit = 1,
+  kSetFps30 = 2,
+  kSetFps60 = 3,
+  kSelectVideo = 4,
+  kClearVideo = 5,
+  kEnableAutoStart = 6,
+  kDisableAutoStart = 7,
+  kEnableAdaptiveQuality = 8,
+  kDisableAdaptiveQuality = 9,
+};
+
+struct TrayAction final {
+  TrayActionType type = TrayActionType::kNone;
+  std::string payload;
+};
+
 class ITrayController {
  public:
   virtual ~ITrayController() = default;
@@ -41,6 +70,7 @@ class ITrayController {
   virtual void StartMessageLoop() = 0;
   virtual void StopMessageLoop() = 0;
   [[nodiscard]] virtual bool IsExitRequested() const = 0;
+  virtual bool TryDequeueAction(TrayAction* action) = 0;
 };
 
 std::unique_ptr<IWallpaperHost> CreateWallpaperHost();
