@@ -16,6 +16,23 @@ TEST_CASE(ResourceArbiter_KeepsRunningOnNormalWindow) {
   EXPECT_TRUE(!arbiter.ShouldPause());
 }
 
+TEST_CASE(ResourceArbiter_PausesWhenForegroundNotDesktopContextByDefault) {
+  wallpaper::ResourceArbiter arbiter;
+
+  arbiter.SetForegroundState(wallpaper::ForegroundState::kWindowed);
+  arbiter.SetDesktopContextActive(false);
+  EXPECT_TRUE(arbiter.ShouldPause());
+}
+
+TEST_CASE(ResourceArbiter_CanDisablePauseWhenNotDesktopContext) {
+  wallpaper::ResourceArbiter arbiter;
+
+  arbiter.SetPauseWhenNotDesktopContext(false);
+  arbiter.SetForegroundState(wallpaper::ForegroundState::kWindowed);
+  arbiter.SetDesktopContextActive(false);
+  EXPECT_TRUE(!arbiter.ShouldPause());
+}
+
 TEST_CASE(ResourceArbiter_DoesNotPauseOnMaximizedByDefault) {
   wallpaper::ResourceArbiter arbiter;
 

@@ -1,4 +1,5 @@
 #include "wallpaper/app.h"
+#include "wallpaper/desktop_context_policy.h"
 #include "wallpaper/foreground_policy.h"
 #include "wallpaper/frame_bridge.h"
 #include "wallpaper/loop_sleep_policy.h"
@@ -12,6 +13,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <iterator>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -28,6 +30,62 @@ namespace wallpaper {
 namespace {
 
 #ifdef _WIN32
+std::wstring ExtractBaseName(std::wstring path) {
+  const std::size_t pos = path.find_last_of(L"\\/");
+  if (pos == std::wstring::npos) {
+    return path;
+  }
+  return path.substr(pos + 1);
+}
+
+bool TryQueryForegroundProcessBaseName(const HWND hwnd, std::wstring* outProcessName) {
+  if (hwnd == nullptr || outProcessName == nullptr) {
+    return false;
+  }
+
+  DWORD processId = 0;
+  GetWindowThreadProcessId(hwnd, &processId);
+  if (processId == 0) {
+    return false;
+  }
+
+  HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
+  if (process == nullptr) {
+    return false;
+  }
+
+  wchar_t processPath[1024] = {};
+  DWORD length = static_cast<DWORD>(std::size(processPath));
+  const bool ok = QueryFullProcessImageNameW(process, 0, processPath, &length) != FALSE;
+  CloseHandle(process);
+  if (!ok || length == 0) {
+    return false;
+  }
+
+  *outProcessName = ExtractBaseName(std::wstring(processPath, length));
+  return true;
+}
+
+bool TryDetectDesktopContextActive(bool* outActive) {
+  if (outActive == nullptr) {
+    return false;
+  }
+  const HWND hwnd = GetForegroundWindow();
+  if (hwnd == nullptr) {
+    return false;
+  }
+
+  wchar_t className[256] = {};
+  if (GetClassNameW(hwnd, className, 255) == 0) {
+    return false;
+  }
+
+  std::wstring processName;
+  TryQueryForegroundProcessBaseName(hwnd, &processName);
+  *outActive = ShouldTreatAsDesktopContext(std::wstring(className), processName);
+  return true;
+}
+
 std::uint64_t FileTimeToU64(const FILETIME& ft) {
   return (static_cast<std::uint64_t>(ft.dwHighDateTime) << 32U) |
          static_cast<std::uint64_t>(ft.dwLowDateTime);
@@ -225,6 +283,13 @@ std::size_t QueryPrivateBytes() { return 0; }
 bool IsSessionInteractive() { return true; }
 ForegroundState DetectForegroundState() { return ForegroundState::kWindowed; }
 bool SetAutoStartEnabled(bool) { return true; }
+bool TryDetectDesktopContextActive(bool* outActive) {
+  if (outActive == nullptr) {
+    return false;
+  }
+  *outActive = true;
+  return true;
+}
 #endif
 
 #ifndef _WIN32
@@ -301,6 +366,7 @@ bool App::Initialize() {
   ApplyRenderFpsCap(qualityGovernor_.CurrentFps());
   arbiter_.SetPauseOnFullscreen(config_.pauseOnFullscreen);
   arbiter_.SetPauseOnMaximized(config_.pauseOnMaximized);
+  arbiter_.SetPauseWhenNotDesktopContext(config_.pauseWhenNotDesktopContext);
 
   wallpaperHost_ = CreateWallpaperHost();
   decodePipeline_ = CreateDecodePipeline();
@@ -424,6 +490,7 @@ void App::ResetPlaybackState() {
   lastSessionProbeAt_ = RenderScheduler::Clock::time_point{};
   lastForegroundProbeAt_ = RenderScheduler::Clock::time_point{};
   cachedSessionInteractive_ = true;
+  cachedDesktopContextActive_ = true;
   cachedForegroundState_ = ForegroundState::kWindowed;
   wasPaused_ = false;
   resourcesReleasedByPause_ = false;
@@ -646,15 +713,22 @@ void App::Tick() {
     cachedSessionInteractive_ = IsSessionInteractive();
     lastSessionProbeAt_ = now;
   }
-  arbiter_.SetSessionActive(cachedSessionInteractive_);
-  arbiter_.SetDesktopVisible(true);
-  if (ShouldRefreshRuntimeProbe(now, lastForegroundProbeAt_, kForegroundProbeInterval)) {
+  const bool shouldProbeForeground =
+      ShouldRefreshRuntimeProbe(now, lastForegroundProbeAt_, kForegroundProbeInterval);
+  if (shouldProbeForeground) {
+    bool desktopContextActive = cachedDesktopContextActive_;
+    if (TryDetectDesktopContextActive(&desktopContextActive)) {
+      cachedDesktopContextActive_ = desktopContextActive;
+    }
     const ForegroundState detected = DetectForegroundState();
     if (detected != ForegroundState::kUnknown) {
       cachedForegroundState_ = detected;
     }
     lastForegroundProbeAt_ = now;
   }
+  arbiter_.SetSessionActive(cachedSessionInteractive_);
+  arbiter_.SetDesktopContextActive(cachedDesktopContextActive_);
+  arbiter_.SetDesktopVisible(true);
   arbiter_.SetForegroundState(cachedForegroundState_);
   const bool rawShouldPause = arbiter_.ShouldPause();
   constexpr std::chrono::milliseconds kPauseEnterDelay(160);

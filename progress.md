@@ -582,3 +582,30 @@
   - task_plan.md
   - findings.md
   - progress.md
+### Phase 18: 桌面上下文驱动暂停
+- **Status:** complete
+- Actions taken:
+  - Red: 扩展 `config_store` 与 `resource_arbiter` 测试，并新增 `desktop_context_policy` 测试；先验证失败。
+  - Green: 新增 `desktop_context_policy` 模块，定义桌面上下文判定规则。
+  - Green: `Config` 新增 `pauseWhenNotDesktopContext`，完成读写持久化。
+  - Green: `ResourceArbiter` 新增 `SetPauseWhenNotDesktopContext/SetDesktopContextActive`，纳入暂停决策。
+  - Green: `App::Tick` 前台探测接入桌面上下文状态，并与现有 pause transition 状态机协同。
+  - Verification: `./scripts/run_tests.ps1` 与 `./scripts/build_app.ps1` 均通过。
+- Files created/modified:
+  - include/wallpaper/desktop_context_policy.h
+  - src/desktop_context_policy.cpp
+  - tests/desktop_context_policy_tests.cpp
+  - include/wallpaper/config.h
+  - src/config_store.cpp
+  - tests/config_store_tests.cpp
+  - include/wallpaper/resource_arbiter.h
+  - src/resource_arbiter.cpp
+  - tests/resource_arbiter_tests.cpp
+  - include/wallpaper/app.h
+  - src/app.cpp
+  - CMakeLists.txt
+  - scripts/run_tests.ps1
+  - scripts/build_app.ps1
+  - task_plan.md
+  - findings.md
+  - progress.md

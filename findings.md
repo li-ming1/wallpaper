@@ -139,3 +139,7 @@
 - `Tick` 中引入 enter/exit 迟滞（160ms/240ms），切换更平滑。
 - 前台检测增强：过滤最小化窗口、DWM cloaked 窗口；全屏候选规则升级为 `coverage>=98.5%` 或 `无边框且coverage>=88%`。
 - 验证：`run_tests` 全绿（62/62），`build_app` 成功。
+- 采用“桌面上下文驱动”替代单纯全屏触发：当前台不属于桌面上下文时默认暂停为静态，返回桌面上下文后自动恢复动态。
+- 桌面上下文判定：shell 类窗口 + `CabinetWClass` + `explorer.exe` 进程。
+- 新增配置 `pauseWhenNotDesktopContext`（默认 true），并保留 `pauseOnFullscreen/pauseOnMaximized` 作为独立开关。
+- 验证：`run_tests` 全绿（67/67），`build_app` 成功。

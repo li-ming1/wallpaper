@@ -212,6 +212,9 @@ Config ConfigStore::Load() const {
   if (ExtractBool(json, "pauseOnMaximized", &flag)) {
     config.pauseOnMaximized = flag;
   }
+  if (ExtractBool(json, "pauseWhenNotDesktopContext", &flag)) {
+    config.pauseWhenNotDesktopContext = flag;
+  }
   if (ExtractBool(json, "adaptiveQuality", &flag)) {
     config.adaptiveQuality = flag;
   }
@@ -241,6 +244,8 @@ void ConfigStore::Save(const Config& config) const {
       << ",\n";
   out << "  \"pauseOnMaximized\": " << (config.pauseOnMaximized ? "true" : "false")
       << ",\n";
+  out << "  \"pauseWhenNotDesktopContext\": "
+      << (config.pauseWhenNotDesktopContext ? "true" : "false") << ",\n";
   out << "  \"adaptiveQuality\": " << (config.adaptiveQuality ? "true" : "false") << ",\n";
   out << "  \"codecPolicy\": \""
       << (config.codecPolicy == CodecPolicy::kH264PlusHevc ? "h264+hevc" : "h264")

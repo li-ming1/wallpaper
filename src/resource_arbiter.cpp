@@ -14,6 +14,14 @@ void ResourceArbiter::SetPauseOnMaximized(const bool enabled) noexcept {
   pauseOnMaximized_ = enabled;
 }
 
+void ResourceArbiter::SetPauseWhenNotDesktopContext(const bool enabled) noexcept {
+  pauseWhenNotDesktopContext_ = enabled;
+}
+
+void ResourceArbiter::SetDesktopContextActive(const bool active) noexcept {
+  desktopContextActive_ = active;
+}
+
 void ResourceArbiter::SetSessionActive(const bool active) noexcept {
   sessionActive_ = active;
 }
@@ -31,6 +39,9 @@ bool ResourceArbiter::ShouldPause() const noexcept {
     return true;
   }
   if (pauseOnMaximized_ && foregroundState_ == ForegroundState::kMaximized) {
+    return true;
+  }
+  if (pauseWhenNotDesktopContext_ && !desktopContextActive_) {
     return true;
   }
 

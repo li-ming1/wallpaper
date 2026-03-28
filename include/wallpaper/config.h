@@ -15,6 +15,7 @@ struct Config final {
   bool autoStart = false;
   bool pauseOnFullscreen = true;
   bool pauseOnMaximized = false;
+  bool pauseWhenNotDesktopContext = true;
   bool adaptiveQuality = true;
   CodecPolicy codecPolicy = CodecPolicy::kH264;
 };

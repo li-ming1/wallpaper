@@ -79,6 +79,7 @@ class App final {
   RenderScheduler::Clock::time_point lastSessionProbeAt_{};
   RenderScheduler::Clock::time_point lastForegroundProbeAt_{};
   bool cachedSessionInteractive_ = true;
+  bool cachedDesktopContextActive_ = true;
   ForegroundState cachedForegroundState_ = ForegroundState::kWindowed;
   bool wasPaused_ = false;
   bool resourcesReleasedByPause_ = false;

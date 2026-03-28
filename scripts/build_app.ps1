@@ -22,6 +22,7 @@ $sources = @(
   "src/win/decode_pipeline_stub.cpp",
   "src/win/tray_controller_win.cpp",
   "src/config_store.cpp",
+  "src/desktop_context_policy.cpp",
   "src/desktop_attach_policy.cpp",
   "src/frame_buffer_policy.cpp",
   "src/foreground_policy.cpp",

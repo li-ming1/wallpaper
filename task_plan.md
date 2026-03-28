@@ -172,3 +172,11 @@ Phase 6
 - [x] Green: 增强前台识别（最小化/被 DWM cloaked 过滤 + 覆盖率规则）
 - [x] Verification: 单测通过 + 构建通过
 - **Status:** complete
+
+### Phase 18: 桌面上下文驱动暂停（Completed）
+- [x] Red: 新增 desktop-context 策略测试 + config/resource_arbiter 扩展测试
+- [x] Green: 引入 desktop_context_policy 并接入 Tick 探测
+- [x] Green: 新增配置 `pauseWhenNotDesktopContext`（默认 true）
+- [x] Green: ResourceArbiter 支持“非桌面上下文暂停”
+- [x] Verification: 单测通过 + 构建通过
+- **Status:** complete
