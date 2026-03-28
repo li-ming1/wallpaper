@@ -15,6 +15,25 @@ bool IsNearlyCoveringMonitor(const int windowLeft, const int windowTop, const in
          windowBottom >= monitorBottom - tolerance;
 }
 
+double ComputeCoverageRatio(const int windowLeft, const int windowTop, const int windowRight,
+                            const int windowBottom, const int monitorLeft, const int monitorTop,
+                            const int monitorRight, const int monitorBottom) noexcept {
+  const int overlapLeft = std::max(windowLeft, monitorLeft);
+  const int overlapTop = std::max(windowTop, monitorTop);
+  const int overlapRight = std::min(windowRight, monitorRight);
+  const int overlapBottom = std::min(windowBottom, monitorBottom);
+  const int overlapWidth = std::max(overlapRight - overlapLeft, 0);
+  const int overlapHeight = std::max(overlapBottom - overlapTop, 0);
+  const int monitorWidth = std::max(monitorRight - monitorLeft, 0);
+  const int monitorHeight = std::max(monitorBottom - monitorTop, 0);
+  if (monitorWidth == 0 || monitorHeight == 0) {
+    return 0.0;
+  }
+  const double overlapArea = static_cast<double>(overlapWidth) * static_cast<double>(overlapHeight);
+  const double monitorArea = static_cast<double>(monitorWidth) * static_cast<double>(monitorHeight);
+  return overlapArea / monitorArea;
+}
+
 bool IsShellForegroundClass(const std::wstring& className) {
   if (className.empty()) {
     return false;

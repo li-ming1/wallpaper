@@ -130,11 +130,19 @@ ForegroundState DetectForegroundState() {
   }
 
   const RECT& monitorRect = monitorInfo.rcMonitor;
-  // 使用容差覆盖判定，兼容不同 DPI/边框导致的 1~数像素偏差。
-  const bool coversMonitor =
+  // 先走严格覆盖判定，再用“无边框弹窗 + 高覆盖率”兼容边框化全屏/独占切换态。
+  const bool nearlyCoversMonitor =
       IsNearlyCoveringMonitor(windowRect.left, windowRect.top, windowRect.right, windowRect.bottom,
                               monitorRect.left, monitorRect.top, monitorRect.right,
                               monitorRect.bottom, 12);
+  const double coverageRatio =
+      ComputeCoverageRatio(windowRect.left, windowRect.top, windowRect.right, windowRect.bottom,
+                           monitorRect.left, monitorRect.top, monitorRect.right,
+                           monitorRect.bottom);
+  const LONG style = GetWindowLongW(hwnd, GWL_STYLE);
+  const bool isBorderlessPopup = (style & WS_POPUP) != 0 && (style & WS_CAPTION) == 0;
+  const bool likelyFullscreenByCoverage = isBorderlessPopup && coverageRatio >= 0.90;
+  const bool coversMonitor = nearlyCoversMonitor || likelyFullscreenByCoverage;
   const bool isVisible = IsWindowVisible(hwnd) != FALSE;
   if (ShouldTreatForegroundAsFullscreen(std::wstring(className), coversMonitor, isVisible)) {
     return ForegroundState::kFullscreen;
@@ -616,7 +624,10 @@ void App::Tick() {
   arbiter_.SetSessionActive(cachedSessionInteractive_);
   arbiter_.SetDesktopVisible(true);
   if (ShouldRefreshRuntimeProbe(now, lastForegroundProbeAt_, kForegroundProbeInterval)) {
-    cachedForegroundState_ = DetectForegroundState();
+    const ForegroundState detected = DetectForegroundState();
+    if (detected != ForegroundState::kUnknown) {
+      cachedForegroundState_ = detected;
+    }
     lastForegroundProbeAt_ = now;
   }
   arbiter_.SetForegroundState(cachedForegroundState_);

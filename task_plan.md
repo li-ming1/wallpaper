@@ -150,3 +150,11 @@ Phase 6
 - [x] Green: 放宽全屏识别对可见性依赖
 - [x] Verification: 单测通过 + 构建通过
 - **Status:** complete
+
+### Phase 15: 全屏识别迟钝修复（Completed）
+- [x] Red: 先让全屏策略测试失败（壁纸层保持 + 可见性依赖）
+- [x] Green: 覆盖率+样式联合判定全屏
+- [x] Green: Unknown 状态不覆盖已缓存前台状态
+- [x] Green: 保持壁纸层与恢复重试逻辑继续生效
+- [x] Verification: 单测通过 + 构建通过
+- **Status:** complete

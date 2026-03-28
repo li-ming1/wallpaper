@@ -23,3 +23,12 @@ TEST_CASE(ForegroundPolicy_NearlyCoveringMonitorTreatsAsCovering) {
   EXPECT_TRUE(wallpaper::IsNearlyCoveringMonitor(2, 1, 1918, 1079, 0, 0, 1920, 1080, 4));
   EXPECT_TRUE(!wallpaper::IsNearlyCoveringMonitor(10, 8, 1910, 1072, 0, 0, 1920, 1080, 4));
 }
+
+TEST_CASE(ForegroundPolicy_CoverageRatioReflectsOverlapArea) {
+  const double full = wallpaper::ComputeCoverageRatio(0, 0, 1920, 1080, 0, 0, 1920, 1080);
+  EXPECT_TRUE(full > 0.999);
+
+  const double mostly = wallpaper::ComputeCoverageRatio(0, 0, 1920, 1040, 0, 0, 1920, 1080);
+  EXPECT_TRUE(mostly > 0.95);
+  EXPECT_TRUE(mostly < 0.98);
+}

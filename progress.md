@@ -523,3 +523,20 @@
   - task_plan.md
   - findings.md
   - progress.md
+### Phase 15: 全屏识别迟钝修复
+- **Status:** complete
+- Actions taken:
+  - Red: 调整 `foreground_policy` 与 `pause_resource_policy` 测试用例，先触发失败。
+  - Green: 新增 `ComputeCoverageRatio`，在 `DetectForegroundState` 中引入覆盖率+样式联合判定。
+  - Green: `Tick` 中前台状态更新改为“unknown 不覆盖缓存”。
+  - Verification: `./scripts/run_tests.ps1` 通过；`./scripts/build_app.ps1` 与 `-BuildDir build_tmp` 均通过。
+- Files created/modified:
+  - include/wallpaper/foreground_policy.h
+  - src/foreground_policy.cpp
+  - src/app.cpp
+  - tests/foreground_policy_tests.cpp
+  - src/pause_resource_policy.cpp
+  - tests/pause_resource_policy_tests.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md
