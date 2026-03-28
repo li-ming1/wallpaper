@@ -79,6 +79,7 @@ class App final {
   RenderScheduler::Clock::time_point lastForegroundProbeAt_{};
   bool cachedSessionInteractive_ = true;
   ForegroundState cachedForegroundState_ = ForegroundState::kWindowed;
+  bool wasPaused_ = false;
   std::size_t droppedFrames_ = 0;
   std::size_t totalFrames_ = 0;
 };

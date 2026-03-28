@@ -110,3 +110,6 @@
 - 新增 `frame_buffer_policy`，在 MF 帧发布路径引入容量回收规则（容量 > 需求 2x 时缩容）。
 - 目标：进一步降低 CPU 系统调用开销与长期运行后的帧缓存驻留内存。
 - 验证：`run_tests` 全绿（51/51），`build_app` 成功。
+- 循环调度继续降频：主循环 active wait 上限从 8ms 提升到 20ms，解码泵无帧退避上限从 8ms 提升到 12ms。
+- `Tick` 的 pause 路径从“每轮重置”改为“进入 pause 边沿重置一次”，并清空 frame bridge + 最近呈现缓存，降低 pause 期间 CPU 与驻留内存。
+- 验证：`run_tests` 全绿（51/51），`build_app` 成功。

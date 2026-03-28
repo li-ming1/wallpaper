@@ -115,3 +115,10 @@ Phase 6
 - [x] Green: 接入帧缓冲容量回收策略，降低分辨率切换后的峰值驻留
 - [x] Verification: 单测通过 + 构建通过
 - **Status:** complete
+
+### Phase 10: CPU/内存优化迭代三（Completed）
+- [x] Red: 调整循环睡眠策略测试上限（主循环 20ms、解码泵 12ms）
+- [x] Green: 扩大主循环与解码泵退避区间，降低唤醒频率
+- [x] Green: pause 处理改为边沿触发并在进入 pause 时清理帧缓存
+- [x] Verification: 单测通过 + 构建通过
+- **Status:** complete

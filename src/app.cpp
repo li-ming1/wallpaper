@@ -382,6 +382,7 @@ void App::ResetPlaybackState() {
   lastForegroundProbeAt_ = RenderScheduler::Clock::time_point{};
   cachedSessionInteractive_ = true;
   cachedForegroundState_ = ForegroundState::kWindowed;
+  wasPaused_ = false;
   {
     std::lock_guard<std::mutex> lock(decodedTokenMu_);
     hasLatestDecodedToken_ = false;
@@ -602,7 +603,6 @@ void App::Tick() {
   }
   arbiter_.SetSessionActive(cachedSessionInteractive_);
   arbiter_.SetDesktopVisible(true);
-  static bool wasPaused = false;
   if (ShouldRefreshRuntimeProbe(now, lastForegroundProbeAt_, kForegroundProbeInterval)) {
     cachedForegroundState_ = DetectForegroundState();
     lastForegroundProbeAt_ = now;
@@ -611,22 +611,34 @@ void App::Tick() {
   const bool shouldPause = arbiter_.ShouldPause();
 
   if (shouldPause) {
-    // 前台全屏或会话不可见时立即停解码并重置调度，确保资源优先让给前台应用。
-    if (decodeRunning_.load()) {
-      decodePipeline_->Pause();
-      decodeRunning_.store(false);
+    if (!wasPaused_) {
+      // 仅在进入 pause 的边沿执行一次高开销操作，降低暂停期间空转开销。
+      if (decodeRunning_.load()) {
+        decodePipeline_->Pause();
+        decodeRunning_.store(false);
+      }
+      scheduler_.Reset();
+      qualityGovernor_.Reset();
+      frame_bridge::ClearLatestFrame();
+      presentSamplesMs_.clear();
+      presentSamplesMs_.shrink_to_fit();
+      hasLastPresentedFrame_ = false;
+      lastPresentedFrame_ = FrameToken{};
+      {
+        std::lock_guard<std::mutex> lock(decodedTokenMu_);
+        hasLatestDecodedToken_ = false;
+        latestDecodedToken_ = FrameToken{};
+      }
+      wasPaused_ = true;
     }
-    scheduler_.Reset();
-    qualityGovernor_.Reset();
-    wasPaused = true;
     MaybeSampleAndLogMetrics(false, false, 0.0);
     return;
   }
 
-  if (wasPaused) {
+  if (wasPaused_) {
     // 从 pause 恢复后重置调度，让 ShouldRender() 立即放行首帧，减少恢复黑屏/静止时间。
     scheduler_.Reset();
-    wasPaused = false;
+    wasPaused_ = false;
   }
 
   if (decodeOpened_.load() && !decodeRunning_.load()) {

@@ -436,3 +436,19 @@
   - CMakeLists.txt
   - scripts/run_tests.ps1
   - scripts/build_app.ps1
+### Phase 10: CPU/内存优化迭代三
+- **Status:** complete
+- Actions taken:
+  - Red: 修改 `tests/loop_sleep_policy_tests.cpp` 以定义更激进的退避目标并验证失败。
+  - Green: 更新 `src/loop_sleep_policy.cpp`（主循环最大睡眠 20ms、解码泵最大退避 12ms）。
+  - Green: 在 `src/app.cpp` 引入成员态 `wasPaused_`，将 pause 重置与缓存清理改为边沿触发。
+  - Green: `ResetPlaybackState()` 增加 pause 状态复位，避免状态跨视频切换残留。
+  - Verification: `./scripts/run_tests.ps1` 与 `./scripts/build_app.ps1` 均通过。
+- Files created/modified:
+  - tests/loop_sleep_policy_tests.cpp
+  - src/loop_sleep_policy.cpp
+  - include/wallpaper/app.h
+  - src/app.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md
