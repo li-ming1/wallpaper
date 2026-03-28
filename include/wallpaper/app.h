@@ -88,6 +88,7 @@ class App final {
   RenderScheduler::Clock::time_point lastTrayInteractionAt_{};
   RenderScheduler::Clock::time_point lastSessionProbeAt_{};
   RenderScheduler::Clock::time_point lastForegroundProbeAt_{};
+  int foregroundProbeFailureStreak_ = 0;
   bool cachedSessionInteractive_ = true;
   bool cachedDesktopContextActive_ = true;
   bool stablePauseForLoopSleep_ = false;

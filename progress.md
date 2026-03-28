@@ -808,3 +808,20 @@
   - task_plan.md
   - progress.md
   - findings.md
+### Phase 30: 非桌面启动快速降载优化
+- **Status:** complete
+- Actions taken:
+  - Red: 在 `tests/probe_cadence_policy_tests.cpp` 增加前台探测失败计数与保守降载判定测试并验证失败。
+  - Green: 在 `probe_cadence_policy` 新增 `UpdateForegroundProbeFailureStreak` 与 `ShouldUseConservativeDesktopContext`。
+  - Green: 在 `App::Tick` 接入前台探测失败计数；失败达到阈值（3）后强制 `desktopContextActive=false`。
+  - Green: 探测失败未达阈值时不更新 `lastForegroundProbeAt_`，允许快速重试，减少启动阶段误保持动态时长。
+  - Verification: `./scripts/run_tests.ps1` 全绿（79/79）；`./scripts/build_app.ps1` 构建通过。
+- Files created/modified:
+  - include/wallpaper/probe_cadence_policy.h
+  - src/probe_cadence_policy.cpp
+  - tests/probe_cadence_policy_tests.cpp
+  - include/wallpaper/app.h
+  - src/app.cpp
+  - task_plan.md
+  - progress.md
+  - findings.md

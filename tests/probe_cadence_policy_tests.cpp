@@ -40,3 +40,17 @@ TEST_CASE(ProbeCadencePolicy_SelectsSparseCadenceWhenPaused) {
   EXPECT_EQ(intervals.session, 1200ms);
   EXPECT_EQ(intervals.foreground, 260ms);
 }
+
+TEST_CASE(ProbeCadencePolicy_ForegroundProbeFailureStreakResetsOnSuccess) {
+  EXPECT_EQ(wallpaper::UpdateForegroundProbeFailureStreak(true, 3), 0);
+}
+
+TEST_CASE(ProbeCadencePolicy_ForegroundProbeFailureStreakIncrementsOnFailure) {
+  EXPECT_EQ(wallpaper::UpdateForegroundProbeFailureStreak(false, 0), 1);
+  EXPECT_EQ(wallpaper::UpdateForegroundProbeFailureStreak(false, 2), 3);
+}
+
+TEST_CASE(ProbeCadencePolicy_UsesConservativeDesktopContextAfterRepeatedFailures) {
+  EXPECT_TRUE(!wallpaper::ShouldUseConservativeDesktopContext(2, 3));
+  EXPECT_TRUE(wallpaper::ShouldUseConservativeDesktopContext(3, 3));
+}

@@ -259,3 +259,11 @@ Phase 6
 - [x] Green: 前台进程名查询增加 PID 缓存 + 桌面类窗口/本进程快速判定
 - [x] Verification: 单测通过（76/76） + 构建通过
 - **Status:** complete
+
+### Phase 30: 非桌面启动快速降载优化（Completed）
+- [x] Red: 新增 foreground-probe 失败策略测试并验证失败
+- [x] Green: 连续探测失败计数策略（成功清零、失败累加）接入 probe policy
+- [x] Green: 连续失败达到阈值后启用保守上下文（非桌面）以快速降载
+- [x] Green: 探测失败初期不立即节流，按帧快速重试，缩短“启动后先动态一段时间”
+- [x] Verification: 单测通过（79/79） + 构建通过
+- **Status:** complete

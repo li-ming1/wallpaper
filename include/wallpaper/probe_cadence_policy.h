@@ -19,4 +19,12 @@ struct RuntimeProbeIntervals final {
 // 在暂停态降低探测频率，进一步减少系统调用开销。
 [[nodiscard]] RuntimeProbeIntervals SelectRuntimeProbeIntervals(bool stablePaused) noexcept;
 
+// 维护前台探测失败计数：成功清零，失败累加。
+[[nodiscard]] int UpdateForegroundProbeFailureStreak(bool probeSucceeded,
+                                                     int previousStreak) noexcept;
+
+// 连续失败达到阈值后，采用保守策略（按非桌面上下文处理）。
+[[nodiscard]] bool ShouldUseConservativeDesktopContext(int failureStreak,
+                                                       int failureThreshold) noexcept;
+
 }  // namespace wallpaper

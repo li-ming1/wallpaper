@@ -23,4 +23,25 @@ RuntimeProbeIntervals SelectRuntimeProbeIntervals(const bool stablePaused) noexc
                                std::chrono::milliseconds(180)};
 }
 
+int UpdateForegroundProbeFailureStreak(const bool probeSucceeded, const int previousStreak) noexcept {
+  if (probeSucceeded) {
+    return 0;
+  }
+  if (previousStreak < 0) {
+    return 1;
+  }
+  if (previousStreak >= 1024) {
+    return 1024;
+  }
+  return previousStreak + 1;
+}
+
+bool ShouldUseConservativeDesktopContext(const int failureStreak,
+                                         const int failureThreshold) noexcept {
+  if (failureThreshold <= 0) {
+    return true;
+  }
+  return failureStreak >= failureThreshold;
+}
+
 }  // namespace wallpaper

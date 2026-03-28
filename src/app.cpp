@@ -459,6 +459,7 @@ void App::ResetPlaybackState() {
   lastDecodeMode_ = DecodeMode::kUnknown;
   lastSessionProbeAt_ = RenderScheduler::Clock::time_point{};
   lastForegroundProbeAt_ = RenderScheduler::Clock::time_point{};
+  foregroundProbeFailureStreak_ = 0;
   cachedSessionInteractive_ = true;
   cachedDesktopContextActive_ = true;
   stablePauseForLoopSleep_ = false;
@@ -763,10 +764,21 @@ void App::Tick() {
       ShouldRefreshRuntimeProbe(now, lastForegroundProbeAt_, probeIntervals.foreground);
   if (shouldProbeForeground && !suppressDesktopContextProbe) {
     bool desktopContextActive = cachedDesktopContextActive_;
-    if (TryDetectDesktopContextActive(&desktopContextActive)) {
+    const bool probeSucceeded = TryDetectDesktopContextActive(&desktopContextActive);
+    foregroundProbeFailureStreak_ =
+        UpdateForegroundProbeFailureStreak(probeSucceeded, foregroundProbeFailureStreak_);
+    if (probeSucceeded) {
       cachedDesktopContextActive_ = desktopContextActive;
+      lastForegroundProbeAt_ = now;
+    } else {
+      constexpr int kForegroundProbeFailureFallbackThreshold = 3;
+      if (ShouldUseConservativeDesktopContext(foregroundProbeFailureStreak_,
+                                              kForegroundProbeFailureFallbackThreshold)) {
+        // 前台探测连续失败时采用保守降载策略，避免非桌面启动阶段长时间保持动态。
+        cachedDesktopContextActive_ = false;
+        lastForegroundProbeAt_ = now;
+      }
     }
-    lastForegroundProbeAt_ = now;
   }
   arbiter_.SetSessionActive(cachedSessionInteractive_);
   arbiter_.SetDesktopContextActive(cachedDesktopContextActive_);
