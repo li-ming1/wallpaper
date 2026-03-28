@@ -181,6 +181,11 @@ bool ExtractInt(const std::string& json, const std::string& key, int* out) {
   return true;
 }
 
+bool ContainsKey(const std::string& json, const std::string& key) {
+  const std::string needle = "\"" + key + "\"";
+  return json.find(needle) != std::string::npos;
+}
+
 }  // namespace
 
 ConfigStore::ConfigStore(std::filesystem::path path) : path_(std::move(path)) {}
@@ -191,15 +196,20 @@ Config ConfigStore::Load() const {
   if (json.empty()) {
     return config;
   }
+  bool requiresRewrite = false;
 
   std::string value;
   if (ExtractString(json, "videoPath", &value)) {
     config.videoPath = value;
   }
 
-  int fps = config.fpsCap;
-  if (ExtractInt(json, "fpsCap", &fps)) {
-    config.fpsCap = NormalizeFpsCap(fps);
+  int rawFps = config.fpsCap;
+  if (ExtractInt(json, "fpsCap", &rawFps)) {
+    const int normalizedFps = NormalizeFpsCap(rawFps);
+    config.fpsCap = normalizedFps;
+    if (normalizedFps != rawFps) {
+      requiresRewrite = true;
+    }
   }
 
   bool flag = false;
@@ -215,9 +225,23 @@ Config ConfigStore::Load() const {
 
   std::string codecValue;
   if (ExtractString(json, "codecPolicy", &codecValue)) {
-    // 降级到 h264 作为安全默认值，避免非法配置导致启动失败。
-    config.codecPolicy = codecValue == "h264+hevc" ? CodecPolicy::kH264PlusHevc
-                                                   : CodecPolicy::kH264;
+    if (codecValue == "h264+hevc") {
+      config.codecPolicy = CodecPolicy::kH264PlusHevc;
+    } else if (codecValue == "h264") {
+      config.codecPolicy = CodecPolicy::kH264;
+    } else {
+      // 降级到 h264 作为安全默认值，避免非法配置导致启动失败。
+      config.codecPolicy = CodecPolicy::kH264;
+      requiresRewrite = true;
+    }
+  }
+
+  if (ContainsKey(json, "pauseOnFullscreen") || ContainsKey(json, "pauseOnMaximized")) {
+    requiresRewrite = true;
+  }
+
+  if (requiresRewrite) {
+    Save(config);
   }
 
   return config;

@@ -1,8 +1,22 @@
 #include "wallpaper/config_store.h"
 
 #include <filesystem>
+#include <fstream>
+#include <sstream>
+#include <string>
 
 #include "test_support.h"
+
+namespace {
+
+std::string ReadFile(const std::filesystem::path& path) {
+  std::ifstream input(path, std::ios::binary);
+  std::ostringstream out;
+  out << input.rdbuf();
+  return out.str();
+}
+
+}  // namespace
 
 TEST_CASE(ConfigStore_LoadsDefaultsWhenMissing) {
   const auto path = std::filesystem::temp_directory_path() / "wallpaper_missing_config.json";
@@ -40,4 +54,31 @@ TEST_CASE(ConfigStore_RoundTripsCoreFields) {
   EXPECT_EQ(actual.pauseWhenNotDesktopContext, expected.pauseWhenNotDesktopContext);
   EXPECT_EQ(actual.adaptiveQuality, expected.adaptiveQuality);
   EXPECT_EQ(static_cast<int>(actual.codecPolicy), static_cast<int>(expected.codecPolicy));
+}
+
+TEST_CASE(ConfigStore_LoadRewritesLegacyPauseKeys) {
+  const auto path = std::filesystem::temp_directory_path() / "wallpaper_legacy_pause_config.json";
+  {
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    out << "{\n";
+    out << "  \"videoPath\": \"D:/videos/demo.mp4\",\n";
+    out << "  \"fpsCap\": 75,\n";
+    out << "  \"autoStart\": false,\n";
+    out << "  \"pauseOnFullscreen\": true,\n";
+    out << "  \"pauseOnMaximized\": true,\n";
+    out << "  \"adaptiveQuality\": true,\n";
+    out << "  \"codecPolicy\": \"h264\"\n";
+    out << "}\n";
+  }
+
+  wallpaper::ConfigStore store(path);
+  const auto cfg = store.Load();
+
+  EXPECT_EQ(cfg.fpsCap, 60);
+  const std::string rewritten = ReadFile(path);
+  EXPECT_TRUE(rewritten.find("\"pauseOnFullscreen\"") == std::string::npos);
+  EXPECT_TRUE(rewritten.find("\"pauseOnMaximized\"") == std::string::npos);
+  EXPECT_TRUE(rewritten.find("\"pauseWhenNotDesktopContext\"") != std::string::npos);
+
+  std::filesystem::remove(path);
 }
