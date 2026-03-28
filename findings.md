@@ -135,3 +135,7 @@
 - 前台状态新增 `kMaximized`，并在 Windows 路径用 `GetWindowPlacement(...SW_SHOWMAXIMIZED...)` 识别最大化。
 - 保持现有逻辑：全屏与最大化分别由独立开关控制，避免误暂停。
 - 验证：`run_tests` 全绿（58/58），`build_app` 成功。
+- 新增 `pause_transition_policy`，将 raw pause 信号转为稳定状态，避免前台抖动导致停播/恢复抖动。
+- `Tick` 中引入 enter/exit 迟滞（160ms/240ms），切换更平滑。
+- 前台检测增强：过滤最小化窗口、DWM cloaked 窗口；全屏候选规则升级为 `coverage>=98.5%` 或 `无边框且coverage>=88%`。
+- 验证：`run_tests` 全绿（62/62），`build_app` 成功。

@@ -13,5 +13,6 @@ bool IsNearlyCoveringMonitor(int windowLeft, int windowTop, int windowRight, int
 double ComputeCoverageRatio(int windowLeft, int windowTop, int windowRight, int windowBottom,
                             int monitorLeft, int monitorTop, int monitorRight,
                             int monitorBottom) noexcept;
+bool IsLikelyFullscreenWindow(bool isBorderlessPopup, double coverageRatio) noexcept;
 
 }  // namespace wallpaper

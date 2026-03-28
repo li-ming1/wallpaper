@@ -14,6 +14,7 @@
 #include "wallpaper/metrics_log_file.h"
 #include "wallpaper/metrics_sampler.h"
 #include "wallpaper/quality_governor.h"
+#include "wallpaper/pause_transition_policy.h"
 #include "wallpaper/render_scheduler.h"
 #include "wallpaper/resource_arbiter.h"
 
@@ -83,6 +84,7 @@ class App final {
   bool resourcesReleasedByPause_ = false;
   bool resumePipelinePending_ = false;
   RenderScheduler::Clock::time_point nextResumeAttemptAt_{};
+  PauseTransitionState pauseTransitionState_{};
   std::size_t droppedFrames_ = 0;
   std::size_t totalFrames_ = 0;
 };

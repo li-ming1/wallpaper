@@ -32,3 +32,10 @@ TEST_CASE(ForegroundPolicy_CoverageRatioReflectsOverlapArea) {
   EXPECT_TRUE(mostly > 0.95);
   EXPECT_TRUE(mostly < 0.98);
 }
+
+TEST_CASE(ForegroundPolicy_LikelyFullscreenByCoverageRules) {
+  EXPECT_TRUE(wallpaper::IsLikelyFullscreenWindow(true, 0.90));
+  EXPECT_TRUE(!wallpaper::IsLikelyFullscreenWindow(true, 0.80));
+  EXPECT_TRUE(wallpaper::IsLikelyFullscreenWindow(false, 0.99));
+  EXPECT_TRUE(!wallpaper::IsLikelyFullscreenWindow(false, 0.95));
+}

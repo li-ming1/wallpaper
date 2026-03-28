@@ -559,3 +559,26 @@
   - task_plan.md
   - findings.md
   - progress.md
+### Phase 17: 全屏检测精度与切换丝滑优化
+- **Status:** complete
+- Actions taken:
+  - Red: 新增 `tests/pause_transition_policy_tests.cpp` 与 `foreground_policy` 新规则测试，并验证链接失败。
+  - Green: 新增 `include/wallpaper/pause_transition_policy.h`、`src/pause_transition_policy.cpp`。
+  - Green: `App` 接入 pause transition 状态机；`DetectForegroundState` 增加最小化/cloaked 过滤与 `IsLikelyFullscreenWindow` 规则。
+  - Green: 更新 CMake 与脚本纳入新源文件和测试。
+  - Verification: `./scripts/run_tests.ps1` 与 `./scripts/build_app.ps1` 均通过。
+- Files created/modified:
+  - include/wallpaper/pause_transition_policy.h
+  - src/pause_transition_policy.cpp
+  - tests/pause_transition_policy_tests.cpp
+  - include/wallpaper/foreground_policy.h
+  - src/foreground_policy.cpp
+  - tests/foreground_policy_tests.cpp
+  - include/wallpaper/app.h
+  - src/app.cpp
+  - CMakeLists.txt
+  - scripts/run_tests.ps1
+  - scripts/build_app.ps1
+  - task_plan.md
+  - findings.md
+  - progress.md

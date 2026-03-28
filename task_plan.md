@@ -165,3 +165,10 @@ Phase 6
 - [x] Green: 前台状态新增 maximized 判定并接入 ResourceArbiter
 - [x] Verification: 单测通过 + 构建通过
 - **Status:** complete
+
+### Phase 17: 全屏检测精度与切换丝滑优化（Completed）
+- [x] Red: 新增 pause 迟滞状态机与全屏覆盖规则测试并先触发失败
+- [x] Green: 引入 pause transition policy（enter/exit 迟滞）
+- [x] Green: 增强前台识别（最小化/被 DWM cloaked 过滤 + 覆盖率规则）
+- [x] Verification: 单测通过 + 构建通过
+- **Status:** complete

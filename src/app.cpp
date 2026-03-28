@@ -4,6 +4,7 @@
 #include "wallpaper/loop_sleep_policy.h"
 #include "wallpaper/metrics_log_line.h"
 #include "wallpaper/pause_resource_policy.h"
+#include "wallpaper/pause_transition_policy.h"
 #include "wallpaper/probe_cadence_policy.h"
 #include "wallpaper/startup_policy.h"
 #include "wallpaper/video_path_matcher.h"
@@ -108,6 +109,17 @@ ForegroundState DetectForegroundState() {
   }
   const std::wstring foregroundClass(className);
 
+  if (IsIconic(hwnd) != FALSE) {
+    return ForegroundState::kWindowed;
+  }
+
+  DWORD cloaked = 0;
+  if (SUCCEEDED(DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, &cloaked,
+                                      static_cast<DWORD>(sizeof(cloaked)))) &&
+      cloaked != 0) {
+    return ForegroundState::kWindowed;
+  }
+
   RECT windowRect{};
   if (!GetWindowRect(hwnd, &windowRect)) {
     return ForegroundState::kUnknown;
@@ -142,7 +154,8 @@ ForegroundState DetectForegroundState() {
                            monitorRect.bottom);
   const LONG style = GetWindowLongW(hwnd, GWL_STYLE);
   const bool isBorderlessPopup = (style & WS_POPUP) != 0 && (style & WS_CAPTION) == 0;
-  const bool likelyFullscreenByCoverage = isBorderlessPopup && coverageRatio >= 0.90;
+  const bool likelyFullscreenByCoverage =
+      IsLikelyFullscreenWindow(isBorderlessPopup, coverageRatio);
   const bool coversMonitor = nearlyCoversMonitor || likelyFullscreenByCoverage;
   const bool isVisible = IsWindowVisible(hwnd) != FALSE;
   if (ShouldTreatForegroundAsFullscreen(foregroundClass, coversMonitor, isVisible)) {
@@ -416,6 +429,7 @@ void App::ResetPlaybackState() {
   resourcesReleasedByPause_ = false;
   resumePipelinePending_ = false;
   nextResumeAttemptAt_ = RenderScheduler::Clock::time_point{};
+  pauseTransitionState_ = PauseTransitionState{};
   {
     std::lock_guard<std::mutex> lock(decodedTokenMu_);
     hasLatestDecodedToken_ = false;
@@ -642,7 +656,12 @@ void App::Tick() {
     lastForegroundProbeAt_ = now;
   }
   arbiter_.SetForegroundState(cachedForegroundState_);
-  const bool shouldPause = arbiter_.ShouldPause();
+  const bool rawShouldPause = arbiter_.ShouldPause();
+  constexpr std::chrono::milliseconds kPauseEnterDelay(160);
+  constexpr std::chrono::milliseconds kPauseExitDelay(240);
+  const bool shouldPause =
+      UpdatePauseTransition(rawShouldPause, now, kPauseEnterDelay, kPauseExitDelay,
+                            &pauseTransitionState_);
 
   if (shouldPause) {
     if (!wasPaused_) {

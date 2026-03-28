@@ -34,6 +34,17 @@ double ComputeCoverageRatio(const int windowLeft, const int windowTop, const int
   return overlapArea / monitorArea;
 }
 
+bool IsLikelyFullscreenWindow(const bool isBorderlessPopup,
+                              const double coverageRatio) noexcept {
+  if (coverageRatio >= 0.985) {
+    return true;
+  }
+  if (isBorderlessPopup && coverageRatio >= 0.88) {
+    return true;
+  }
+  return false;
+}
+
 bool IsShellForegroundClass(const std::wstring& className) {
   if (className.empty()) {
     return false;
