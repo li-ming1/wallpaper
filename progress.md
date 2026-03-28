@@ -877,3 +877,16 @@
   - task_plan.md
   - findings.md
   - progress.md
+### Phase 34: DXGI 等待对象降载优化
+- **Status:** complete
+- Actions taken:
+  - Green: `wallpaper_host_win` 引入 `dxgi1_3.h`，swapchain 创建优先启用 `DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT`。
+  - Green: 成功创建后查询 `IDXGISwapChain2`，设置 `SetMaximumFrameLatency(1)` 并获取 `GetFrameLatencyWaitableObject` 句柄。
+  - Green: `Present` 前执行 `WaitForSingleObjectEx(..., 0)` 非阻塞检查；队列未就绪时跳过本帧提交，降低无效 CPU 消耗。
+  - Green: `ReleaseD3D` 关闭 waitable handle 并释放 `IDXGISwapChain2`。
+  - Verification: `./scripts/run_tests.ps1` 全绿（85/85）；`./scripts/build_app.ps1` 构建通过。
+- Files created/modified:
+  - src/win/wallpaper_host_win.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md

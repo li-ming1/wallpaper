@@ -200,3 +200,6 @@
 - 继续参考前人资料（微软 DXGI flip model 文档）：推荐使用 flip model 获得更高效的桌面合成路径。
 - 本轮渲染链路补充：D3D 设备启用 `D3D11_CREATE_DEVICE_SINGLETHREADED`；swapchain 优先 `FLIP_DISCARD` 并保留 `FLIP_SEQUENTIAL` 回退，提高兼容性。
 - 验证：`run_tests` 全绿（85/85），`build_app` 成功。
+- 新增 DXGI waitable object 优化：swapchain 创建优先启用 `DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT`，并在可用时改用 `IDXGISwapChain2` 的帧延迟控制。
+- Present 前增加等待对象就绪检查（非阻塞）：队列未就绪则跳过本帧，减少主线程无效渲染提交导致的长时 CPU 波动。
+- 验证：`run_tests` 全绿（85/85），`build_app` 成功。

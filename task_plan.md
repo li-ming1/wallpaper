@@ -290,3 +290,10 @@ Phase 6
 - [x] Green: swapchain 优先 `FLIP_DISCARD`，失败回退 `FLIP_SEQUENTIAL`
 - [x] Verification: 单测通过（85/85） + 构建通过
 - **Status:** complete
+
+### Phase 34: DXGI 等待对象降载优化（Completed）
+- [x] Green: swapchain 优先启用 `DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT`
+- [x] Green: 接入 `IDXGISwapChain2` + `GetFrameLatencyWaitableObject` + `SetMaximumFrameLatency(1)`
+- [x] Green: Present 前无阻塞检查等待对象，队列未就绪时跳过本帧无效提交
+- [x] Verification: 单测通过（85/85） + 构建通过
+- **Status:** complete

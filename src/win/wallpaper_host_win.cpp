@@ -6,7 +6,7 @@
 #include <windows.h>
 #include <d3d11.h>
 #include <d3dcompiler.h>
-#include <dxgi1_2.h>
+#include <dxgi1_3.h>
 
 #include <cmath>
 #include <cstdint>
@@ -365,6 +365,13 @@ class WallpaperHostWin final : public IWallpaperHost {
     if (context_ == nullptr || renderTargetView_ == nullptr || swapChain_ == nullptr) {
       return;
     }
+    if (frameLatencyWaitableEnabled_ && frameLatencyWaitableObject_ != nullptr) {
+      const DWORD waitResult = WaitForSingleObjectEx(frameLatencyWaitableObject_, 0, FALSE);
+      if (waitResult == WAIT_TIMEOUT) {
+        // DXGI 队列仍在消费上一帧时跳过本帧，减少无效 CPU/GPU 提交。
+        return;
+      }
+    }
 
     if (frame.decodeMode != DecodeMode::kMediaFoundation && videoTexture_ != nullptr) {
       // 非视频解码模式下清理旧视频纹理，避免切换源后显示冻结旧帧。
@@ -467,8 +474,15 @@ class WallpaperHostWin final : public IWallpaperHost {
     desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     desc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
     desc.Scaling = DXGI_SCALING_STRETCH;
+    desc.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
 
     hr = factory->CreateSwapChainForHwnd(device_, renderWindow_, &desc, nullptr, nullptr, &swapChain_);
+    if (FAILED(hr)) {
+      // 兼容回退：部分旧驱动可能不支持 waitable-object 标志。
+      desc.Flags = 0;
+      hr = factory->CreateSwapChainForHwnd(device_, renderWindow_, &desc, nullptr, nullptr,
+                                           &swapChain_);
+    }
     if (FAILED(hr)) {
       // 兼容回退：部分旧驱动可能不支持 FLIP_DISCARD。
       desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
@@ -478,6 +492,18 @@ class WallpaperHostWin final : public IWallpaperHost {
     SafeRelease(&factory);
     if (FAILED(hr)) {
       return false;
+    }
+
+    frameLatencyWaitableEnabled_ = false;
+    frameLatencyWaitableObject_ = nullptr;
+    SafeRelease(&swapChain2_);
+    if (SUCCEEDED(swapChain_->QueryInterface(__uuidof(IDXGISwapChain2),
+                                             reinterpret_cast<void**>(&swapChain2_))) &&
+        swapChain2_ != nullptr) {
+      if (SUCCEEDED(swapChain2_->SetMaximumFrameLatency(1))) {
+        frameLatencyWaitableObject_ = swapChain2_->GetFrameLatencyWaitableObject();
+        frameLatencyWaitableEnabled_ = frameLatencyWaitableObject_ != nullptr;
+      }
     }
 
     if (!CreateRenderTargetView()) {
@@ -735,6 +761,12 @@ class WallpaperHostWin final : public IWallpaperHost {
   }
 
   void ReleaseD3D() {
+    frameLatencyWaitableEnabled_ = false;
+    if (frameLatencyWaitableObject_ != nullptr) {
+      CloseHandle(frameLatencyWaitableObject_);
+      frameLatencyWaitableObject_ = nullptr;
+    }
+    SafeRelease(&swapChain2_);
     ReleaseVideoTexture();
     ReleaseVideoPipeline();
     SafeRelease(&renderTargetView_);
@@ -752,6 +784,9 @@ class WallpaperHostWin final : public IWallpaperHost {
   ID3D11Device* device_ = nullptr;
   ID3D11DeviceContext* context_ = nullptr;
   IDXGISwapChain1* swapChain_ = nullptr;
+  IDXGISwapChain2* swapChain2_ = nullptr;
+  HANDLE frameLatencyWaitableObject_ = nullptr;
+  bool frameLatencyWaitableEnabled_ = false;
   ID3D11RenderTargetView* renderTargetView_ = nullptr;
 
   bool videoPipelineReady_ = false;
