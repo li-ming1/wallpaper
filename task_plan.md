@@ -136,3 +136,9 @@ Phase 6
 - [x] Green: 退出全屏自动恢复解码并无缝续播
 - [x] Verification: 单测通过 + 构建通过
 - **Status:** complete
+
+### Phase 13: 全屏识别鲁棒性修复（Completed）
+- [x] Red: 新增监视器覆盖容差测试并先触发失败
+- [x] Green: 引入近似覆盖判定 + 扩展帧边界读取
+- [x] Verification: 单测通过，临时目录构建通过（主产物被运行中进程占用）
+- **Status:** complete

@@ -5,6 +5,16 @@
 
 namespace wallpaper {
 
+bool IsNearlyCoveringMonitor(const int windowLeft, const int windowTop, const int windowRight,
+                             const int windowBottom, const int monitorLeft, const int monitorTop,
+                             const int monitorRight, const int monitorBottom,
+                             const int tolerancePx) noexcept {
+  const int tolerance = std::max(tolerancePx, 0);
+  return windowLeft <= monitorLeft + tolerance && windowTop <= monitorTop + tolerance &&
+         windowRight >= monitorRight - tolerance &&
+         windowBottom >= monitorBottom - tolerance;
+}
+
 bool IsShellForegroundClass(const std::wstring& className) {
   if (className.empty()) {
     return false;

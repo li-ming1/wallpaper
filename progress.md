@@ -490,3 +490,18 @@
   - task_plan.md
   - findings.md
   - progress.md
+### Phase 13: 全屏识别鲁棒性修复
+- **Status:** complete
+- Actions taken:
+  - Red: 在 `tests/foreground_policy_tests.cpp` 新增 `IsNearlyCoveringMonitor` 用例并验证链接失败。
+  - Green: 在 `foreground_policy` 新增 `IsNearlyCoveringMonitor`，支持带容差的监视器覆盖判定。
+  - Green: 在 `DetectForegroundState` 中增加 `DwmGetWindowAttribute(...DWMWA_EXTENDED_FRAME_BOUNDS...)` 路径，并接入容差判定（12px）。
+  - Verification: `./scripts/run_tests.ps1` 通过；`./scripts/build_app.ps1` 因输出文件被占用失败；`./scripts/build_app.ps1 -BuildDir build_tmp` 通过。
+- Files created/modified:
+  - include/wallpaper/foreground_policy.h
+  - src/foreground_policy.cpp
+  - src/app.cpp
+  - tests/foreground_policy_tests.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md

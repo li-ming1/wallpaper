@@ -18,3 +18,8 @@ TEST_CASE(ForegroundPolicy_NotVisibleOrNotCoveringIsNotFullscreen) {
   EXPECT_TRUE(!wallpaper::ShouldTreatForegroundAsFullscreen(L"Chrome_WidgetWin_1", false, true));
   EXPECT_TRUE(!wallpaper::ShouldTreatForegroundAsFullscreen(L"Chrome_WidgetWin_1", true, false));
 }
+
+TEST_CASE(ForegroundPolicy_NearlyCoveringMonitorTreatsAsCovering) {
+  EXPECT_TRUE(wallpaper::IsNearlyCoveringMonitor(2, 1, 1918, 1079, 0, 0, 1920, 1080, 4));
+  EXPECT_TRUE(!wallpaper::IsNearlyCoveringMonitor(10, 8, 1910, 1072, 0, 0, 1920, 1080, 4));
+}

@@ -120,3 +120,6 @@
 - 调整全屏策略：从“Stop + Detach”升级为“Stop decode + Keep wallpaper layer when last frame exists”。
 - 效果预期：全屏期间看起来像静态壁纸；退出全屏后自动恢复动态播放，避免退回系统原壁纸。
 - 验证：`run_tests` 全绿（54/54），`build_app` 成功。
+- 修复全屏识别：Windows 路径优先读取 `DWMWA_EXTENDED_FRAME_BOUNDS`，并使用 12px 容差判定窗口是否覆盖监视器。
+- 目的：解决边框/DPI/窗口边界偏差导致“明明全屏却未识别”的问题。
+- 验证：`run_tests` 全绿（55/55）；`build_app` 因 `build/wallpaper_app.exe` 被占用失败，改 `-BuildDir build_tmp` 构建通过。

@@ -18,6 +18,7 @@
 #ifdef _WIN32
 #define PSAPI_VERSION 1
 #include <windows.h>
+#include <dwmapi.h>
 #include <mmsystem.h>
 #include <psapi.h>
 #endif
@@ -110,6 +111,14 @@ ForegroundState DetectForegroundState() {
   if (!GetWindowRect(hwnd, &windowRect)) {
     return ForegroundState::kUnknown;
   }
+#ifdef _WIN32
+  RECT extendedFrameBounds{};
+  if (SUCCEEDED(
+          DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, &extendedFrameBounds,
+                                static_cast<DWORD>(sizeof(extendedFrameBounds))))) {
+    windowRect = extendedFrameBounds;
+  }
+#endif
   const HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
   if (monitor == nullptr) {
     return ForegroundState::kWindowed;
@@ -121,10 +130,11 @@ ForegroundState DetectForegroundState() {
   }
 
   const RECT& monitorRect = monitorInfo.rcMonitor;
-  const bool coversMonitor = windowRect.left <= monitorRect.left &&
-                             windowRect.top <= monitorRect.top &&
-                             windowRect.right >= monitorRect.right &&
-                             windowRect.bottom >= monitorRect.bottom;
+  // 使用容差覆盖判定，兼容不同 DPI/边框导致的 1~数像素偏差。
+  const bool coversMonitor =
+      IsNearlyCoveringMonitor(windowRect.left, windowRect.top, windowRect.right, windowRect.bottom,
+                              monitorRect.left, monitorRect.top, monitorRect.right,
+                              monitorRect.bottom, 12);
   const bool isVisible = IsWindowVisible(hwnd) != FALSE;
   if (ShouldTreatForegroundAsFullscreen(std::wstring(className), coversMonitor, isVisible)) {
     return ForegroundState::kFullscreen;
