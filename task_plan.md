@@ -317,3 +317,11 @@ Phase 6
 - [x] Green: 接入 DXGI occlusion 降载策略（`DXGI_STATUS_OCCLUDED` + 250ms 探测）
 - [x] Verification: 单测通过（89/89） + 构建通过
 - **Status:** complete
+### Phase 38: CPU/内存卡点专项治理与图标链路修复（Completed）
+- [x] Red: 修复长期负载策略测试与阈值期望不一致（`LongRunLoadPolicy_CoolsDownWithHysteresis`）
+- [x] Green: 负载阈值按真实进程 CPU 标尺收敛（`QualityGovernor` 与 `LongRunLoadPolicy`）
+- [x] Green: 主循环/解码泵睡眠策略重调，消除 30fps 场景的隐性高频轮询
+- [x] Green: SourceReader 增加“硬件变换优先，软件视频处理回退”打开策略
+- [x] Green: 托盘与窗口类图标改为按系统尺寸 `LoadImage` 多分辨率加载
+- [x] Verification: 单测通过（89/89） + 构建通过
+- **Status:** complete

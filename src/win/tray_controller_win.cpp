@@ -31,6 +31,16 @@ constexpr UINT_PTR kMenuEnableAdaptiveQualityId = 1007;
 constexpr UINT_PTR kMenuDisableAdaptiveQualityId = 1008;
 constexpr UINT_PTR kMenuExitId = 1099;
 
+HICON LoadAppIcon(const int width, const int height) {
+  HINSTANCE instance = GetModuleHandleW(nullptr);
+  if (instance == nullptr) {
+    return nullptr;
+  }
+  return reinterpret_cast<HICON>(LoadImageW(instance, MAKEINTRESOURCEW(kAppIconResourceId),
+                                            IMAGE_ICON, width, height,
+                                            LR_DEFAULTCOLOR | LR_SHARED));
+}
+
 std::string WideToUtf8(const std::wstring& value) {
   if (value.empty()) {
     return {};
@@ -172,8 +182,18 @@ class TrayControllerWin final : public ITrayController {
     wc.cbSize = sizeof(wc);
     wc.lpfnWndProc = &TrayControllerWin::WindowProc;
     wc.hInstance = GetModuleHandleW(nullptr);
-    wc.hIcon = LoadIconW(wc.hInstance, MAKEINTRESOURCEW(kAppIconResourceId));
-    wc.hIconSm = wc.hIcon;
+    const int largeW = GetSystemMetrics(SM_CXICON);
+    const int largeH = GetSystemMetrics(SM_CYICON);
+    const int smallW = GetSystemMetrics(SM_CXSMICON);
+    const int smallH = GetSystemMetrics(SM_CYSMICON);
+    wc.hIcon = LoadAppIcon(largeW, largeH);
+    if (wc.hIcon == nullptr) {
+      wc.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
+    }
+    wc.hIconSm = LoadAppIcon(smallW, smallH);
+    if (wc.hIconSm == nullptr) {
+      wc.hIconSm = wc.hIcon;
+    }
     wc.lpszClassName = kTrayWindowClassName;
     return RegisterClassExW(&wc) != 0 || GetLastError() == ERROR_CLASS_ALREADY_EXISTS;
   }
@@ -249,9 +269,11 @@ class TrayControllerWin final : public ITrayController {
     nid_.uID = kTrayIconId;
     nid_.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     nid_.uCallbackMessage = kTrayIconMessage;
-    nid_.hIcon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(kAppIconResourceId));
+    const int smallW = GetSystemMetrics(SM_CXSMICON);
+    const int smallH = GetSystemMetrics(SM_CYSMICON);
+    nid_.hIcon = LoadAppIcon(smallW, smallH);
     if (nid_.hIcon == nullptr) {
-      nid_.hIcon = LoadIconW(nullptr, MAKEINTRESOURCEW(32512));
+      nid_.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
     }
     lstrcpynW(nid_.szTip, L"Wallpaper", 128);
     return Shell_NotifyIconW(NIM_ADD, &nid_) != FALSE;

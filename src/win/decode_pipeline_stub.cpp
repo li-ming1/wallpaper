@@ -172,87 +172,124 @@ class DecodePipelineStub final : public IDecodePipeline {
       return false;
     }
 
-    IMFAttributes* readerAttributes = nullptr;
-    HRESULT hr = MFCreateAttributes(&readerAttributes, 2);
-    if (SUCCEEDED(hr) && readerAttributes != nullptr) {
-      // 启用视频处理后，Source Reader 可将解码结果转换到 RGB32，避免直设 RGB32 失败。
-      hr = readerAttributes->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, TRUE);
-    }
-    if (SUCCEEDED(hr) && readerAttributes != nullptr) {
-      // 低延迟模式可减少解码链路内部排队帧数，从而降低内存峰值。
-      hr = readerAttributes->SetUINT32(MF_LOW_LATENCY, TRUE);
-    }
-
-    IMFSourceReader* reader = nullptr;
-    hr = MFCreateSourceReaderFromURL(widePath.c_str(), readerAttributes, &reader);
-    if (readerAttributes != nullptr) {
-      readerAttributes->Release();
-      readerAttributes = nullptr;
-    }
-    if (FAILED(hr) || reader == nullptr) {
-      return false;
-    }
-    // 仅保留视频流，避免不必要的音频流缓存与转换开销。
-    hr = reader->SetStreamSelection(MF_SOURCE_READER_ALL_STREAMS, FALSE);
-    if (SUCCEEDED(hr)) {
-      hr = reader->SetStreamSelection(MF_SOURCE_READER_FIRST_VIDEO_STREAM, TRUE);
-    }
-    if (FAILED(hr)) {
-      reader->Release();
-      return false;
-    }
-
-    const auto setOutType = [&](const bool withDesktopHint) -> HRESULT {
-      IMFMediaType* outType = nullptr;
-      HRESULT localHr = MFCreateMediaType(&outType);
-      if (SUCCEEDED(localHr)) {
-        localHr = outType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
+    const auto createReader = [&](const bool enableVideoProcessing,
+                                  IMFSourceReader** const outReader) -> bool {
+      if (outReader == nullptr) {
+        return false;
       }
-      if (SUCCEEDED(localHr)) {
-        // 直接输出 RGB32，渲染链路保持简单稳定。
-        localHr = outType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32);
+      *outReader = nullptr;
+
+      IMFAttributes* readerAttributes = nullptr;
+      HRESULT hr = MFCreateAttributes(&readerAttributes, 3);
+      if (SUCCEEDED(hr) && readerAttributes != nullptr) {
+        // 低延迟模式可减少解码链路内部排队帧数，从而降低内存峰值。
+        hr = readerAttributes->SetUINT32(MF_LOW_LATENCY, TRUE);
       }
-      if (SUCCEEDED(localHr) && withDesktopHint) {
-        UINT32 hintWidth = 0;
-        UINT32 hintHeight = 0;
-        QueryDesktopFrameHint(&hintWidth, &hintHeight);
-        if (hintWidth > 0 && hintHeight > 0) {
-          // 提示输出尺寸不超过当前桌面，降低高分辨率视频的解码缓冲占用。
-          localHr = MFSetAttributeSize(outType, MF_MT_FRAME_SIZE, hintWidth, hintHeight);
+      if (SUCCEEDED(hr) && readerAttributes != nullptr) {
+        // 优先启用硬件变换路径，降低色彩转换的 CPU 占用。
+        hr = readerAttributes->SetUINT32(MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, TRUE);
+      }
+      if (SUCCEEDED(hr) && readerAttributes != nullptr && enableVideoProcessing) {
+        // 回退路径：在无法直接协商输出时再开启软件视频处理。
+        hr = readerAttributes->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, TRUE);
+      }
+      if (FAILED(hr)) {
+        if (readerAttributes != nullptr) {
+          readerAttributes->Release();
         }
+        return false;
       }
-      if (SUCCEEDED(localHr)) {
-        localHr = reader->SetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, nullptr, outType);
+
+      IMFSourceReader* reader = nullptr;
+      hr = MFCreateSourceReaderFromURL(widePath.c_str(), readerAttributes, &reader);
+      if (readerAttributes != nullptr) {
+        readerAttributes->Release();
       }
-      if (outType != nullptr) {
-        outType->Release();
+      if (FAILED(hr) || reader == nullptr) {
+        return false;
       }
-      return localHr;
+      *outReader = reader;
+      return true;
     };
 
-    hr = setOutType(true);
-    if (FAILED(hr)) {
-      // 某些编解码链路不接受帧大小提示，回退到默认输出协商。
-      hr = setOutType(false);
-    }
-    if (FAILED(hr)) {
-      reader->Release();
-      return false;
-    }
+    const auto configureReader = [&](IMFSourceReader* const reader, UINT32* const outWidth,
+                                     UINT32* const outHeight) -> bool {
+      if (reader == nullptr || outWidth == nullptr || outHeight == nullptr) {
+        return false;
+      }
+      // 仅保留视频流，避免不必要的音频流缓存与转换开销。
+      HRESULT hr = reader->SetStreamSelection(MF_SOURCE_READER_ALL_STREAMS, FALSE);
+      if (SUCCEEDED(hr)) {
+        hr = reader->SetStreamSelection(MF_SOURCE_READER_FIRST_VIDEO_STREAM, TRUE);
+      }
+      if (FAILED(hr)) {
+        return false;
+      }
 
-    IMFMediaType* currentType = nullptr;
-    hr = reader->GetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, &currentType);
-    if (FAILED(hr) || currentType == nullptr) {
-      reader->Release();
-      return false;
-    }
+      const auto setOutType = [&](const bool withDesktopHint) -> HRESULT {
+        IMFMediaType* outType = nullptr;
+        HRESULT localHr = MFCreateMediaType(&outType);
+        if (SUCCEEDED(localHr)) {
+          localHr = outType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
+        }
+        if (SUCCEEDED(localHr)) {
+          // 直接输出 RGB32，渲染链路保持简单稳定。
+          localHr = outType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32);
+        }
+        if (SUCCEEDED(localHr) && withDesktopHint) {
+          UINT32 hintWidth = 0;
+          UINT32 hintHeight = 0;
+          QueryDesktopFrameHint(&hintWidth, &hintHeight);
+          if (hintWidth > 0 && hintHeight > 0) {
+            // 提示输出尺寸不超过当前桌面，降低高分辨率视频的解码缓冲占用。
+            localHr = MFSetAttributeSize(outType, MF_MT_FRAME_SIZE, hintWidth, hintHeight);
+          }
+        }
+        if (SUCCEEDED(localHr)) {
+          localHr =
+              reader->SetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, nullptr, outType);
+        }
+        if (outType != nullptr) {
+          outType->Release();
+        }
+        return localHr;
+      };
+
+      hr = setOutType(true);
+      if (FAILED(hr)) {
+        // 某些编解码链路不接受帧大小提示，回退到默认输出协商。
+        hr = setOutType(false);
+      }
+      if (FAILED(hr)) {
+        return false;
+      }
+
+      IMFMediaType* outType = nullptr;
+      hr = reader->GetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, &outType);
+      if (FAILED(hr) || outType == nullptr) {
+        return false;
+      }
+      hr = MFGetAttributeSize(outType, MF_MT_FRAME_SIZE, outWidth, outHeight);
+      outType->Release();
+      return SUCCEEDED(hr) && *outWidth > 0 && *outHeight > 0;
+    };
 
     UINT32 width = 0;
     UINT32 height = 0;
-    hr = MFGetAttributeSize(currentType, MF_MT_FRAME_SIZE, &width, &height);
-    currentType->Release();
-    if (FAILED(hr) || width == 0 || height == 0) {
-      reader->Release();
+    IMFSourceReader* reader = nullptr;
+    bool opened = createReader(false, &reader) && configureReader(reader, &width, &height);
+    if (!opened) {
+      if (reader != nullptr) {
+        reader->Release();
+        reader = nullptr;
+      }
+      // 某些设备/编码器必须启用软件视频处理才能协商到 RGB32。
+      opened = createReader(true, &reader) && configureReader(reader, &width, &height);
+    }
+    if (!opened || reader == nullptr) {
+      if (reader != nullptr) {
+        reader->Release();
+      }
       return false;
     }
 

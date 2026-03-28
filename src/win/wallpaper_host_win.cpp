@@ -35,6 +35,15 @@ constexpr UINT_PTR kAppIconResourceId = 1;
 // 某些驱动/桌面组合下 waitable-object 可能引入显示回归，默认关闭，后续按设备白名单再启用。
 constexpr bool kEnableFrameLatencyWaitableObject = false;
 
+HICON LoadAppIcon(HINSTANCE instance, const int width, const int height) {
+  if (instance == nullptr) {
+    return nullptr;
+  }
+  return reinterpret_cast<HICON>(LoadImageW(instance, MAKEINTRESOURCEW(kAppIconResourceId),
+                                            IMAGE_ICON, width, height,
+                                            LR_DEFAULTCOLOR | LR_SHARED));
+}
+
 struct VideoVertex final {
   float x;
   float y;
@@ -114,8 +123,18 @@ bool RegisterWallpaperWindowClass(HINSTANCE instance) {
   wc.cbSize = sizeof(WNDCLASSEXW);
   wc.lpfnWndProc = WallpaperWndProc;
   wc.hInstance = instance;
-  wc.hIcon = LoadIconW(instance, MAKEINTRESOURCEW(kAppIconResourceId));
-  wc.hIconSm = wc.hIcon;
+  const int largeW = GetSystemMetrics(SM_CXICON);
+  const int largeH = GetSystemMetrics(SM_CYICON);
+  const int smallW = GetSystemMetrics(SM_CXSMICON);
+  const int smallH = GetSystemMetrics(SM_CYSMICON);
+  wc.hIcon = LoadAppIcon(instance, largeW, largeH);
+  if (wc.hIcon == nullptr) {
+    wc.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
+  }
+  wc.hIconSm = LoadAppIcon(instance, smallW, smallH);
+  if (wc.hIconSm == nullptr) {
+    wc.hIconSm = wc.hIcon;
+  }
   wc.lpszClassName = kWallpaperWindowClassName;
   wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
   return RegisterClassExW(&wc) != 0 || GetLastError() == ERROR_CLASS_ALREADY_EXISTS;

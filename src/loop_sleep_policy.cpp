@@ -14,7 +14,7 @@ int ComputeMainLoopSleepMs(const bool shouldPause, const bool hasActiveVideo,
   }
 
   const auto waitMs = static_cast<int>(untilNextRender.count());
-  return std::clamp(waitMs, 2, 24);
+  return std::clamp(waitMs, 2, 40);
 }
 
 int ComputeDecodePumpSleepMs(const bool decodeReady, const bool frameAcquired,
@@ -29,7 +29,7 @@ int ComputeDecodePumpSleepMs(const bool decodeReady, const bool frameAcquired,
 }
 
 int ComputeDecodePumpHotSleepMs(const int renderFpsCap) noexcept {
-  return renderFpsCap >= 60 ? 8 : 16;
+  return renderFpsCap >= 60 ? 14 : 28;
 }
 
 bool ShouldUseHighResolutionTimer(const bool hasActiveVideo, const bool stablePaused,

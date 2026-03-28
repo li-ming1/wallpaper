@@ -935,3 +935,28 @@
   - task_plan.md
   - findings.md
   - progress.md
+### Phase 38: CPU/内存卡点专项治理与图标链路修复
+- **Status:** complete
+- Actions taken:
+  - 修复 `LongRunLoadPolicy` 冷却迟滞测试与新阈值不一致问题，恢复全绿。
+  - 将 `QualityGovernor` 与 `LongRunLoadPolicy` 负载阈值改为匹配真实进程 CPU 量纲（约 0~12% 区间），避免“阈值过高导致策略长期不触发”。
+  - 调整 `ComputeMainLoopSleepMs` 上限（24ms -> 40ms）与 `ComputeDecodePumpHotSleepMs`（60fps=14ms, 30fps=28ms），消除 30fps 下仍高频拉帧的隐藏开销。
+  - `decode_pipeline_stub` 引入 SourceReader 双路径：先尝试 `MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS`（不启用软件视频处理），失败再回退 `MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING`，兼顾降载与兼容。
+  - 托盘与窗口类图标加载改为 `LoadImage` 按系统图标尺寸取 `hIcon/hIconSm`，减少任务管理器回退默认图标概率。
+- Verification:
+  - `./scripts/run_tests.ps1` -> 89/89 PASS
+  - `./scripts/build_app.ps1` -> build/wallpaper_app.exe 成功
+- Files created/modified:
+  - src/quality_governor.cpp
+  - src/long_run_load_policy.cpp
+  - src/loop_sleep_policy.cpp
+  - src/win/decode_pipeline_stub.cpp
+  - src/win/tray_controller_win.cpp
+  - src/win/wallpaper_host_win.cpp
+  - tests/quality_governor_tests.cpp
+  - tests/long_run_load_policy_tests.cpp
+  - tests/loop_sleep_policy_tests.cpp
+  - assets/app_icon.ico
+  - task_plan.md
+  - progress.md
+  - findings.md

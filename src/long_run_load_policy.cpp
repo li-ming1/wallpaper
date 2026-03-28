@@ -5,29 +5,29 @@
 namespace wallpaper {
 namespace {
 
-constexpr double kMediumCpuPercent = 8.0;
-constexpr double kHighCpuPercent = 10.0;
-constexpr double kMediumPresentP95Ms = 9.0;
-constexpr double kHighPresentP95Ms = 11.0;
+constexpr double kMediumCpuPercent = 6.5;
+constexpr double kHighCpuPercent = 8.5;
+constexpr double kMediumPresentP95Ms = 8.0;
+constexpr double kHighPresentP95Ms = 10.0;
 constexpr double kMediumDroppedRatio = 0.02;
 constexpr double kHighDroppedRatio = 0.04;
 constexpr std::size_t kMediumWorkingSetBytes = 140U * 1024U * 1024U;
 constexpr std::size_t kHighWorkingSetBytes = 170U * 1024U * 1024U;
 constexpr std::size_t kTrimWorkingSetBytes = 180U * 1024U * 1024U;
 
-constexpr int kEnterMediumSamples = 6;
+constexpr int kEnterMediumSamples = 4;
 constexpr int kEnterMediumFastSamples = 3;
-constexpr int kEnterHighSamples = 8;
-constexpr int kExitHighSamples = 8;
-constexpr int kExitMediumSamples = 12;
+constexpr int kEnterHighSamples = 6;
+constexpr int kExitHighSamples = 10;
+constexpr int kExitMediumSamples = 14;
 constexpr int kTrimCooldownSamples = 30;
 
 [[nodiscard]] int LevelToHotSleepBoostMs(const int level) noexcept {
   if (level >= 2) {
-    return 8;
+    return 16;
   }
   if (level == 1) {
-    return 4;
+    return 8;
   }
   return 0;
 }

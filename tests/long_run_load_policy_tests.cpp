@@ -21,25 +21,25 @@ wallpaper::RuntimeMetrics BuildMetrics(const double cpuPercent, const std::size_
 TEST_CASE(LongRunLoadPolicy_EscalatesToMediumAfterSustainedPressure) {
   wallpaper::LongRunLoadState state;
   wallpaper::LongRunLoadDecision decision;
-  for (int i = 0; i < 6; ++i) {
-    decision = wallpaper::UpdateLongRunLoadPolicy(BuildMetrics(8.5, 120U * 1024U * 1024U, 7.0, 0.0),
+  for (int i = 0; i < 4; ++i) {
+    decision = wallpaper::UpdateLongRunLoadPolicy(BuildMetrics(6.8, 120U * 1024U * 1024U, 7.5, 0.0),
                                                   true, false, &state);
   }
 
   EXPECT_EQ(state.level, 1);
-  EXPECT_EQ(decision.decodeHotSleepBoostMs, 4);
+  EXPECT_EQ(decision.decodeHotSleepBoostMs, 8);
 }
 
 TEST_CASE(LongRunLoadPolicy_EscalatesToHighAfterSustainedHighPressure) {
   wallpaper::LongRunLoadState state;
   wallpaper::LongRunLoadDecision decision;
-  for (int i = 0; i < 8; ++i) {
-    decision = wallpaper::UpdateLongRunLoadPolicy(BuildMetrics(10.5, 150U * 1024U * 1024U, 9.5, 0.01),
+  for (int i = 0; i < 6; ++i) {
+    decision = wallpaper::UpdateLongRunLoadPolicy(BuildMetrics(8.8, 150U * 1024U * 1024U, 10.0, 0.01),
                                                   true, false, &state);
   }
 
   EXPECT_EQ(state.level, 2);
-  EXPECT_EQ(decision.decodeHotSleepBoostMs, 8);
+  EXPECT_EQ(decision.decodeHotSleepBoostMs, 16);
 }
 
 TEST_CASE(LongRunLoadPolicy_CoolsDownWithHysteresis) {
@@ -50,14 +50,14 @@ TEST_CASE(LongRunLoadPolicy_CoolsDownWithHysteresis) {
     EXPECT_TRUE(decision.decodeHotSleepBoostMs >= 0);
   }
 
-  for (int i = 0; i < 8; ++i) {
+  for (int i = 0; i < 10; ++i) {
     const auto decision = wallpaper::UpdateLongRunLoadPolicy(
         BuildMetrics(3.0, 90U * 1024U * 1024U, 4.0, 0.0), true, false, &state);
     EXPECT_TRUE(decision.decodeHotSleepBoostMs >= 0);
   }
   EXPECT_EQ(state.level, 1);
 
-  for (int i = 0; i < 12; ++i) {
+  for (int i = 0; i < 14; ++i) {
     const auto decision = wallpaper::UpdateLongRunLoadPolicy(
         BuildMetrics(3.0, 90U * 1024U * 1024U, 4.0, 0.0), true, false, &state);
     EXPECT_TRUE(decision.decodeHotSleepBoostMs >= 0);
