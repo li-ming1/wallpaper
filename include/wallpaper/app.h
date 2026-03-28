@@ -75,6 +75,10 @@ class App final {
   int sourceFpsCap_ = 60;
   int sourceFpsHint30_ = 0;
   int sourceFpsHint60_ = 0;
+  RenderScheduler::Clock::time_point lastSessionProbeAt_{};
+  RenderScheduler::Clock::time_point lastForegroundProbeAt_{};
+  bool cachedSessionInteractive_ = true;
+  ForegroundState cachedForegroundState_ = ForegroundState::kWindowed;
   std::size_t droppedFrames_ = 0;
   std::size_t totalFrames_ = 0;
 };

@@ -3,6 +3,7 @@
 #include "wallpaper/frame_bridge.h"
 #include "wallpaper/loop_sleep_policy.h"
 #include "wallpaper/metrics_log_line.h"
+#include "wallpaper/probe_cadence_policy.h"
 #include "wallpaper/startup_policy.h"
 #include "wallpaper/video_path_matcher.h"
 
@@ -377,6 +378,10 @@ void App::ResetPlaybackState() {
   sourceFpsHint30_ = 0;
   sourceFpsHint60_ = 0;
   lastDecodeMode_ = DecodeMode::kUnknown;
+  lastSessionProbeAt_ = RenderScheduler::Clock::time_point{};
+  lastForegroundProbeAt_ = RenderScheduler::Clock::time_point{};
+  cachedSessionInteractive_ = true;
+  cachedForegroundState_ = ForegroundState::kWindowed;
   {
     std::lock_guard<std::mutex> lock(decodedTokenMu_);
     hasLatestDecodedToken_ = false;
@@ -588,10 +593,21 @@ void App::Tick() {
     return;
   }
 
-  arbiter_.SetSessionActive(IsSessionInteractive());
+  constexpr std::chrono::milliseconds kSessionProbeInterval(300);
+  constexpr std::chrono::milliseconds kForegroundProbeInterval(120);
+  const auto now = RenderScheduler::Clock::now();
+  if (ShouldRefreshRuntimeProbe(now, lastSessionProbeAt_, kSessionProbeInterval)) {
+    cachedSessionInteractive_ = IsSessionInteractive();
+    lastSessionProbeAt_ = now;
+  }
+  arbiter_.SetSessionActive(cachedSessionInteractive_);
   arbiter_.SetDesktopVisible(true);
   static bool wasPaused = false;
-  arbiter_.SetForegroundState(DetectForegroundState());
+  if (ShouldRefreshRuntimeProbe(now, lastForegroundProbeAt_, kForegroundProbeInterval)) {
+    cachedForegroundState_ = DetectForegroundState();
+    lastForegroundProbeAt_ = now;
+  }
+  arbiter_.SetForegroundState(cachedForegroundState_);
   const bool shouldPause = arbiter_.ShouldPause();
 
   if (shouldPause) {

@@ -24,6 +24,8 @@ add_library(wallpaper_core STATIC
   src/resource_arbiter.cpp
   src/metrics_sampler.cpp
   src/frame_bridge.cpp
+  src/frame_buffer_policy.cpp
+  src/probe_cadence_policy.cpp
   src/startup_policy.cpp
 )
 target_include_directories(wallpaper_core PUBLIC include)
@@ -64,12 +66,14 @@ add_executable(wallpaper_tests
   tests/test_main.cpp
   tests/config_store_tests.cpp
   tests/desktop_attach_policy_tests.cpp
+  tests/frame_buffer_policy_tests.cpp
   tests/frame_bridge_tests.cpp
   tests/foreground_policy_tests.cpp
   tests/loop_sleep_policy_tests.cpp
   tests/metrics_log_line_tests.cpp
   tests/metrics_log_file_tests.cpp
   tests/quality_governor_tests.cpp
+  tests/probe_cadence_policy_tests.cpp
   tests/render_scheduler_tests.cpp
   tests/resource_arbiter_tests.cpp
   tests/startup_policy_tests.cpp
@@ -77,11 +81,13 @@ add_executable(wallpaper_tests
   src/config_store.cpp
   src/desktop_attach_policy.cpp
   src/frame_bridge.cpp
+  src/frame_buffer_policy.cpp
   src/foreground_policy.cpp
   src/loop_sleep_policy.cpp
   src/metrics_log_line.cpp
   src/metrics_log_file.cpp
   src/quality_governor.cpp
+  src/probe_cadence_policy.cpp
   src/render_scheduler.cpp
   src/resource_arbiter.cpp
   src/startup_policy.cpp

@@ -106,3 +106,7 @@
 - 新增 `RenderScheduler::TimeUntilNextRender()`，用于主循环睡眠决策。
 - `DetachWallpaper()` 现在清理 `frame_bridge` 与统计采样缓存，减少无视频态内存占用。
 - 验证：`run_tests` 全绿（43/43），`build_app` 成功。
+- 新增 `probe_cadence_policy`，将 `IsSessionInteractive/DetectForegroundState` 从每帧调用改为按 300ms/120ms 节流采样。
+- 新增 `frame_buffer_policy`，在 MF 帧发布路径引入容量回收规则（容量 > 需求 2x 时缩容）。
+- 目标：进一步降低 CPU 系统调用开销与长期运行后的帧缓存驻留内存。
+- 验证：`run_tests` 全绿（51/51），`build_app` 成功。

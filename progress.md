@@ -415,3 +415,24 @@
   - CMakeLists.txt
   - scripts/run_tests.ps1
   - scripts/build_app.ps1
+### Phase 9: CPU/内存优化迭代二
+- **Status:** complete
+- Actions taken:
+  - Red: 新增 `tests/probe_cadence_policy_tests.cpp`、`tests/frame_buffer_policy_tests.cpp`。
+  - Green: 新增 `include/wallpaper/probe_cadence_policy.h`、`src/probe_cadence_policy.cpp` 并接入 `src/app.cpp`。
+  - Green: 新增 `include/wallpaper/frame_buffer_policy.h`、`src/frame_buffer_policy.cpp` 并接入 `src/win/decode_pipeline_stub.cpp`。
+  - Green: 扩展 `App` 缓存探测时间戳与缓存状态字段，避免高频重复探测。
+  - Verification: `./scripts/run_tests.ps1` 与 `./scripts/build_app.ps1` 均通过。
+- Files created/modified:
+  - include/wallpaper/probe_cadence_policy.h
+  - src/probe_cadence_policy.cpp
+  - include/wallpaper/frame_buffer_policy.h
+  - src/frame_buffer_policy.cpp
+  - tests/probe_cadence_policy_tests.cpp
+  - tests/frame_buffer_policy_tests.cpp
+  - include/wallpaper/app.h
+  - src/app.cpp
+  - src/win/decode_pipeline_stub.cpp
+  - CMakeLists.txt
+  - scripts/run_tests.ps1
+  - scripts/build_app.ps1

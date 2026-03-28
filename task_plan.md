@@ -108,3 +108,10 @@ Phase 6
 - [x] Green: 壁纸层分离时主动清理帧桥接缓存
 - [x] Verification: 单测通过 + 构建通过
 - **Status:** complete
+
+### Phase 9: CPU/内存优化迭代二（Completed）
+- [x] Red: 新增探测节流与帧缓冲容量策略测试
+- [x] Green: 接入 runtime probe 节流，降低每帧 Win32 查询频率
+- [x] Green: 接入帧缓冲容量回收策略，降低分辨率切换后的峰值驻留
+- [x] Verification: 单测通过 + 构建通过
+- **Status:** complete

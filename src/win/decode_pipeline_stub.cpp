@@ -1,4 +1,5 @@
 #include "wallpaper/interfaces.h"
+#include "wallpaper/frame_buffer_policy.h"
 
 #include "wallpaper/frame_bridge.h"
 
@@ -322,8 +323,16 @@ class DecodePipelineStub final : public IDecodePipeline {
     if (currentFramePixels_ == nullptr) {
       currentFramePixels_ = std::make_shared<std::vector<std::uint8_t>>();
     }
-    if (currentFramePixels_->size() != currentLength) {
-      currentFramePixels_->resize(currentLength);
+    const std::size_t requiredBytes = static_cast<std::size_t>(currentLength);
+    const std::size_t nextCapacity =
+        DecideFrameBufferCapacity(currentFramePixels_->capacity(), requiredBytes);
+    if (nextCapacity != currentFramePixels_->capacity()) {
+      auto resized = std::make_shared<std::vector<std::uint8_t>>();
+      resized->reserve(nextCapacity);
+      resized->resize(requiredBytes);
+      currentFramePixels_ = std::move(resized);
+    } else if (currentFramePixels_->size() != requiredBytes) {
+      currentFramePixels_->resize(requiredBytes);
     }
     std::memcpy(currentFramePixels_->data(), rawData, currentLength);
     mediaBuffer->Unlock();
