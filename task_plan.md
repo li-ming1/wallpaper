@@ -243,3 +243,10 @@ Phase 6
 - [x] Green: 解码泵睡眠改可中断等待，退出与切换时降低 join 卡顿
 - [x] Verification: 单测通过（76/76） + 构建通过
 - **Status:** complete
+
+### Phase 28: 长动态负载压降与恢复唤醒优化（Completed）
+- [x] Green: 解码泵 no-ready 睡眠提升到 70ms，进一步降低静态/空闲 CPU
+- [x] Green: hot-sleep 调整为 60fps=6ms、30fps=12ms，降低长动态忙轮询
+- [x] Green: 所有 `Start()` 路径主动唤醒解码线程，避免降频后恢复迟滞
+- [x] Verification: 单测通过（76/76） + 构建通过
+- **Status:** complete

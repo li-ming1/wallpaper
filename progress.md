@@ -775,3 +775,17 @@
   - task_plan.md
   - progress.md
   - findings.md
+### Phase 28: 长动态负载压降与恢复唤醒优化
+- **Status:** complete
+- Actions taken:
+  - Green: `loop_sleep_policy` 调整解码泵 no-ready 睡眠到 70ms，hot-sleep 调整为 60fps=6ms、30fps=12ms。
+  - Green: 为降低 hot-sleep 带来的恢复迟滞，`App` 在视频启动/恢复/预热启动路径统一 `WakeDecodePump()`。
+  - Green: `StopDecodePump` 保持即时唤醒停止，确保退出无额外等待放大。
+  - Verification: `./scripts/run_tests.ps1` 全绿（76/76）；`./scripts/build_app.ps1` 构建通过。
+- Files created/modified:
+  - src/loop_sleep_policy.cpp
+  - tests/loop_sleep_policy_tests.cpp
+  - src/app.cpp
+  - task_plan.md
+  - progress.md
+  - findings.md

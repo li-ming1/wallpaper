@@ -20,7 +20,7 @@ int ComputeMainLoopSleepMs(const bool shouldPause, const bool hasActiveVideo,
 int ComputeDecodePumpSleepMs(const bool decodeReady, const bool frameAcquired,
                              const int previousSleepMs) noexcept {
   if (!decodeReady) {
-    return 45;
+    return 70;
   }
   if (frameAcquired) {
     return 2;
@@ -29,7 +29,7 @@ int ComputeDecodePumpSleepMs(const bool decodeReady, const bool frameAcquired,
 }
 
 int ComputeDecodePumpHotSleepMs(const int renderFpsCap) noexcept {
-  return renderFpsCap >= 60 ? 4 : 8;
+  return renderFpsCap >= 60 ? 6 : 12;
 }
 
 }  // namespace wallpaper

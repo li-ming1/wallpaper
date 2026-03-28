@@ -469,6 +469,7 @@ bool App::StartVideoPipelineForPath(const std::string& path) {
   }
   decodeRunning_.store(true);
   ResetPlaybackState();
+  WakeDecodePump();
   ApplyRenderFpsCap(qualityGovernor_.CurrentFps());
   scheduler_.Reset();
   return true;
@@ -804,6 +805,7 @@ void App::Tick() {
         if (decodePipeline_->Start()) {
           decodeRunning_.store(true);
           resumeWarmupStarted_ = true;
+          WakeDecodePump();
         } else {
           decodePipeline_->Stop();
           decodeOpened_.store(false);
@@ -846,7 +848,11 @@ void App::Tick() {
         nextResumeAttemptAt_ = now;
       }
     } else if (decodeOpened_.load() && !decodeRunning_.load()) {
-      decodeRunning_.store(decodePipeline_->Start());
+      const bool resumed = decodePipeline_->Start();
+      decodeRunning_.store(resumed);
+      if (resumed) {
+        WakeDecodePump();
+      }
     }
     resourcesReleasedByPause_ = false;
     hardSuspendedByPause_ = false;
@@ -869,7 +875,11 @@ void App::Tick() {
   }
 
   if (decodeOpened_.load() && !decodeRunning_.load()) {
-    decodeRunning_.store(decodePipeline_->Start());
+    const bool resumed = decodePipeline_->Start();
+    decodeRunning_.store(resumed);
+    if (resumed) {
+      WakeDecodePump();
+    }
   }
 
   if (!scheduler_.ShouldRender(RenderScheduler::Clock::now())) {
