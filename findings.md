@@ -181,3 +181,7 @@
 - 长动态 CPU 压降：解码泵 no-ready 睡眠提升到 70ms，hot-sleep 提升到 60fps=6ms、30fps=12ms，降低持续动态场景轮询频率。
 - 丝滑恢复兜底：所有 `Start()` 恢复路径显式唤醒解码线程，避免更保守睡眠策略造成恢复迟滞。
 - 验证：`run_tests` 全绿（76/76），`build_app` 成功。
+- 本轮进一步压降长动态 CPU：hot-sleep 调整为 `60fps=8ms, 30fps=16ms`，降低解码线程高频拉帧。
+- 本轮进一步压降探测开销：运行态 probe 调整为 `session=450ms, foreground=180ms`，减少长期 Win32 查询频次。
+- 丝滑修复：修正 `decodePump` 等待条件，`WakeDecodePump()` 现在可即时打断等待；并为前台进程名查询增加 PID 级缓存与桌面类/本进程快速判定。
+- 验证：`run_tests` 全绿（76/76），`build_app` 成功。

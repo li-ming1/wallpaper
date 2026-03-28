@@ -250,3 +250,12 @@ Phase 6
 - [x] Green: 所有 `Start()` 路径主动唤醒解码线程，避免降频后恢复迟滞
 - [x] Verification: 单测通过（76/76） + 构建通过
 - **Status:** complete
+
+### Phase 29: 全量性能迭代（长动态 CPU + 切换丝滑）（Completed）
+- [x] Red: 调整 `loop_sleep_policy` / `probe_cadence_policy` 测试期望并验证失败
+- [x] Green: 解码泵 hot-sleep 下调频率（60fps=8ms, 30fps=16ms）
+- [x] Green: 运行态 runtime probe 降频（session=450ms, foreground=180ms）
+- [x] Green: 修复 `WakeDecodePump` 在运行态无法即时打断等待的问题
+- [x] Green: 前台进程名查询增加 PID 缓存 + 桌面类窗口/本进程快速判定
+- [x] Verification: 单测通过（76/76） + 构建通过
+- **Status:** complete

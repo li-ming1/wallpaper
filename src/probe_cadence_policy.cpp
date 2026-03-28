@@ -19,7 +19,8 @@ RuntimeProbeIntervals SelectRuntimeProbeIntervals(const bool stablePaused) noexc
     return RuntimeProbeIntervals{std::chrono::milliseconds(1200),
                                  std::chrono::milliseconds(260)};
   }
-  return RuntimeProbeIntervals{};
+  return RuntimeProbeIntervals{std::chrono::milliseconds(450),
+                               std::chrono::milliseconds(180)};
 }
 
 }  // namespace wallpaper

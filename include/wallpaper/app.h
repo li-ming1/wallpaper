@@ -64,6 +64,7 @@ class App final {
   std::atomic<int> decodePumpHotSleepMs_{4};
   mutable std::mutex decodePumpWaitMu_;
   std::condition_variable decodePumpWaitCv_;
+  bool decodePumpWakeRequested_ = false;
   std::mutex decodedTokenMu_;
   FrameToken latestDecodedToken_{};
   bool hasLatestDecodedToken_ = false;

@@ -789,3 +789,22 @@
   - task_plan.md
   - progress.md
   - findings.md
+### Phase 29: 全量性能迭代（长动态 CPU + 切换丝滑）
+- **Status:** complete
+- Actions taken:
+  - Red: 修改 `tests/loop_sleep_policy_tests.cpp` 与 `tests/probe_cadence_policy_tests.cpp` 目标值并验证失败。
+  - Green: `loop_sleep_policy` hot-sleep 调整为 60fps=8ms、30fps=16ms，降低长动态解码线程轮询频率。
+  - Green: `probe_cadence_policy` 运行态探测调整为 session=450ms、foreground=180ms，压低 Win32 高频探测开销。
+  - Green: `App` 解码泵等待改为支持显式唤醒信号，修复运行态 `WakeDecodePump()` 不能立即打断 wait 的问题。
+  - Green: `TryDetectDesktopContextActive` 增加桌面类窗口快速返回、本进程窗口快速返回，并给进程名查询增加 PID 缓存。
+  - Verification: `./scripts/run_tests.ps1` 全绿（76/76）；`./scripts/build_app.ps1` 构建通过。
+- Files created/modified:
+  - src/loop_sleep_policy.cpp
+  - src/probe_cadence_policy.cpp
+  - include/wallpaper/app.h
+  - src/app.cpp
+  - tests/loop_sleep_policy_tests.cpp
+  - tests/probe_cadence_policy_tests.cpp
+  - task_plan.md
+  - progress.md
+  - findings.md

@@ -31,8 +31,8 @@ TEST_CASE(ProbeCadencePolicy_ClockRollbackForcesRefresh) {
 
 TEST_CASE(ProbeCadencePolicy_SelectsAggressiveCadenceWhenRunning) {
   const auto intervals = wallpaper::SelectRuntimeProbeIntervals(false);
-  EXPECT_EQ(intervals.session, 300ms);
-  EXPECT_EQ(intervals.foreground, 120ms);
+  EXPECT_EQ(intervals.session, 450ms);
+  EXPECT_EQ(intervals.foreground, 180ms);
 }
 
 TEST_CASE(ProbeCadencePolicy_SelectsSparseCadenceWhenPaused) {

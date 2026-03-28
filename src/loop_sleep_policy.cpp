@@ -29,7 +29,7 @@ int ComputeDecodePumpSleepMs(const bool decodeReady, const bool frameAcquired,
 }
 
 int ComputeDecodePumpHotSleepMs(const int renderFpsCap) noexcept {
-  return renderFpsCap >= 60 ? 6 : 12;
+  return renderFpsCap >= 60 ? 8 : 16;
 }
 
 }  // namespace wallpaper

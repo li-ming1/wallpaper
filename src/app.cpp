@@ -46,8 +46,22 @@ bool TryQueryForegroundProcessBaseName(const HWND hwnd, std::wstring* outProcess
     return false;
   }
 
+  static DWORD lastProcessId = 0;
+  static bool lastLookupOk = false;
+  static std::wstring lastProcessName;
+  if (processId == lastProcessId) {
+    if (!lastLookupOk) {
+      return false;
+    }
+    *outProcessName = lastProcessName;
+    return true;
+  }
+
   HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
   if (process == nullptr) {
+    lastProcessId = processId;
+    lastLookupOk = false;
+    lastProcessName.clear();
     return false;
   }
 
@@ -56,10 +70,16 @@ bool TryQueryForegroundProcessBaseName(const HWND hwnd, std::wstring* outProcess
   const bool ok = QueryFullProcessImageNameW(process, 0, processPath, &length) != FALSE;
   CloseHandle(process);
   if (!ok || length == 0) {
+    lastProcessId = processId;
+    lastLookupOk = false;
+    lastProcessName.clear();
     return false;
   }
 
-  *outProcessName = ExtractBaseName(std::wstring(processPath, length));
+  lastProcessId = processId;
+  lastLookupOk = true;
+  lastProcessName = ExtractBaseName(std::wstring(processPath, length));
+  *outProcessName = lastProcessName;
   return true;
 }
 
@@ -76,10 +96,22 @@ bool TryDetectDesktopContextActive(bool* outActive) {
   if (GetClassNameW(hwnd, className, 255) == 0) {
     return false;
   }
+  const std::wstring classNameValue(className);
+  if (IsDesktopContextClass(classNameValue)) {
+    *outActive = true;
+    return true;
+  }
+
+  DWORD processId = 0;
+  GetWindowThreadProcessId(hwnd, &processId);
+  if (processId != 0 && processId == GetCurrentProcessId()) {
+    *outActive = true;
+    return true;
+  }
 
   std::wstring processName;
   TryQueryForegroundProcessBaseName(hwnd, &processName);
-  *outActive = ShouldTreatAsDesktopContext(std::wstring(className), processName);
+  *outActive = ShouldTreatAsDesktopContext(classNameValue, processName);
   return true;
 }
 
@@ -531,6 +563,10 @@ void App::StartDecodePump() {
   if (decodePumpRunning_.exchange(true)) {
     return;
   }
+  {
+    std::lock_guard<std::mutex> lock(decodePumpWaitMu_);
+    decodePumpWakeRequested_ = false;
+  }
 
   decodePumpThread_ = std::thread([this]() {
     const auto sleepInterruptible = [this](const int sleepMs) {
@@ -539,7 +575,8 @@ void App::StartDecodePump() {
       }
       std::unique_lock<std::mutex> lock(decodePumpWaitMu_);
       decodePumpWaitCv_.wait_for(lock, std::chrono::milliseconds(sleepMs),
-                                 [this]() { return !decodePumpRunning_.load(); });
+                                 [this]() { return !decodePumpRunning_.load() || decodePumpWakeRequested_; });
+      decodePumpWakeRequested_ = false;
     };
 
     int decodeIdleSleepMs = 2;
@@ -584,6 +621,10 @@ void App::StopDecodePump() {
 }
 
 void App::WakeDecodePump() {
+  {
+    std::lock_guard<std::mutex> lock(decodePumpWaitMu_);
+    decodePumpWakeRequested_ = true;
+  }
   decodePumpWaitCv_.notify_all();
 }
 

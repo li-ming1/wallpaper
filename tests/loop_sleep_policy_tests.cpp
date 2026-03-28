@@ -37,6 +37,6 @@ TEST_CASE(LoopSleepPolicy_DecodePumpNoFrameUsesBackoff) {
 }
 
 TEST_CASE(LoopSleepPolicy_DecodePumpHotSleepTracksFpsCap) {
-  EXPECT_EQ(wallpaper::ComputeDecodePumpHotSleepMs(60), 6);
-  EXPECT_EQ(wallpaper::ComputeDecodePumpHotSleepMs(30), 12);
+  EXPECT_EQ(wallpaper::ComputeDecodePumpHotSleepMs(60), 8);
+  EXPECT_EQ(wallpaper::ComputeDecodePumpHotSleepMs(30), 16);
 }
