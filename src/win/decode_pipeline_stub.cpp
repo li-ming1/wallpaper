@@ -1,4 +1,5 @@
 #include "wallpaper/interfaces.h"
+#include "wallpaper/decode_output_policy.h"
 #include "wallpaper/d3d11_interop_device.h"
 #include "wallpaper/frame_buffer_policy.h"
 
@@ -28,10 +29,11 @@ namespace {
 
 class DecodePipelineStub final : public IDecodePipeline {
  public:
-  bool Open(const std::string& path, CodecPolicy) override {
+  bool Open(const std::string& path, CodecPolicy, const bool adaptiveQuality) override {
     std::lock_guard<std::mutex> lock(mu_);
 
     ResetStateLocked();
+    adaptiveQualityEnabled_ = adaptiveQuality;
 
     const bool hasPath = !path.empty();
     if (hasPath && !std::filesystem::exists(path)) {
@@ -270,8 +272,15 @@ class DecodePipelineStub final : public IDecodePipeline {
           UINT32 hintHeight = 0;
           QueryDesktopFrameHint(&hintWidth, &hintHeight);
           if (hintWidth > 0 && hintHeight > 0) {
-            // 提示输出尺寸不超过当前桌面，降低高分辨率视频的解码缓冲占用。
-            localHr = MFSetAttributeSize(outType, MF_MT_FRAME_SIZE, hintWidth, hintHeight);
+            const bool cpuFallbackPath =
+                !(mfD3DInteropEnabled_ && IsEqualGUID(subtype, MFVideoFormat_ARGB32));
+            const DecodeOutputHint selectedHint = SelectDecodeOutputHint(
+                hintWidth, hintHeight, adaptiveQualityEnabled_, cpuFallbackPath);
+            if (selectedHint.width > 0 && selectedHint.height > 0) {
+              // 在 CPU 回退链路对输出像素做上限控制，直接压低解码/上传成本。
+              localHr = MFSetAttributeSize(outType, MF_MT_FRAME_SIZE, selectedHint.width,
+                                           selectedHint.height);
+            }
           }
         }
         if (SUCCEEDED(localHr)) {
@@ -576,6 +585,7 @@ class DecodePipelineStub final : public IDecodePipeline {
   std::uint64_t sequence_ = 0;
   std::size_t previousPublishedCpuBytes_ = 0;
   bool trimRequested_ = false;
+  bool adaptiveQualityEnabled_ = true;
 
 #ifdef _WIN32
   IMFSourceReader* sourceReader_ = nullptr;

@@ -513,7 +513,7 @@ bool App::StartVideoPipelineForPath(const std::string& path) {
   if (!EnsureWallpaperAttached()) {
     return false;
   }
-  if (!decodePipeline_->Open(path, config_.codecPolicy)) {
+  if (!decodePipeline_->Open(path, config_.codecPolicy, config_.adaptiveQuality)) {
     decodeOpened_.store(false);
     decodeRunning_.store(false);
     return false;
@@ -614,9 +614,25 @@ void App::StartDecodePump() {
       decodePumpWakeRequested_ = false;
     };
 
+#ifdef _WIN32
+    int lastDecodeThreadPriority = THREAD_PRIORITY_NORMAL;
+    const auto setDecodeThreadPriority = [&](const int priority) {
+      if (priority == lastDecodeThreadPriority) {
+        return;
+      }
+      if (SetThreadPriority(GetCurrentThread(), priority) != FALSE) {
+        lastDecodeThreadPriority = priority;
+      }
+    };
+    setDecodeThreadPriority(THREAD_PRIORITY_BELOW_NORMAL);
+#endif
+
     int decodeIdleSleepMs = 2;
     while (decodePumpRunning_.load()) {
       const bool decodeReady = decodePipeline_ && decodeOpened_.load() && decodeRunning_.load();
+#ifdef _WIN32
+      setDecodeThreadPriority(decodeReady ? THREAD_PRIORITY_BELOW_NORMAL : THREAD_PRIORITY_IDLE);
+#endif
       if (!decodeReady) {
         decodeIdleSleepMs = ComputeDecodePumpSleepMs(false, false, decodeIdleSleepMs);
         sleepInterruptible(decodeIdleSleepMs);
@@ -734,6 +750,11 @@ bool App::HandleTrayActions() {
           config_.adaptiveQuality = true;
           qualityGovernor_.SetEnabled(true);
           ApplyRenderFpsCap(qualityGovernor_.CurrentFps());
+          if (ShouldActivateVideoPipeline(config_.videoPath) && decodePipeline_ &&
+              decodeOpened_.load()) {
+            // 自适应质量切换后重开解码管线，让 MF 输出尺寸策略立即生效。
+            StartVideoPipelineForPath(config_.videoPath);
+          }
           configChanged = true;
           trayStateChanged = true;
         }
@@ -744,6 +765,11 @@ bool App::HandleTrayActions() {
           config_.adaptiveQuality = false;
           qualityGovernor_.SetEnabled(false);
           ApplyRenderFpsCap(qualityGovernor_.CurrentFps());
+          if (ShouldActivateVideoPipeline(config_.videoPath) && decodePipeline_ &&
+              decodeOpened_.load()) {
+            // 关闭后恢复全质量输出，保持行为可预期。
+            StartVideoPipelineForPath(config_.videoPath);
+          }
           configChanged = true;
           trayStateChanged = true;
         }
@@ -878,7 +904,8 @@ void App::Tick() {
       const bool shouldWarmResume = ShouldWarmResumeDuringPause(rawShouldPause, hardSuspendedByPause_);
       if (shouldWarmResume && !resumeWarmupOpened_ && now >= nextWarmupAttemptAt_) {
         if (ShouldActivateVideoPipeline(config_.videoPath) &&
-            decodePipeline_->Open(config_.videoPath, config_.codecPolicy)) {
+            decodePipeline_->Open(config_.videoPath, config_.codecPolicy,
+                                  config_.adaptiveQuality)) {
           // 在退出 pause 迟滞窗口内预热 Open，恢复时只需 Start，降低解冻卡顿。
           decodeOpened_.store(true);
           decodeRunning_.store(false);

@@ -14,7 +14,7 @@ class WallpaperHostStub final : public IWallpaperHost {
 
 class DecodePipelineStub final : public IDecodePipeline {
  public:
-  bool Open(const std::string&, CodecPolicy) override { return true; }
+  bool Open(const std::string&, CodecPolicy, bool) override { return true; }
   bool Start() override { return true; }
   void Pause() override {}
   void Stop() override {}

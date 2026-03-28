@@ -49,7 +49,8 @@ class IDecodePipeline {
  public:
   virtual ~IDecodePipeline() = default;
 
-  virtual bool Open(const std::string& path, CodecPolicy codecPolicy) = 0;
+  virtual bool Open(const std::string& path, CodecPolicy codecPolicy,
+                    bool adaptiveQuality) = 0;
   virtual bool Start() = 0;
   virtual void Pause() = 0;
   virtual void Stop() = 0;

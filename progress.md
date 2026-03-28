@@ -1010,3 +1010,29 @@
   - task_plan.md
   - findings.md
   - progress.md
+### Phase 42: 自适应质量升级为“帧率+分辨率”联合治理
+- **Status:** complete
+- Actions taken:
+  - Red: 新增 `tests/decode_output_policy_tests.cpp`，并通过 `scripts/run_tests.ps1` 验证缺失实现导致编译失败。
+  - Green: 新增 `include/wallpaper/decode_output_policy.h` 与 `src/decode_output_policy.cpp`，实现 CPU 回退路径自适应限像素策略。
+  - Green: `IDecodePipeline::Open` 增加 `adaptiveQuality` 参数，联动更新 `src/app.cpp`、`src/win/decode_pipeline_stub.cpp`、`src/platform_stubs.cpp`。
+  - Green: 托盘启用/禁用自适应质量时，若视频正在运行则热重开管线，确保 MF 输出尺寸策略立即生效。
+  - Green: `App::StartDecodePump` 接入 Windows 线程优先级调度（活跃解码 below-normal，空闲 idle）。
+  - Green: 构建/测试脚本与 CMake 清单补齐新增源与测试文件。
+- Verification:
+  - `./scripts/run_tests.ps1` -> 99/99 PASS
+  - `./scripts/build_app.ps1` -> build/wallpaper_app.exe 成功
+- Files created/modified:
+  - include/wallpaper/decode_output_policy.h
+  - src/decode_output_policy.cpp
+  - tests/decode_output_policy_tests.cpp
+  - include/wallpaper/interfaces.h
+  - src/win/decode_pipeline_stub.cpp
+  - src/platform_stubs.cpp
+  - src/app.cpp
+  - CMakeLists.txt
+  - scripts/run_tests.ps1
+  - scripts/build_app.ps1
+  - task_plan.md
+  - findings.md
+  - progress.md

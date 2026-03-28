@@ -347,3 +347,11 @@ Phase 6
 - [x] Green: 测试/构建脚本补齐新源文件，避免“新增测试未被执行”
 - [x] Verification: 单测通过（94/94） + 构建通过
 - **Status:** complete
+### Phase 42: 自适应质量升级为“帧率+分辨率”联合治理（Completed）
+- [x] Red: 新增 `decode_output_policy` 测试并验证缺失实现导致编译红灯
+- [x] Green: 新增 CPU 回退输出尺寸策略（自适应开启时限像素）
+- [x] Green: `IDecodePipeline::Open` 增加 `adaptiveQuality` 参数并贯通 App/Win/stub
+- [x] Green: 启用/禁用自适应质量时热重开视频管线，使策略即时生效
+- [x] Green: 解码线程按状态切换优先级（active: below-normal / idle: idle）
+- [x] Verification: 单测通过（99/99） + 构建通过
+- **Status:** complete

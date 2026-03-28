@@ -15,6 +15,7 @@ add_library(wallpaper_core STATIC
   src/config_store.cpp
   src/desktop_context_policy.cpp
   src/desktop_attach_policy.cpp
+  src/decode_output_policy.cpp
   src/foreground_policy.cpp
   src/loop_sleep_policy.cpp
   src/metrics_log_line.cpp
@@ -75,6 +76,7 @@ add_executable(wallpaper_tests
   tests/config_store_tests.cpp
   tests/desktop_context_policy_tests.cpp
   tests/desktop_attach_policy_tests.cpp
+  tests/decode_output_policy_tests.cpp
   tests/frame_buffer_policy_tests.cpp
   tests/frame_latency_policy_tests.cpp
   tests/frame_bridge_tests.cpp
@@ -96,6 +98,7 @@ add_executable(wallpaper_tests
   src/config_store.cpp
   src/desktop_context_policy.cpp
   src/desktop_attach_policy.cpp
+  src/decode_output_policy.cpp
   src/frame_bridge.cpp
   src/frame_buffer_policy.cpp
   src/frame_latency_policy.cpp
