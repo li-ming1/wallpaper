@@ -47,6 +47,7 @@ $sources = @(
   "src/probe_cadence_policy.cpp",
   "src/render_scheduler.cpp",
   "src/resource_arbiter.cpp",
+  "src/runtime_trim_policy.cpp",
   "src/metrics_sampler.cpp",
   "src/frame_bridge.cpp",
   "src/startup_policy.cpp"

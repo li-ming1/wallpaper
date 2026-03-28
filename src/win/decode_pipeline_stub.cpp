@@ -95,13 +95,11 @@ class DecodePipelineStub final : public IDecodePipeline {
   void TrimMemory() override {
     std::lock_guard<std::mutex> lock(mu_);
     if (running_) {
-      // 运行态不直接清空桥接帧，改为下一次发布时按当前帧尺寸收缩缓冲，避免可见闪烁。
+      // 运行态只标记延迟收缩，不做清帧。这样可避免“黑幕一闪”。
       trimRequested_ = true;
-      if (sourceReader_ != nullptr) {
+      if (sourceReader_ != nullptr && mfGpuZeroCopyActive_) {
+        // GPU 零拷贝路径允许轻量 flush，CPU 回退路径避免 flush 导致突发抖动。
         sourceReader_->Flush(MF_SOURCE_READER_FIRST_VIDEO_STREAM);
-      }
-      if (!mfGpuZeroCopyActive_) {
-        frame_bridge::ClearLatestFrame();
       }
       return;
     }

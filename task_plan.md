@@ -340,3 +340,10 @@ Phase 6
 - [x] Green: CPU回退高水位场景增加 15s 节流 working-set trim
 - [x] Verification: 单测通过（90/90） + 构建通过
 - **Status:** complete
+### Phase 41: 黑幕回归修复与主循环trim安全化（Completed）
+- [x] Red: 新增 `runtime_trim_policy` 测试并确认缺失实现导致红灯
+- [x] Green: 主循环 `requestDecodeTrim` 增加策略门控，CPU回退动态路径禁止执行破坏性trim
+- [x] Green: `decode_pipeline_stub` 运行态 trim 去除 CPU 回退清帧，并限制 flush 仅在 GPU 零拷贝路径
+- [x] Green: 测试/构建脚本补齐新源文件，避免“新增测试未被执行”
+- [x] Verification: 单测通过（94/94） + 构建通过
+- **Status:** complete

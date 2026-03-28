@@ -6,6 +6,7 @@
 #include "wallpaper/metrics_log_line.h"
 #include "wallpaper/pause_transition_policy.h"
 #include "wallpaper/probe_cadence_policy.h"
+#include "wallpaper/runtime_trim_policy.h"
 #include "wallpaper/startup_policy.h"
 #include "wallpaper/video_path_matcher.h"
 
@@ -1082,7 +1083,9 @@ void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameD
   const LongRunLoadDecision longRunDecision =
       UpdateLongRunLoadPolicy(metrics, hasActiveVideo, stablePauseForLoopSleep_, &longRunLoadState_);
   decodePumpDynamicBoostMs_.store(longRunDecision.decodeHotSleepBoostMs);
-  if (longRunDecision.requestDecodeTrim && decodePipeline_) {
+  if (decodePipeline_ &&
+      ShouldExecuteLongRunDecodeTrim(longRunDecision.requestDecodeTrim, decodeRunning_.load(),
+                                     lastDecodePath_)) {
     decodePipeline_->TrimMemory();
   }
   if (hasActiveVideo && lastDecodePath_ == DecodePath::kCpuRgb32Fallback &&

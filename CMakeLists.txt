@@ -32,6 +32,7 @@ add_library(wallpaper_core STATIC
   src/frame_latency_policy.cpp
   src/long_run_load_policy.cpp
   src/probe_cadence_policy.cpp
+  src/runtime_trim_policy.cpp
   src/startup_policy.cpp
 )
 target_include_directories(wallpaper_core PUBLIC include)
@@ -89,6 +90,7 @@ add_executable(wallpaper_tests
   tests/probe_cadence_policy_tests.cpp
   tests/render_scheduler_tests.cpp
   tests/resource_arbiter_tests.cpp
+  tests/runtime_trim_policy_tests.cpp
   tests/startup_policy_tests.cpp
   tests/video_path_matcher_tests.cpp
   src/config_store.cpp
@@ -109,6 +111,7 @@ add_executable(wallpaper_tests
   src/probe_cadence_policy.cpp
   src/render_scheduler.cpp
   src/resource_arbiter.cpp
+  src/runtime_trim_policy.cpp
   src/startup_policy.cpp
   src/video_path_matcher.cpp
 )

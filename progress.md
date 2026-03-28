@@ -987,3 +987,26 @@
 - Runtime spot-check:
   - 日志已体现 `decode_hot_sleep_ms` 在 CPU 回退路径提高到 42/24。
   - 回退链路短测工作集出现从 ~115MB 回落到 ~74MB 的样本（受场景影响会波动）。
+### Phase 41: 黑幕回归修复与主循环trim安全化
+- **Status:** complete
+- Actions taken:
+  - Red: 新增 `tests/runtime_trim_policy_tests.cpp` 并更新 `scripts/run_tests.ps1`，首次编译失败确认 `runtime_trim_policy` 缺失（真实红灯）。
+  - Green: 新增 `include/wallpaper/runtime_trim_policy.h` 与 `src/runtime_trim_policy.cpp`，主循环 trim 改为策略门控。
+  - Green: `src/app.cpp` 接入 `ShouldExecuteLongRunDecodeTrim(...)`，阻断 CPU 回退动态路径的主循环 trim。
+  - Green: `src/win/decode_pipeline_stub.cpp` 运行态 trim 去掉 CPU 路径 `ClearLatestFrame`，并将 `Flush` 限制在 GPU 零拷贝路径。
+  - Green: 同步构建清单：`CMakeLists.txt`、`scripts/run_tests.ps1`、`scripts/build_app.ps1` 增加 `runtime_trim_policy` 源/测试。
+- Verification:
+  - `./scripts/run_tests.ps1` -> 94/94 PASS
+  - `./scripts/build_app.ps1` -> build/wallpaper_app.exe 成功
+- Files created/modified:
+  - include/wallpaper/runtime_trim_policy.h
+  - src/runtime_trim_policy.cpp
+  - src/app.cpp
+  - src/win/decode_pipeline_stub.cpp
+  - tests/runtime_trim_policy_tests.cpp
+  - CMakeLists.txt
+  - scripts/run_tests.ps1
+  - scripts/build_app.ps1
+  - task_plan.md
+  - findings.md
+  - progress.md
