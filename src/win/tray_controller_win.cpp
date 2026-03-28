@@ -20,6 +20,7 @@ namespace {
 constexpr wchar_t kTrayWindowClassName[] = L"WallpaperTrayMessageWindow";
 constexpr UINT kTrayIconMessage = WM_APP + 1;
 constexpr UINT kTrayIconId = 1;
+constexpr UINT_PTR kAppIconResourceId = 101;
 constexpr UINT_PTR kMenuSet30FpsId = 1001;
 constexpr UINT_PTR kMenuSet60FpsId = 1002;
 constexpr UINT_PTR kMenuSelectVideoId = 1003;
@@ -246,7 +247,10 @@ class TrayControllerWin final : public ITrayController {
     nid_.uID = kTrayIconId;
     nid_.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     nid_.uCallbackMessage = kTrayIconMessage;
-    nid_.hIcon = LoadIconW(nullptr, MAKEINTRESOURCEW(32512));
+    nid_.hIcon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(kAppIconResourceId));
+    if (nid_.hIcon == nullptr) {
+      nid_.hIcon = LoadIconW(nullptr, MAKEINTRESOURCEW(32512));
+    }
     lstrcpynW(nid_.szTip, L"Wallpaper", 128);
     return Shell_NotifyIconW(NIM_ADD, &nid_) != FALSE;
   }

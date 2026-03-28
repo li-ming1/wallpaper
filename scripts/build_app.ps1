@@ -8,12 +8,20 @@ $gxx = Get-Command g++ -ErrorAction SilentlyContinue
 if (-not $gxx) {
   Write-Error "g++ not found in PATH. Install MSYS2/MinGW g++ first."
 }
+$windres = Get-Command windres -ErrorAction SilentlyContinue
+if (-not $windres) {
+  $windres = Get-Command x86_64-w64-mingw32-windres -ErrorAction SilentlyContinue
+}
+if (-not $windres) {
+  Write-Error "windres not found in PATH. Install MinGW windres first."
+}
 
 if (-not (Test-Path $BuildDir)) {
   New-Item -ItemType Directory -Force -Path $BuildDir | Out-Null
 }
 
 $output = Join-Path $BuildDir "wallpaper_app.exe"
+$resourceObj = Join-Path $BuildDir "app_icon_res.o"
 $sources = @(
   "src/main.cpp",
   "src/app.cpp",
@@ -42,6 +50,12 @@ $sources = @(
   "src/startup_policy.cpp"
 )
 
+Write-Host "Compiling Windows resources with $($windres.Source)..."
+& $windres.Source "resources/app_icon.rc" "-O" "coff" "-o" $resourceObj
+if ($LASTEXITCODE -ne 0) {
+  exit $LASTEXITCODE
+}
+
 $compileArgs = @(
   "-std=c++20",
   "-O2",
@@ -55,6 +69,7 @@ $compileArgs = @(
   "-mwindows",
   "-Iinclude"
 ) + $sources + @(
+  $resourceObj,
   "-o", $output,
   "-lole32",
   "-lmfplat",

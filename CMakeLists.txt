@@ -44,6 +44,7 @@ target_link_libraries(wallpaper_app PRIVATE wallpaper_core)
 
 if (WIN32)
   target_sources(wallpaper_app PRIVATE
+    resources/app_icon.rc
     src/win/wallpaper_host_win.cpp
     src/win/decode_pipeline_stub.cpp
     src/win/tray_controller_win.cpp
