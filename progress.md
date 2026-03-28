@@ -609,3 +609,44 @@
   - task_plan.md
   - findings.md
   - progress.md
+### Phase 19: 配置收敛与切换丝滑优化
+- **Status:** complete
+- Actions taken:
+  - Red: 更新 `config_store`/`resource_arbiter` 测试以删除旧配置语义，并新增 `pause_suspend_policy` 测试。
+  - Green: `Config` 与 `ConfigStore` 移除 `pauseOnFullscreen/pauseOnMaximized` 读写，仅保留 `pauseWhenNotDesktopContext`。
+  - Green: `ResourceArbiter` 移除 fullscreen/maximized 配置控制，仅依据 session/desktop/desktop-context 决策。
+  - Green: `App` 接入二阶段暂停策略：软暂停立即执行，长暂停阈值后升级硬挂起。
+  - Verification: `./scripts/run_tests.ps1` 与 `./scripts/build_app.ps1` 均通过。
+- Files created/modified:
+  - include/wallpaper/config.h
+  - src/config_store.cpp
+  - tests/config_store_tests.cpp
+  - include/wallpaper/resource_arbiter.h
+  - src/resource_arbiter.cpp
+  - tests/resource_arbiter_tests.cpp
+  - include/wallpaper/pause_suspend_policy.h
+  - src/pause_suspend_policy.cpp
+  - tests/pause_suspend_policy_tests.cpp
+  - include/wallpaper/app.h
+  - src/app.cpp
+  - CMakeLists.txt
+  - scripts/run_tests.ps1
+  - scripts/build_app.ps1
+  - task_plan.md
+  - findings.md
+  - progress.md
+### Phase 20: 切换顿挫细化优化
+- **Status:** complete
+- Actions taken:
+  - Green: `ResourceArbiter` 新增 `ShouldAllowHardSuspend()`，仅在 `sessionInactive` 或 `desktopHidden` 时允许硬挂起。
+  - Green: `App::Tick` 轻暂停路径不再清空最后一帧与解码 token，保持静态帧连续性，减少切换“跳一下”的体感。
+  - Green: 硬挂起阈值提升到 `8000ms`，并在非桌面上下文（常见全屏/分屏应用）场景禁止硬挂起，优先快速恢复。
+  - Red/Verification: 扩展 `tests/resource_arbiter_tests.cpp`，验证 hard suspend 许可条件；`./scripts/run_tests.ps1` 全绿（67/67），`./scripts/build_app.ps1` 构建通过。
+- Files created/modified:
+  - include/wallpaper/resource_arbiter.h
+  - src/resource_arbiter.cpp
+  - src/app.cpp
+  - tests/resource_arbiter_tests.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md

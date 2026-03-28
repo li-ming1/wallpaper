@@ -2,13 +2,6 @@
 
 #include "test_support.h"
 
-TEST_CASE(ResourceArbiter_PausesOnFullscreen) {
-  wallpaper::ResourceArbiter arbiter;
-
-  arbiter.SetForegroundState(wallpaper::ForegroundState::kFullscreen);
-  EXPECT_TRUE(arbiter.ShouldPause());
-}
-
 TEST_CASE(ResourceArbiter_KeepsRunningOnNormalWindow) {
   wallpaper::ResourceArbiter arbiter;
 
@@ -22,6 +15,7 @@ TEST_CASE(ResourceArbiter_PausesWhenForegroundNotDesktopContextByDefault) {
   arbiter.SetForegroundState(wallpaper::ForegroundState::kWindowed);
   arbiter.SetDesktopContextActive(false);
   EXPECT_TRUE(arbiter.ShouldPause());
+  EXPECT_TRUE(!arbiter.ShouldAllowHardSuspend());
 }
 
 TEST_CASE(ResourceArbiter_CanDisablePauseWhenNotDesktopContext) {
@@ -33,19 +27,13 @@ TEST_CASE(ResourceArbiter_CanDisablePauseWhenNotDesktopContext) {
   EXPECT_TRUE(!arbiter.ShouldPause());
 }
 
-TEST_CASE(ResourceArbiter_DoesNotPauseOnMaximizedByDefault) {
+TEST_CASE(ResourceArbiter_ForegroundStateDoesNotForcePauseByItself) {
   wallpaper::ResourceArbiter arbiter;
 
+  arbiter.SetForegroundState(wallpaper::ForegroundState::kFullscreen);
+  EXPECT_TRUE(!arbiter.ShouldPause());
   arbiter.SetForegroundState(wallpaper::ForegroundState::kMaximized);
   EXPECT_TRUE(!arbiter.ShouldPause());
-}
-
-TEST_CASE(ResourceArbiter_PausesOnMaximizedWhenEnabled) {
-  wallpaper::ResourceArbiter arbiter;
-
-  arbiter.SetPauseOnMaximized(true);
-  arbiter.SetForegroundState(wallpaper::ForegroundState::kMaximized);
-  EXPECT_TRUE(arbiter.ShouldPause());
 }
 
 TEST_CASE(ResourceArbiter_PausesWhenSessionInactive) {
@@ -54,6 +42,7 @@ TEST_CASE(ResourceArbiter_PausesWhenSessionInactive) {
   arbiter.SetForegroundState(wallpaper::ForegroundState::kWindowed);
   arbiter.SetSessionActive(false);
   EXPECT_TRUE(arbiter.ShouldPause());
+  EXPECT_TRUE(arbiter.ShouldAllowHardSuspend());
 }
 
 TEST_CASE(ResourceArbiter_PausesWhenDesktopHidden) {
@@ -62,4 +51,5 @@ TEST_CASE(ResourceArbiter_PausesWhenDesktopHidden) {
   arbiter.SetForegroundState(wallpaper::ForegroundState::kWindowed);
   arbiter.SetDesktopVisible(false);
   EXPECT_TRUE(arbiter.ShouldPause());
+  EXPECT_TRUE(arbiter.ShouldAllowHardSuspend());
 }

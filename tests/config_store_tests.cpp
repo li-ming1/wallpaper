@@ -13,8 +13,6 @@ TEST_CASE(ConfigStore_LoadsDefaultsWhenMissing) {
 
   EXPECT_TRUE(cfg.videoPath.empty());
   EXPECT_EQ(cfg.fpsCap, 30);
-  EXPECT_TRUE(cfg.pauseOnFullscreen);
-  EXPECT_TRUE(!cfg.pauseOnMaximized);
   EXPECT_TRUE(cfg.pauseWhenNotDesktopContext);
   EXPECT_TRUE(!cfg.autoStart);
   EXPECT_TRUE(cfg.adaptiveQuality);
@@ -28,9 +26,7 @@ TEST_CASE(ConfigStore_RoundTripsCoreFields) {
   expected.videoPath = "D:/videos/demo.mp4";
   expected.fpsCap = 60;
   expected.autoStart = true;
-  expected.pauseOnFullscreen = true;
-  expected.pauseOnMaximized = true;
-  expected.pauseWhenNotDesktopContext = true;
+  expected.pauseWhenNotDesktopContext = false;
   expected.adaptiveQuality = false;
   expected.codecPolicy = wallpaper::CodecPolicy::kH264PlusHevc;
 
@@ -41,8 +37,6 @@ TEST_CASE(ConfigStore_RoundTripsCoreFields) {
   EXPECT_EQ(actual.videoPath, expected.videoPath);
   EXPECT_EQ(actual.fpsCap, expected.fpsCap);
   EXPECT_EQ(actual.autoStart, expected.autoStart);
-  EXPECT_EQ(actual.pauseOnFullscreen, expected.pauseOnFullscreen);
-  EXPECT_EQ(actual.pauseOnMaximized, expected.pauseOnMaximized);
   EXPECT_EQ(actual.pauseWhenNotDesktopContext, expected.pauseWhenNotDesktopContext);
   EXPECT_EQ(actual.adaptiveQuality, expected.adaptiveQuality);
   EXPECT_EQ(static_cast<int>(actual.codecPolicy), static_cast<int>(expected.codecPolicy));

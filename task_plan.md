@@ -72,7 +72,7 @@ Phase 6
 | Windows-only V1 | Best chance to hit extreme performance target |
 | C++20 + Win32 + MF + D3D11 | Maximum low-level control and efficiency |
 | Default 30 FPS, optional 60 FPS | Balance smoothness and power |
-| Pause on fullscreen | Guarantee no foreground stutter |
+| Pause when not desktop context | Keep desktop-involved scenarios dynamic while minimizing non-desktop overhead |
 | g++ test script fallback | Current shell lacks cmake in PATH |
 
 ## Errors Encountered
@@ -179,4 +179,18 @@ Phase 6
 - [x] Green: 新增配置 `pauseWhenNotDesktopContext`（默认 true）
 - [x] Green: ResourceArbiter 支持“非桌面上下文暂停”
 - [x] Verification: 单测通过 + 构建通过
+- **Status:** complete
+
+### Phase 19: 配置收敛与切换丝滑优化（Completed）
+- [x] Red: 移除旧配置语义测试 + 新增分阶段暂停策略测试
+- [x] Green: 仅保留 `pauseWhenNotDesktopContext`
+- [x] Green: 暂停切换改为二阶段（先 Pause，长暂停再 Stop）
+- [x] Verification: 单测通过 + 构建通过
+- **Status:** complete
+
+### Phase 20: 切换顿挫细化优化（Completed）
+- [x] Green: 非桌面上下文场景保留最后一帧，不再在轻暂停时清空帧桥接
+- [x] Green: 仅在会话不可交互/桌面不可见时允许硬挂起，普通全屏保持轻暂停
+- [x] Green: 延长硬挂起阈值（8s），降低短中时长切换的恢复卡顿
+- [x] Verification: 单测通过（67/67） + 构建通过
 - **Status:** complete

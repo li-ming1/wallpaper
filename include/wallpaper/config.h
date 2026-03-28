@@ -13,8 +13,6 @@ struct Config final {
   std::string videoPath;
   int fpsCap = 30;
   bool autoStart = false;
-  bool pauseOnFullscreen = true;
-  bool pauseOnMaximized = false;
   bool pauseWhenNotDesktopContext = true;
   bool adaptiveQuality = true;
   CodecPolicy codecPolicy = CodecPolicy::kH264;

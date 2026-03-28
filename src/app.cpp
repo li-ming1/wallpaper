@@ -1,10 +1,8 @@
 #include "wallpaper/app.h"
 #include "wallpaper/desktop_context_policy.h"
-#include "wallpaper/foreground_policy.h"
 #include "wallpaper/frame_bridge.h"
 #include "wallpaper/loop_sleep_policy.h"
 #include "wallpaper/metrics_log_line.h"
-#include "wallpaper/pause_resource_policy.h"
 #include "wallpaper/pause_transition_policy.h"
 #include "wallpaper/probe_cadence_policy.h"
 #include "wallpaper/startup_policy.h"
@@ -21,7 +19,6 @@
 #ifdef _WIN32
 #define PSAPI_VERSION 1
 #include <windows.h>
-#include <dwmapi.h>
 #include <mmsystem.h>
 #include <psapi.h>
 #endif
@@ -155,82 +152,6 @@ bool IsSessionInteractive() {
   return true;
 }
 
-ForegroundState DetectForegroundState() {
-  const HWND hwnd = GetForegroundWindow();
-  if (hwnd == nullptr) {
-    return ForegroundState::kUnknown;
-  }
-
-  wchar_t className[256] = {};
-  if (GetClassNameW(hwnd, className, 255) == 0) {
-    return ForegroundState::kUnknown;
-  }
-  const std::wstring foregroundClass(className);
-
-  if (IsIconic(hwnd) != FALSE) {
-    return ForegroundState::kWindowed;
-  }
-
-  DWORD cloaked = 0;
-  if (SUCCEEDED(DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, &cloaked,
-                                      static_cast<DWORD>(sizeof(cloaked)))) &&
-      cloaked != 0) {
-    return ForegroundState::kWindowed;
-  }
-
-  RECT windowRect{};
-  if (!GetWindowRect(hwnd, &windowRect)) {
-    return ForegroundState::kUnknown;
-  }
-#ifdef _WIN32
-  RECT extendedFrameBounds{};
-  if (SUCCEEDED(
-          DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, &extendedFrameBounds,
-                                static_cast<DWORD>(sizeof(extendedFrameBounds))))) {
-    windowRect = extendedFrameBounds;
-  }
-#endif
-  const HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-  if (monitor == nullptr) {
-    return ForegroundState::kWindowed;
-  }
-  MONITORINFO monitorInfo{};
-  monitorInfo.cbSize = sizeof(monitorInfo);
-  if (!GetMonitorInfoW(monitor, &monitorInfo)) {
-    return ForegroundState::kWindowed;
-  }
-
-  const RECT& monitorRect = monitorInfo.rcMonitor;
-  // 先走严格覆盖判定，再用“无边框弹窗 + 高覆盖率”兼容边框化全屏/独占切换态。
-  const bool nearlyCoversMonitor =
-      IsNearlyCoveringMonitor(windowRect.left, windowRect.top, windowRect.right, windowRect.bottom,
-                              monitorRect.left, monitorRect.top, monitorRect.right,
-                              monitorRect.bottom, 12);
-  const double coverageRatio =
-      ComputeCoverageRatio(windowRect.left, windowRect.top, windowRect.right, windowRect.bottom,
-                           monitorRect.left, monitorRect.top, monitorRect.right,
-                           monitorRect.bottom);
-  const LONG style = GetWindowLongW(hwnd, GWL_STYLE);
-  const bool isBorderlessPopup = (style & WS_POPUP) != 0 && (style & WS_CAPTION) == 0;
-  const bool likelyFullscreenByCoverage =
-      IsLikelyFullscreenWindow(isBorderlessPopup, coverageRatio);
-  const bool coversMonitor = nearlyCoversMonitor || likelyFullscreenByCoverage;
-  const bool isVisible = IsWindowVisible(hwnd) != FALSE;
-  if (ShouldTreatForegroundAsFullscreen(foregroundClass, coversMonitor, isVisible)) {
-    return ForegroundState::kFullscreen;
-  }
-
-  WINDOWPLACEMENT placement{};
-  placement.length = sizeof(placement);
-  const bool isMaximized =
-      GetWindowPlacement(hwnd, &placement) != FALSE && placement.showCmd == SW_SHOWMAXIMIZED;
-  // 最大化单独建模，允许通过配置决定是否暂停，而不是和全屏绑定。
-  if (isMaximized && !IsShellForegroundClass(foregroundClass)) {
-    return ForegroundState::kMaximized;
-  }
-  return ForegroundState::kWindowed;
-}
-
 bool SetAutoStartEnabled(const bool enabled) {
   constexpr wchar_t kRunPath[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
   constexpr wchar_t kValueName[] = L"WallpaperDynamicDesktop";
@@ -281,7 +202,6 @@ class ScopedHighResolutionTimer final {
 double QueryProcessCpuPercent() { return 0.0; }
 std::size_t QueryPrivateBytes() { return 0; }
 bool IsSessionInteractive() { return true; }
-ForegroundState DetectForegroundState() { return ForegroundState::kWindowed; }
 bool SetAutoStartEnabled(bool) { return true; }
 bool TryDetectDesktopContextActive(bool* outActive) {
   if (outActive == nullptr) {
@@ -364,8 +284,6 @@ bool App::Initialize() {
   qualityGovernor_.SetTargetFps(config_.fpsCap);
   qualityGovernor_.SetEnabled(config_.adaptiveQuality);
   ApplyRenderFpsCap(qualityGovernor_.CurrentFps());
-  arbiter_.SetPauseOnFullscreen(config_.pauseOnFullscreen);
-  arbiter_.SetPauseOnMaximized(config_.pauseOnMaximized);
   arbiter_.SetPauseWhenNotDesktopContext(config_.pauseWhenNotDesktopContext);
 
   wallpaperHost_ = CreateWallpaperHost();
@@ -491,11 +409,12 @@ void App::ResetPlaybackState() {
   lastForegroundProbeAt_ = RenderScheduler::Clock::time_point{};
   cachedSessionInteractive_ = true;
   cachedDesktopContextActive_ = true;
-  cachedForegroundState_ = ForegroundState::kWindowed;
   wasPaused_ = false;
   resourcesReleasedByPause_ = false;
   resumePipelinePending_ = false;
   nextResumeAttemptAt_ = RenderScheduler::Clock::time_point{};
+  pauseEnteredAt_ = RenderScheduler::Clock::time_point{};
+  hardSuspendedByPause_ = false;
   pauseTransitionState_ = PauseTransitionState{};
   {
     std::lock_guard<std::mutex> lock(decodedTokenMu_);
@@ -720,49 +639,44 @@ void App::Tick() {
     if (TryDetectDesktopContextActive(&desktopContextActive)) {
       cachedDesktopContextActive_ = desktopContextActive;
     }
-    const ForegroundState detected = DetectForegroundState();
-    if (detected != ForegroundState::kUnknown) {
-      cachedForegroundState_ = detected;
-    }
     lastForegroundProbeAt_ = now;
   }
   arbiter_.SetSessionActive(cachedSessionInteractive_);
   arbiter_.SetDesktopContextActive(cachedDesktopContextActive_);
   arbiter_.SetDesktopVisible(true);
-  arbiter_.SetForegroundState(cachedForegroundState_);
   const bool rawShouldPause = arbiter_.ShouldPause();
-  constexpr std::chrono::milliseconds kPauseEnterDelay(160);
-  constexpr std::chrono::milliseconds kPauseExitDelay(240);
+  constexpr std::chrono::milliseconds kPauseEnterDelay(110);
+  constexpr std::chrono::milliseconds kPauseExitDelay(180);
+  constexpr std::chrono::milliseconds kHardSuspendAfter(8000);
   const bool shouldPause =
       UpdatePauseTransition(rawShouldPause, now, kPauseEnterDelay, kPauseExitDelay,
                             &pauseTransitionState_);
 
   if (shouldPause) {
     if (!wasPaused_) {
-      const bool hasActiveVideoResources = wallpaperAttached_ || decodeOpened_.load();
-      const bool keepWallpaperLayer =
-          ShouldKeepWallpaperLayerDuringPause(wallpaperAttached_, hasLastPresentedFrame_);
-      if (ShouldReleaseResourcesOnPause(shouldPause, hasActiveVideoResources)) {
-        // 全屏时释放解码资源；壁纸层保持常驻，维持静态壁纸观感。
-        decodePipeline_->Stop();
-        decodeOpened_.store(false);
+      // 先做轻量暂停，保留解码上下文，减少短时切换的恢复顿挫。
+      if (decodeRunning_.load()) {
+        decodePipeline_->Pause();
         decodeRunning_.store(false);
-        (void)keepWallpaperLayer;
-        resourcesReleasedByPause_ = true;
-      } else {
-        resourcesReleasedByPause_ = false;
       }
+      resourcesReleasedByPause_ = false;
+      hardSuspendedByPause_ = false;
+      pauseEnteredAt_ = now;
       scheduler_.Reset();
-      qualityGovernor_.Reset();
-      frame_bridge::ClearLatestFrame();
+      // 保留最后一帧并仅停止解码，让切换到“静态壁纸”时更自然。
       presentSamplesMs_.clear();
-      presentSamplesMs_.shrink_to_fit();
-      {
-        std::lock_guard<std::mutex> lock(decodedTokenMu_);
-        hasLatestDecodedToken_ = false;
-        latestDecodedToken_ = FrameToken{};
-      }
       wasPaused_ = true;
+    } else if (!hardSuspendedByPause_ && decodeOpened_.load() &&
+               arbiter_.ShouldAllowHardSuspend() &&
+               ShouldHardSuspendDuringPause(
+                   std::chrono::duration_cast<std::chrono::milliseconds>(now - pauseEnteredAt_),
+                   kHardSuspendAfter)) {
+      // 长暂停再升级为硬挂起，兼顾资源回收与短切换流畅性。
+      decodePipeline_->Stop();
+      decodeOpened_.store(false);
+      decodeRunning_.store(false);
+      hardSuspendedByPause_ = true;
+      resourcesReleasedByPause_ = true;
     }
     MaybeSampleAndLogMetrics(false, false, 0.0);
     return;
@@ -771,11 +685,15 @@ void App::Tick() {
   if (wasPaused_) {
     // 从 pause 恢复后重置调度，让 ShouldRender() 立即放行首帧，减少恢复黑屏/静止时间。
     scheduler_.Reset();
-    if (ShouldRestoreResourcesOnResume(false, resourcesReleasedByPause_)) {
-      resourcesReleasedByPause_ = false;
+    if (hardSuspendedByPause_) {
       resumePipelinePending_ = ShouldActivateVideoPipeline(config_.videoPath);
       nextResumeAttemptAt_ = now;
+    } else if (decodeOpened_.load() && !decodeRunning_.load()) {
+      decodeRunning_.store(decodePipeline_->Start());
     }
+    resourcesReleasedByPause_ = false;
+    hardSuspendedByPause_ = false;
+    pauseEnteredAt_ = RenderScheduler::Clock::time_point{};
     wasPaused_ = false;
   }
 

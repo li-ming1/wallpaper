@@ -26,6 +26,7 @@ $sources = @(
   "tests/metrics_log_line_tests.cpp",
   "tests/metrics_log_file_tests.cpp",
   "tests/pause_resource_policy_tests.cpp",
+  "tests/pause_suspend_policy_tests.cpp",
   "tests/pause_transition_policy_tests.cpp",
   "tests/quality_governor_tests.cpp",
   "tests/probe_cadence_policy_tests.cpp",
@@ -42,6 +43,7 @@ $sources = @(
   "src/loop_sleep_policy.cpp",
   "src/metrics_log_line.cpp",
   "src/metrics_log_file.cpp",
+  "src/pause_suspend_policy.cpp",
   "src/pause_transition_policy.cpp",
   "src/pause_resource_policy.cpp",
   "src/quality_governor.cpp",
@@ -73,3 +75,4 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "All tests passed."
+

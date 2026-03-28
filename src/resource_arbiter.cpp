@@ -6,14 +6,6 @@ void ResourceArbiter::SetForegroundState(const ForegroundState state) noexcept {
   foregroundState_ = state;
 }
 
-void ResourceArbiter::SetPauseOnFullscreen(const bool enabled) noexcept {
-  pauseOnFullscreen_ = enabled;
-}
-
-void ResourceArbiter::SetPauseOnMaximized(const bool enabled) noexcept {
-  pauseOnMaximized_ = enabled;
-}
-
 void ResourceArbiter::SetPauseWhenNotDesktopContext(const bool enabled) noexcept {
   pauseWhenNotDesktopContext_ = enabled;
 }
@@ -34,18 +26,16 @@ bool ResourceArbiter::ShouldPause() const noexcept {
   if (!sessionActive_ || !desktopVisible_) {
     return true;
   }
-
-  if (pauseOnFullscreen_ && foregroundState_ == ForegroundState::kFullscreen) {
-    return true;
-  }
-  if (pauseOnMaximized_ && foregroundState_ == ForegroundState::kMaximized) {
-    return true;
-  }
   if (pauseWhenNotDesktopContext_ && !desktopContextActive_) {
     return true;
   }
 
   return false;
+}
+
+bool ResourceArbiter::ShouldAllowHardSuspend() const noexcept {
+  // 非桌面上下文（如全屏应用）仅做轻暂停，避免频繁 Stop/Open 导致恢复卡顿。
+  return !sessionActive_ || !desktopVisible_;
 }
 
 }  // namespace wallpaper

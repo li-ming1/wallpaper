@@ -143,3 +143,11 @@
 - 桌面上下文判定：shell 类窗口 + `CabinetWClass` + `explorer.exe` 进程。
 - 新增配置 `pauseWhenNotDesktopContext`（默认 true），并保留 `pauseOnFullscreen/pauseOnMaximized` 作为独立开关。
 - 验证：`run_tests` 全绿（67/67），`build_app` 成功。
+- 配置收敛：移除 `pauseOnFullscreen` / `pauseOnMaximized` 配置通路，仅保留 `pauseWhenNotDesktopContext`。
+- 丝滑优化：暂停进入先软暂停（`Pause`，保留解码上下文），仅在持续暂停 >= 1800ms 才硬挂起（`Stop`），恢复时短暂停直接 `Start`，长暂停走重建。
+- 迟滞参数微调：enter 110ms，exit 180ms，降低体感顿挫。
+- 验证：`run_tests` 全绿（67/67），`build_app` 成功。
+- 进一步丝滑优化：轻暂停路径不再清空 frame bridge 与最新解码 token，保持最后一帧静态连续显示，减少“从动态切静态”的顿挫感。
+- 硬挂起触发策略收敛：仅在会话不可交互或桌面不可见时允许硬挂起；普通非桌面上下文（全屏/分屏应用）保持轻暂停，恢复更快更稳。
+- 硬挂起阈值从 1800ms 提升到 8000ms，避免中短时切换频繁触发 Stop/Open 带来的恢复卡顿。
+- 验证：`run_tests` 全绿（67/67），`build_app` 成功。

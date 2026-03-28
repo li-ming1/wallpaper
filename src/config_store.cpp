@@ -206,12 +206,6 @@ Config ConfigStore::Load() const {
   if (ExtractBool(json, "autoStart", &flag)) {
     config.autoStart = flag;
   }
-  if (ExtractBool(json, "pauseOnFullscreen", &flag)) {
-    config.pauseOnFullscreen = flag;
-  }
-  if (ExtractBool(json, "pauseOnMaximized", &flag)) {
-    config.pauseOnMaximized = flag;
-  }
   if (ExtractBool(json, "pauseWhenNotDesktopContext", &flag)) {
     config.pauseWhenNotDesktopContext = flag;
   }
@@ -240,10 +234,6 @@ void ConfigStore::Save(const Config& config) const {
   out << "  \"videoPath\": \"" << EscapeJson(config.videoPath) << "\",\n";
   out << "  \"fpsCap\": " << NormalizeFpsCap(config.fpsCap) << ",\n";
   out << "  \"autoStart\": " << (config.autoStart ? "true" : "false") << ",\n";
-  out << "  \"pauseOnFullscreen\": " << (config.pauseOnFullscreen ? "true" : "false")
-      << ",\n";
-  out << "  \"pauseOnMaximized\": " << (config.pauseOnMaximized ? "true" : "false")
-      << ",\n";
   out << "  \"pauseWhenNotDesktopContext\": "
       << (config.pauseWhenNotDesktopContext ? "true" : "false") << ",\n";
   out << "  \"adaptiveQuality\": " << (config.adaptiveQuality ? "true" : "false") << ",\n";

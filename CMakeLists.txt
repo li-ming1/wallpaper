@@ -19,6 +19,7 @@ add_library(wallpaper_core STATIC
   src/loop_sleep_policy.cpp
   src/metrics_log_line.cpp
   src/metrics_log_file.cpp
+  src/pause_suspend_policy.cpp
   src/pause_transition_policy.cpp
   src/pause_resource_policy.cpp
   src/quality_governor.cpp
@@ -77,6 +78,7 @@ add_executable(wallpaper_tests
   tests/metrics_log_line_tests.cpp
   tests/metrics_log_file_tests.cpp
   tests/pause_resource_policy_tests.cpp
+  tests/pause_suspend_policy_tests.cpp
   tests/pause_transition_policy_tests.cpp
   tests/quality_governor_tests.cpp
   tests/probe_cadence_policy_tests.cpp
@@ -93,6 +95,7 @@ add_executable(wallpaper_tests
   src/loop_sleep_policy.cpp
   src/metrics_log_line.cpp
   src/metrics_log_file.cpp
+  src/pause_suspend_policy.cpp
   src/pause_transition_policy.cpp
   src/pause_resource_policy.cpp
   src/quality_governor.cpp
@@ -106,3 +109,4 @@ add_executable(wallpaper_tests
 target_include_directories(wallpaper_tests PRIVATE include)
 
 add_test(NAME wallpaper_tests COMMAND wallpaper_tests)
+
