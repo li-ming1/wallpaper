@@ -6,6 +6,7 @@ TEST_CASE(DesktopContextPolicy_ShellAndExplorerClassesAreDesktopContext) {
   EXPECT_TRUE(wallpaper::IsDesktopContextClass(L"Progman"));
   EXPECT_TRUE(wallpaper::IsDesktopContextClass(L"WorkerW"));
   EXPECT_TRUE(wallpaper::IsDesktopContextClass(L"CabinetWClass"));
+  EXPECT_TRUE(wallpaper::IsDesktopContextClass(L"WallpaperTrayMessageWindow"));
 }
 
 TEST_CASE(DesktopContextPolicy_ExplorerProcessIsDesktopContext) {

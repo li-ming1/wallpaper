@@ -20,12 +20,13 @@ bool IsDesktopContextClass(const std::wstring& className) {
     return false;
   }
 
-  static constexpr std::array<const wchar_t*, 7> kDesktopClasses = {
+  static constexpr std::array<const wchar_t*, 8> kDesktopClasses = {
       L"Progman",
       L"WorkerW",
       L"SHELLDLL_DefView",
       L"SysListView32",
       L"WallpaperRenderHostWindow",
+      L"WallpaperTrayMessageWindow",
       L"Shell_TrayWnd",
       L"CabinetWClass",
   };

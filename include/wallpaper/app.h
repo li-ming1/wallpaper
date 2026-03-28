@@ -79,6 +79,7 @@ class App final {
   int sourceFpsCap_ = 60;
   int sourceFpsHint30_ = 0;
   int sourceFpsHint60_ = 0;
+  RenderScheduler::Clock::time_point lastTrayInteractionAt_{};
   RenderScheduler::Clock::time_point lastSessionProbeAt_{};
   RenderScheduler::Clock::time_point lastForegroundProbeAt_{};
   bool cachedSessionInteractive_ = true;

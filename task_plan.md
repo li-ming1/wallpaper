@@ -229,3 +229,10 @@ Phase 6
 - [x] Green: 解码 Stop 路径去除 MF 频繁 shutdown，降低清除/重选/退出卡顿
 - [x] Verification: 单测通过（76/76） + 构建通过
 - **Status:** complete
+
+### Phase 26: 托盘交互误暂停修复与切换顺滑性优化（Completed）
+- [x] Green: 前台属于本进程时强制判定桌面上下文，修复“选视频后变静态”
+- [x] Green: 增加托盘交互后 1.2s 桌面上下文保护窗口，抑制菜单/对话框抖动误判
+- [x] Green: 视频切换路径去除不必要 Stop->Open 双重重置，降低清除后重选顿挫
+- [x] Verification: 单测通过（76/76） + 构建通过
+- **Status:** complete

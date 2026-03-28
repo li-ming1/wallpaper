@@ -743,3 +743,19 @@
   - task_plan.md
   - progress.md
   - findings.md
+### Phase 26: 托盘交互误暂停修复与切换顺滑性优化
+- **Status:** complete
+- Actions taken:
+  - Green: `TryDetectDesktopContextActive` 新增“前台窗口属于当前进程”判定，避免托盘菜单/文件对话框被误判为非桌面上下文。
+  - Green: `App` 新增托盘交互保护窗口（1.2s），在短时菜单交互后强制 `desktopContextActive=true` 抑制抖动。
+  - Green: `desktop_context_policy` 增加 `WallpaperTrayMessageWindow` 类别判定兜底。
+  - Green: `ApplyVideoPath` 去除非空切换前的冗余 `Stop`，减少 Stop/Open 双重重置引发的顿挫。
+  - Verification: `./scripts/run_tests.ps1` 全绿（76/76）；`./scripts/build_app.ps1` 构建通过。
+- Files created/modified:
+  - src/app.cpp
+  - include/wallpaper/app.h
+  - src/desktop_context_policy.cpp
+  - tests/desktop_context_policy_tests.cpp
+  - task_plan.md
+  - progress.md
+  - findings.md

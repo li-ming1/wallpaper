@@ -72,6 +72,14 @@ bool TryDetectDesktopContextActive(bool* outActive) {
     return false;
   }
 
+  DWORD processId = 0;
+  GetWindowThreadProcessId(hwnd, &processId);
+  if (processId == GetCurrentProcessId()) {
+    // 托盘菜单/文件对话框属于本进程时，视为桌面上下文，避免误触发静态暂停。
+    *outActive = true;
+    return true;
+  }
+
   wchar_t className[256] = {};
   if (GetClassNameW(hwnd, className, 255) == 0) {
     return false;
@@ -422,6 +430,7 @@ void App::ResetPlaybackState() {
   sourceFpsCap_ = 60;
   sourceFpsHint30_ = 0;
   sourceFpsHint60_ = 0;
+  lastTrayInteractionAt_ = RenderScheduler::Clock::time_point{};
   lastDecodeMode_ = DecodeMode::kUnknown;
   lastSessionProbeAt_ = RenderScheduler::Clock::time_point{};
   lastForegroundProbeAt_ = RenderScheduler::Clock::time_point{};
@@ -493,10 +502,6 @@ bool App::ApplyVideoPath(const std::string& newPath) {
 
   const std::string oldPath = config_.videoPath;
   const bool canRestoreOldPath = ShouldActivateVideoPipeline(oldPath);
-  decodePipeline_->Stop();
-  decodeOpened_.store(false);
-  decodeRunning_.store(false);
-  ResetPlaybackState();
 
   const auto restoreOldVideo = [this, &oldPath, canRestoreOldPath]() {
     if (canRestoreOldPath) {
@@ -505,13 +510,16 @@ bool App::ApplyVideoPath(const std::string& newPath) {
   };
 
   if (newPath.empty()) {
+    decodePipeline_->Stop();
+    decodeOpened_.store(false);
+    decodeRunning_.store(false);
+    ResetPlaybackState();
     config_.videoPath.clear();
     DetachWallpaper();
     return true;
   }
 
   if (!ShouldActivateVideoPipeline(newPath)) {
-    restoreOldVideo();
     return false;
   }
 
@@ -577,13 +585,16 @@ bool App::HandleTrayActions() {
 
   bool configChanged = false;
   bool trayStateChanged = false;
+  bool hadTrayInteraction = false;
   TrayAction action;
   while (trayController_->TryDequeueAction(&action)) {
     switch (action.type) {
       case TrayActionType::kExit:
+        hadTrayInteraction = true;
         RequestStop();
         return false;
       case TrayActionType::kSetFps30:
+        hadTrayInteraction = true;
         if (config_.fpsCap != 30) {
           config_.fpsCap = 30;
           qualityGovernor_.SetTargetFps(config_.fpsCap);
@@ -593,6 +604,7 @@ bool App::HandleTrayActions() {
         }
         break;
       case TrayActionType::kSetFps60:
+        hadTrayInteraction = true;
         if (config_.fpsCap != 60) {
           config_.fpsCap = 60;
           qualityGovernor_.SetTargetFps(config_.fpsCap);
@@ -602,18 +614,21 @@ bool App::HandleTrayActions() {
         }
         break;
       case TrayActionType::kSelectVideo:
+        hadTrayInteraction = true;
         if (!action.payload.empty() && ApplyVideoPath(action.payload)) {
           configChanged = true;
           trayStateChanged = true;
         }
         break;
       case TrayActionType::kClearVideo:
+        hadTrayInteraction = true;
         if (ApplyVideoPath({})) {
           configChanged = true;
           trayStateChanged = true;
         }
         break;
       case TrayActionType::kEnableAutoStart:
+        hadTrayInteraction = true;
         if (!config_.autoStart && SetAutoStartEnabled(true)) {
           config_.autoStart = true;
           configChanged = true;
@@ -621,6 +636,7 @@ bool App::HandleTrayActions() {
         }
         break;
       case TrayActionType::kDisableAutoStart:
+        hadTrayInteraction = true;
         if (config_.autoStart && SetAutoStartEnabled(false)) {
           config_.autoStart = false;
           configChanged = true;
@@ -628,6 +644,7 @@ bool App::HandleTrayActions() {
         }
         break;
       case TrayActionType::kEnableAdaptiveQuality:
+        hadTrayInteraction = true;
         if (!config_.adaptiveQuality) {
           config_.adaptiveQuality = true;
           qualityGovernor_.SetEnabled(true);
@@ -637,6 +654,7 @@ bool App::HandleTrayActions() {
         }
         break;
       case TrayActionType::kDisableAdaptiveQuality:
+        hadTrayInteraction = true;
         if (config_.adaptiveQuality) {
           config_.adaptiveQuality = false;
           qualityGovernor_.SetEnabled(false);
@@ -649,6 +667,12 @@ bool App::HandleTrayActions() {
       default:
         break;
     }
+  }
+
+  if (hadTrayInteraction) {
+    // 托盘菜单/文件对话框关闭后的短窗口内强制按桌面上下文处理，避免误判静态暂停。
+    lastTrayInteractionAt_ = RenderScheduler::Clock::now();
+    cachedDesktopContextActive_ = true;
   }
 
   if (configChanged) {
@@ -681,6 +705,12 @@ void App::Tick() {
       cachedDesktopContextActive_ = desktopContextActive;
     }
     lastForegroundProbeAt_ = now;
+  }
+  constexpr std::chrono::milliseconds kTrayInteractionDesktopGrace(1200);
+  if (lastTrayInteractionAt_ != RenderScheduler::Clock::time_point{} &&
+      now >= lastTrayInteractionAt_ &&
+      (now - lastTrayInteractionAt_) <= kTrayInteractionDesktopGrace) {
+    cachedDesktopContextActive_ = true;
   }
   arbiter_.SetSessionActive(cachedSessionInteractive_);
   arbiter_.SetDesktopContextActive(cachedDesktopContextActive_);
