@@ -29,6 +29,7 @@ $sources = @(
   "src/video_path_matcher.cpp",
   "src/metrics_log_line.cpp",
   "src/metrics_log_file.cpp",
+  "src/pause_resource_policy.cpp",
   "src/quality_governor.cpp",
   "src/probe_cadence_policy.cpp",
   "src/render_scheduler.cpp",

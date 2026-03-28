@@ -7,7 +7,7 @@ namespace wallpaper {
 int ComputeMainLoopSleepMs(const bool shouldPause, const bool hasActiveVideo,
                            const std::chrono::milliseconds untilNextRender) noexcept {
   if (shouldPause) {
-    return 30;
+    return 80;
   }
   if (!hasActiveVideo) {
     return 50;
@@ -20,7 +20,7 @@ int ComputeMainLoopSleepMs(const bool shouldPause, const bool hasActiveVideo,
 int ComputeDecodePumpSleepMs(const bool decodeReady, const bool frameAcquired,
                              const int previousSleepMs) noexcept {
   if (!decodeReady) {
-    return 12;
+    return 30;
   }
   if (frameAcquired) {
     return 0;

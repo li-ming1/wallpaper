@@ -80,6 +80,7 @@ class App final {
   bool cachedSessionInteractive_ = true;
   ForegroundState cachedForegroundState_ = ForegroundState::kWindowed;
   bool wasPaused_ = false;
+  bool resourcesReleasedByPause_ = false;
   std::size_t droppedFrames_ = 0;
   std::size_t totalFrames_ = 0;
 };

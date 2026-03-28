@@ -18,6 +18,7 @@ add_library(wallpaper_core STATIC
   src/loop_sleep_policy.cpp
   src/metrics_log_line.cpp
   src/metrics_log_file.cpp
+  src/pause_resource_policy.cpp
   src/quality_governor.cpp
   src/video_path_matcher.cpp
   src/render_scheduler.cpp
@@ -72,6 +73,7 @@ add_executable(wallpaper_tests
   tests/loop_sleep_policy_tests.cpp
   tests/metrics_log_line_tests.cpp
   tests/metrics_log_file_tests.cpp
+  tests/pause_resource_policy_tests.cpp
   tests/quality_governor_tests.cpp
   tests/probe_cadence_policy_tests.cpp
   tests/render_scheduler_tests.cpp
@@ -86,6 +88,7 @@ add_executable(wallpaper_tests
   src/loop_sleep_policy.cpp
   src/metrics_log_line.cpp
   src/metrics_log_file.cpp
+  src/pause_resource_policy.cpp
   src/quality_governor.cpp
   src/probe_cadence_policy.cpp
   src/render_scheduler.cpp

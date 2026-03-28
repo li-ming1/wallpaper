@@ -122,3 +122,10 @@ Phase 6
 - [x] Green: pause 处理改为边沿触发并在进入 pause 时清理帧缓存
 - [x] Verification: 单测通过 + 构建通过
 - **Status:** complete
+
+### Phase 11: 全屏资源释放优化（Completed）
+- [x] Red: 新增 pause 资源策略测试并收紧睡眠阈值测试
+- [x] Green: 全屏进入时释放解码+渲染资源，退出全屏后恢复
+- [x] Green: pause 档位睡眠进一步拉长（主循环 80ms，解码泵 no-ready 30ms）
+- [x] Verification: 单测通过 + 构建通过
+- **Status:** complete

@@ -113,3 +113,7 @@
 - 循环调度继续降频：主循环 active wait 上限从 8ms 提升到 20ms，解码泵无帧退避上限从 8ms 提升到 12ms。
 - `Tick` 的 pause 路径从“每轮重置”改为“进入 pause 边沿重置一次”，并清空 frame bridge + 最近呈现缓存，降低 pause 期间 CPU 与驻留内存。
 - 验证：`run_tests` 全绿（51/51），`build_app` 成功。
+- 新增 `pause_resource_policy` 并接入 `App::Tick`，全屏进入时由 `Pause` 升级为 `Stop + Detach`，退出全屏后按配置重建视频管线。
+- 全屏档继续降唤醒：主循环 pause 睡眠 80ms，解码泵无解码准备睡眠 30ms。
+- 目标：让全屏场景下 CPU/内存变化“可感知”，而非仅小幅波动。
+- 验证：`run_tests` 全绿（53/53），`build_app` 成功。

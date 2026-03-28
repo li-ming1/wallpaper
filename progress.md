@@ -452,3 +452,25 @@
   - task_plan.md
   - findings.md
   - progress.md
+### Phase 11: 全屏资源释放优化
+- **Status:** complete
+- Actions taken:
+  - Red: 新增 `tests/pause_resource_policy_tests.cpp`，并调高 `loop_sleep_policy` 目标阈值形成失败。
+  - Green: 新增 `include/wallpaper/pause_resource_policy.h`、`src/pause_resource_policy.cpp`。
+  - Green: 修改 `src/app.cpp`：暂停边沿执行 `decodePipeline->Stop()` 与 `DetachWallpaper()`，恢复边沿按配置 `StartVideoPipelineForPath()`。
+  - Green: 调整 `src/loop_sleep_policy.cpp`（pause 80ms、decode not-ready 30ms）。
+  - Verification: `./scripts/run_tests.ps1` 通过；`./scripts/build_app.ps1` 通过。
+- Files created/modified:
+  - include/wallpaper/pause_resource_policy.h
+  - src/pause_resource_policy.cpp
+  - tests/pause_resource_policy_tests.cpp
+  - src/loop_sleep_policy.cpp
+  - tests/loop_sleep_policy_tests.cpp
+  - include/wallpaper/app.h
+  - src/app.cpp
+  - CMakeLists.txt
+  - scripts/run_tests.ps1
+  - scripts/build_app.ps1
+  - task_plan.md
+  - findings.md
+  - progress.md

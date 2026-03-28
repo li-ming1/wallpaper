@@ -3,6 +3,7 @@
 #include "wallpaper/frame_bridge.h"
 #include "wallpaper/loop_sleep_policy.h"
 #include "wallpaper/metrics_log_line.h"
+#include "wallpaper/pause_resource_policy.h"
 #include "wallpaper/probe_cadence_policy.h"
 #include "wallpaper/startup_policy.h"
 #include "wallpaper/video_path_matcher.h"
@@ -383,6 +384,7 @@ void App::ResetPlaybackState() {
   cachedSessionInteractive_ = true;
   cachedForegroundState_ = ForegroundState::kWindowed;
   wasPaused_ = false;
+  resourcesReleasedByPause_ = false;
   {
     std::lock_guard<std::mutex> lock(decodedTokenMu_);
     hasLatestDecodedToken_ = false;
@@ -612,10 +614,16 @@ void App::Tick() {
 
   if (shouldPause) {
     if (!wasPaused_) {
-      // 仅在进入 pause 的边沿执行一次高开销操作，降低暂停期间空转开销。
-      if (decodeRunning_.load()) {
-        decodePipeline_->Pause();
+      const bool hasActiveVideoResources = wallpaperAttached_ || decodeOpened_.load();
+      if (ShouldReleaseResourcesOnPause(shouldPause, hasActiveVideoResources)) {
+        // 全屏时释放重资源（解码器 + 桌面渲染窗口）以获得可感知的 CPU/内存下降。
+        decodePipeline_->Stop();
+        decodeOpened_.store(false);
         decodeRunning_.store(false);
+        DetachWallpaper();
+        resourcesReleasedByPause_ = true;
+      } else {
+        resourcesReleasedByPause_ = false;
       }
       scheduler_.Reset();
       qualityGovernor_.Reset();
@@ -638,6 +646,12 @@ void App::Tick() {
   if (wasPaused_) {
     // 从 pause 恢复后重置调度，让 ShouldRender() 立即放行首帧，减少恢复黑屏/静止时间。
     scheduler_.Reset();
+    if (ShouldRestoreResourcesOnResume(false, resourcesReleasedByPause_)) {
+      resourcesReleasedByPause_ = false;
+      if (ShouldActivateVideoPipeline(config_.videoPath)) {
+        StartVideoPipelineForPath(config_.videoPath);
+      }
+    }
     wasPaused_ = false;
   }
 
