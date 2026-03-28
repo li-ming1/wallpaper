@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <condition_variable>
 #include <filesystem>
 #include <future>
 #include <mutex>
@@ -40,6 +41,7 @@ class App final {
   void ApplyRenderFpsCap(int governorFps);
   void StartDecodePump();
   void StopDecodePump();
+  void WakeDecodePump();
   void SyncTrayMenuState() const;
   void ScheduleConfigSave();
   void Tick();
@@ -60,6 +62,8 @@ class App final {
   std::thread decodePumpThread_;
   std::atomic<bool> decodePumpRunning_{false};
   std::atomic<int> decodePumpHotSleepMs_{4};
+  mutable std::mutex decodePumpWaitMu_;
+  std::condition_variable decodePumpWaitCv_;
   std::mutex decodedTokenMu_;
   FrameToken latestDecodedToken_{};
   bool hasLatestDecodedToken_ = false;
@@ -79,6 +83,7 @@ class App final {
   int sourceFpsCap_ = 60;
   int sourceFpsHint30_ = 0;
   int sourceFpsHint60_ = 0;
+  bool trayMenuVisible_ = false;
   RenderScheduler::Clock::time_point lastTrayInteractionAt_{};
   RenderScheduler::Clock::time_point lastSessionProbeAt_{};
   RenderScheduler::Clock::time_point lastForegroundProbeAt_{};

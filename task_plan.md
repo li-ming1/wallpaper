@@ -236,3 +236,10 @@ Phase 6
 - [x] Green: 视频切换路径去除不必要 Stop->Open 双重重置，降低清除后重选顿挫
 - [x] Verification: 单测通过（76/76） + 构建通过
 - **Status:** complete
+
+### Phase 27: 托盘菜单动态误切修复与退出切换降卡顿（Completed）
+- [x] Green: 菜单打开/关闭显式事件化，交互窗口内冻结桌面上下文探测
+- [x] Green: 去除“托盘交互强制切动态”策略，改为保持当前上下文状态
+- [x] Green: 解码泵睡眠改可中断等待，退出与切换时降低 join 卡顿
+- [x] Verification: 单测通过（76/76） + 构建通过
+- **Status:** complete

@@ -313,8 +313,10 @@ class TrayControllerWin final : public ITrayController {
     POINT pt{};
     GetCursorPos(&pt);
     SetForegroundWindow(messageWindow_);
+    PushAction(TrayActionType::kMenuOpened);
     const UINT command = TrackPopupMenu(menu, TPM_RIGHTBUTTON | TPM_RETURNCMD, pt.x, pt.y, 0,
                                         messageWindow_, nullptr);
+    PushAction(TrayActionType::kMenuClosed);
     if (command != 0) {
       HandleMenuCommand(command);
     }

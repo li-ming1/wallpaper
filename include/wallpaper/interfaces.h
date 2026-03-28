@@ -57,6 +57,8 @@ enum class TrayActionType {
   kDisableAutoStart = 7,
   kEnableAdaptiveQuality = 8,
   kDisableAdaptiveQuality = 9,
+  kMenuOpened = 10,
+  kMenuClosed = 11,
 };
 
 struct TrayAction final {

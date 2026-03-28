@@ -759,3 +759,19 @@
   - task_plan.md
   - progress.md
   - findings.md
+### Phase 27: 托盘菜单动态误切修复与退出切换降卡顿
+- **Status:** complete
+- Actions taken:
+  - Green: `TrayActionType` 新增 `kMenuOpened/kMenuClosed`，托盘菜单显示周期显式上报给主循环。
+  - Green: `Tick` 中引入 `suppressDesktopContextProbe`（菜单可见或交互冻结窗口内），仅冻结探测不改写当前上下文，修复“打开托盘菜单就切动态”。
+  - Green: 取消托盘交互后的“强制 desktopContext=true”逻辑，避免状态被错误重置。
+  - Green: 解码泵睡眠改为 `condition_variable` 可中断等待，`StopDecodePump` 通过 `WakeDecodePump()` 立即唤醒，降低退出和切换卡顿。
+  - Verification: `./scripts/run_tests.ps1` 全绿（76/76）；`./scripts/build_app.ps1` 构建通过。
+- Files created/modified:
+  - include/wallpaper/interfaces.h
+  - include/wallpaper/app.h
+  - src/app.cpp
+  - src/win/tray_controller_win.cpp
+  - task_plan.md
+  - progress.md
+  - findings.md

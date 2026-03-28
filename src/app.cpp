@@ -72,14 +72,6 @@ bool TryDetectDesktopContextActive(bool* outActive) {
     return false;
   }
 
-  DWORD processId = 0;
-  GetWindowThreadProcessId(hwnd, &processId);
-  if (processId == GetCurrentProcessId()) {
-    // 托盘菜单/文件对话框属于本进程时，视为桌面上下文，避免误触发静态暂停。
-    *outActive = true;
-    return true;
-  }
-
   wchar_t className[256] = {};
   if (GetClassNameW(hwnd, className, 255) == 0) {
     return false;
@@ -430,6 +422,7 @@ void App::ResetPlaybackState() {
   sourceFpsCap_ = 60;
   sourceFpsHint30_ = 0;
   sourceFpsHint60_ = 0;
+  trayMenuVisible_ = false;
   lastTrayInteractionAt_ = RenderScheduler::Clock::time_point{};
   lastDecodeMode_ = DecodeMode::kUnknown;
   lastSessionProbeAt_ = RenderScheduler::Clock::time_point{};
@@ -487,6 +480,7 @@ void App::ApplyRenderFpsCap(const int governorFps) {
     desired = 30;
   }
   decodePumpHotSleepMs_.store(ComputeDecodePumpHotSleepMs(desired));
+  WakeDecodePump();
   if (scheduler_.GetFpsCap() != desired) {
     scheduler_.SetFpsCap(desired);
   }
@@ -538,12 +532,21 @@ void App::StartDecodePump() {
   }
 
   decodePumpThread_ = std::thread([this]() {
+    const auto sleepInterruptible = [this](const int sleepMs) {
+      if (sleepMs <= 0) {
+        return;
+      }
+      std::unique_lock<std::mutex> lock(decodePumpWaitMu_);
+      decodePumpWaitCv_.wait_for(lock, std::chrono::milliseconds(sleepMs),
+                                 [this]() { return !decodePumpRunning_.load(); });
+    };
+
     int decodeIdleSleepMs = 2;
     while (decodePumpRunning_.load()) {
       const bool decodeReady = decodePipeline_ && decodeOpened_.load() && decodeRunning_.load();
       if (!decodeReady) {
         decodeIdleSleepMs = ComputeDecodePumpSleepMs(false, false, decodeIdleSleepMs);
-        std::this_thread::sleep_for(std::chrono::milliseconds(decodeIdleSleepMs));
+        sleepInterruptible(decodeIdleSleepMs);
         continue;
       }
       if (decodeIdleSleepMs > 2) {
@@ -560,10 +563,10 @@ void App::StartDecodePump() {
         if (hotSleepMs > decodeIdleSleepMs) {
           decodeIdleSleepMs = hotSleepMs;
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(decodeIdleSleepMs));
+        sleepInterruptible(decodeIdleSleepMs);
       } else {
         decodeIdleSleepMs = ComputeDecodePumpSleepMs(true, false, decodeIdleSleepMs);
-        std::this_thread::sleep_for(std::chrono::milliseconds(decodeIdleSleepMs));
+        sleepInterruptible(decodeIdleSleepMs);
       }
     }
   });
@@ -573,9 +576,14 @@ void App::StopDecodePump() {
   if (!decodePumpRunning_.exchange(false)) {
     return;
   }
+  WakeDecodePump();
   if (decodePumpThread_.joinable()) {
     decodePumpThread_.join();
   }
+}
+
+void App::WakeDecodePump() {
+  decodePumpWaitCv_.notify_all();
 }
 
 bool App::HandleTrayActions() {
@@ -663,6 +671,13 @@ bool App::HandleTrayActions() {
           trayStateChanged = true;
         }
         break;
+      case TrayActionType::kMenuOpened:
+        trayMenuVisible_ = true;
+        break;
+      case TrayActionType::kMenuClosed:
+        trayMenuVisible_ = false;
+        hadTrayInteraction = true;
+        break;
       case TrayActionType::kNone:
       default:
         break;
@@ -670,9 +685,8 @@ bool App::HandleTrayActions() {
   }
 
   if (hadTrayInteraction) {
-    // 托盘菜单/文件对话框关闭后的短窗口内强制按桌面上下文处理，避免误判静态暂停。
+    // 托盘菜单/文件对话框交互后短窗口内冻结上下文探测，避免桌面状态抖动误判。
     lastTrayInteractionAt_ = RenderScheduler::Clock::now();
-    cachedDesktopContextActive_ = true;
   }
 
   if (configChanged) {
@@ -693,24 +707,24 @@ void App::Tick() {
 
   const RuntimeProbeIntervals probeIntervals = SelectRuntimeProbeIntervals(wasPaused_);
   const auto now = RenderScheduler::Clock::now();
+  constexpr std::chrono::milliseconds kTrayInteractionProbeFreeze(1200);
+  const bool inTrayInteractionFreeze =
+      lastTrayInteractionAt_ != RenderScheduler::Clock::time_point{} &&
+      now >= lastTrayInteractionAt_ &&
+      (now - lastTrayInteractionAt_) <= kTrayInteractionProbeFreeze;
+  const bool suppressDesktopContextProbe = trayMenuVisible_ || inTrayInteractionFreeze;
   if (ShouldRefreshRuntimeProbe(now, lastSessionProbeAt_, probeIntervals.session)) {
     cachedSessionInteractive_ = IsSessionInteractive();
     lastSessionProbeAt_ = now;
   }
   const bool shouldProbeForeground =
       ShouldRefreshRuntimeProbe(now, lastForegroundProbeAt_, probeIntervals.foreground);
-  if (shouldProbeForeground) {
+  if (shouldProbeForeground && !suppressDesktopContextProbe) {
     bool desktopContextActive = cachedDesktopContextActive_;
     if (TryDetectDesktopContextActive(&desktopContextActive)) {
       cachedDesktopContextActive_ = desktopContextActive;
     }
     lastForegroundProbeAt_ = now;
-  }
-  constexpr std::chrono::milliseconds kTrayInteractionDesktopGrace(1200);
-  if (lastTrayInteractionAt_ != RenderScheduler::Clock::time_point{} &&
-      now >= lastTrayInteractionAt_ &&
-      (now - lastTrayInteractionAt_) <= kTrayInteractionDesktopGrace) {
-    cachedDesktopContextActive_ = true;
   }
   arbiter_.SetSessionActive(cachedSessionInteractive_);
   arbiter_.SetDesktopContextActive(cachedDesktopContextActive_);
