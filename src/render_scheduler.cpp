@@ -35,6 +35,18 @@ bool RenderScheduler::ShouldRender(const Clock::time_point now) {
   return true;
 }
 
+RenderScheduler::Clock::duration RenderScheduler::TimeUntilNextRender(
+    const Clock::time_point now) const noexcept {
+  if (!hasLastFrame_) {
+    return Clock::duration::zero();
+  }
+  const Clock::duration elapsed = now - lastFrameAt_;
+  if (elapsed >= frameInterval_) {
+    return Clock::duration::zero();
+  }
+  return frameInterval_ - elapsed;
+}
+
 void RenderScheduler::Reset() noexcept {
   hasLastFrame_ = false;
   lastFrameAt_ = Clock::time_point{};

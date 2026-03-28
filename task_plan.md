@@ -100,3 +100,11 @@ Phase 6
 - [x] Green: 调整 Windows 宿主窗口首帧后再可见
 - [x] Verification: 单测通过 + `wallpaper_app.exe` 构建通过
 - **Status:** complete
+
+### Phase 8: CPU/内存优化（Completed）
+- [x] Red: 新增循环睡眠策略测试与调度器剩余等待测试
+- [x] Green: 主循环改为按下一帧时间自适应睡眠
+- [x] Green: 解码泵加入退避等待，降低无帧空转
+- [x] Green: 壁纸层分离时主动清理帧桥接缓存
+- [x] Verification: 单测通过 + 构建通过
+- **Status:** complete

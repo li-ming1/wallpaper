@@ -15,6 +15,7 @@ class RenderScheduler final {
   void SetFpsCap(int fpsCap);
   [[nodiscard]] int GetFpsCap() const noexcept;
   [[nodiscard]] bool ShouldRender(Clock::time_point now);
+  [[nodiscard]] Clock::duration TimeUntilNextRender(Clock::time_point now) const noexcept;
   void Reset() noexcept;
 
  private:

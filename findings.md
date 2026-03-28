@@ -101,3 +101,8 @@
 - 修复策略落地：新增 `startup_policy`（路径有效性 + 首帧呈现门控），并将 App 启动/换源改为“无有效视频则仅托盘运行”。
 - 修复策略落地：Windows 壁纸宿主窗口改为默认隐藏，只有拿到可绘制视频纹理后才 `ShowWindow`，启动瞬时不再出现幕布闪现。
 - 验证：`scripts/run_tests.ps1` 全绿（36/36），`scripts/build_app.ps1` 构建成功（含 `src/startup_policy.cpp`）。
+- 新增 `loop_sleep_policy`：主循环按下一帧剩余时间睡眠（1~8ms 夹紧），无活动视频走 50ms 空闲档，pause 走 30ms。
+- 解码泵从固定 1/4ms 轮询改为退避策略（无解码 12ms、无帧逐步到 8ms），降低 CPU 空转。
+- 新增 `RenderScheduler::TimeUntilNextRender()`，用于主循环睡眠决策。
+- `DetachWallpaper()` 现在清理 `frame_bridge` 与统计采样缓存，减少无视频态内存占用。
+- 验证：`run_tests` 全绿（43/43），`build_app` 成功。

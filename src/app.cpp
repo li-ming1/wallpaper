@@ -1,5 +1,7 @@
 #include "wallpaper/app.h"
 #include "wallpaper/foreground_policy.h"
+#include "wallpaper/frame_bridge.h"
+#include "wallpaper/loop_sleep_policy.h"
 #include "wallpaper/metrics_log_line.h"
 #include "wallpaper/startup_policy.h"
 #include "wallpaper/video_path_matcher.h"
@@ -302,12 +304,13 @@ int App::Run() {
     }
     Tick();
 
-    // 按当前仲裁状态调整睡眠，避免 pause 状态下 1ms 忙轮询造成无效 CPU 占用。
-    if (arbiter_.ShouldPause()) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(30));
-    } else {
-      std::this_thread::sleep_for(std::chrono::milliseconds(2));
-    }
+    const bool shouldPause = arbiter_.ShouldPause();
+    const bool hasActiveVideo = wallpaperAttached_ && decodeOpened_.load();
+    const auto untilNextRender = std::chrono::duration_cast<std::chrono::milliseconds>(
+        scheduler_.TimeUntilNextRender(RenderScheduler::Clock::now()));
+    const int sleepMs =
+        ComputeMainLoopSleepMs(shouldPause, hasActiveVideo, untilNextRender);
+    std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
   }
 
   StopDecodePump();
@@ -354,10 +357,16 @@ bool App::EnsureWallpaperAttached() {
 
 void App::DetachWallpaper() {
   if (!wallpaperHost_ || !wallpaperAttached_) {
+    frame_bridge::ClearLatestFrame();
+    presentSamplesMs_.clear();
+    presentSamplesMs_.shrink_to_fit();
     return;
   }
   wallpaperHost_->DetachFromDesktop();
   wallpaperAttached_ = false;
+  frame_bridge::ClearLatestFrame();
+  presentSamplesMs_.clear();
+  presentSamplesMs_.shrink_to_fit();
 }
 
 void App::ResetPlaybackState() {
@@ -460,10 +469,16 @@ void App::StartDecodePump() {
   }
 
   decodePumpThread_ = std::thread([this]() {
+    int decodeIdleSleepMs = 1;
     while (decodePumpRunning_.load()) {
-      if (!decodePipeline_ || !decodeOpened_.load() || !decodeRunning_.load()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(4));
+      const bool decodeReady = decodePipeline_ && decodeOpened_.load() && decodeRunning_.load();
+      if (!decodeReady) {
+        decodeIdleSleepMs = ComputeDecodePumpSleepMs(false, false, decodeIdleSleepMs);
+        std::this_thread::sleep_for(std::chrono::milliseconds(decodeIdleSleepMs));
         continue;
+      }
+      if (decodeIdleSleepMs > 1) {
+        decodeIdleSleepMs = 1;
       }
 
       FrameToken token{};
@@ -471,8 +486,10 @@ void App::StartDecodePump() {
         std::lock_guard<std::mutex> lock(decodedTokenMu_);
         latestDecodedToken_ = token;
         hasLatestDecodedToken_ = true;
+        decodeIdleSleepMs = ComputeDecodePumpSleepMs(true, true, decodeIdleSleepMs);
       } else {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        decodeIdleSleepMs = ComputeDecodePumpSleepMs(true, false, decodeIdleSleepMs);
+        std::this_thread::sleep_for(std::chrono::milliseconds(decodeIdleSleepMs));
       }
     }
   });

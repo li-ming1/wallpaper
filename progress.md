@@ -396,3 +396,22 @@
   - scripts/run_tests.ps1
   - scripts/build_app.ps1
   - CMakeLists.txt
+### Phase 8: CPU/内存优化
+- **Status:** complete
+- Actions taken:
+  - Red: 新增 `tests/loop_sleep_policy_tests.cpp` 与 `RenderScheduler_TimeUntilNextRenderTracksInterval` 测试。
+  - Green: 新增 `include/wallpaper/loop_sleep_policy.h`、`src/loop_sleep_policy.cpp`。
+  - Green: 在 `src/app.cpp` 主循环引入自适应睡眠；解码泵引入退避等待；`DetachWallpaper` 增加缓存清理。
+  - Green: 为 `RenderScheduler` 增加 `TimeUntilNextRender()` 并在主循环接入。
+  - Verification: `./scripts/run_tests.ps1` 通过；`./scripts/build_app.ps1` 构建通过。
+- Files created/modified:
+  - include/wallpaper/loop_sleep_policy.h
+  - src/loop_sleep_policy.cpp
+  - tests/loop_sleep_policy_tests.cpp
+  - include/wallpaper/render_scheduler.h
+  - src/render_scheduler.cpp
+  - tests/render_scheduler_tests.cpp
+  - src/app.cpp
+  - CMakeLists.txt
+  - scripts/run_tests.ps1
+  - scripts/build_app.ps1

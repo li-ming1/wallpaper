@@ -24,6 +24,7 @@ $sources = @(
   "src/config_store.cpp",
   "src/desktop_attach_policy.cpp",
   "src/foreground_policy.cpp",
+  "src/loop_sleep_policy.cpp",
   "src/video_path_matcher.cpp",
   "src/metrics_log_line.cpp",
   "src/metrics_log_file.cpp",
