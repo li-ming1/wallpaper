@@ -92,10 +92,13 @@ class DecodePipelineStub final : public IDecodePipeline {
   void TrimMemory() override {
     std::lock_guard<std::mutex> lock(mu_);
     if (running_) {
+      // 运行态不直接清空桥接帧，改为下一次发布时按当前帧尺寸收缩缓冲，避免可见闪烁。
+      trimRequested_ = true;
       return;
     }
     currentFramePixels_.reset();
     frame_bridge::ClearLatestFrame();
+    trimRequested_ = false;
   }
 
   bool TryAcquireLatestFrame(FrameToken* frame) override {
@@ -304,7 +307,7 @@ class DecodePipelineStub final : public IDecodePipeline {
   }
 
   bool PublishSampleToBridgeLocked(IMFSample* sample, const std::uint64_t sequence,
-                                   const std::int64_t timestamp100ns) const {
+                                   const std::int64_t timestamp100ns) {
     if (sample == nullptr || frameWidth_ == 0 || frameHeight_ == 0 || frameStride_ == 0) {
       return false;
     }
@@ -330,8 +333,11 @@ class DecodePipelineStub final : public IDecodePipeline {
       currentFramePixels_ = std::make_shared<std::vector<std::uint8_t>>();
     }
     const std::size_t requiredBytes = static_cast<std::size_t>(currentLength);
-    const std::size_t nextCapacity =
-        DecideFrameBufferCapacity(currentFramePixels_->capacity(), requiredBytes);
+    std::size_t nextCapacity = DecideFrameBufferCapacity(currentFramePixels_->capacity(), requiredBytes);
+    if (trimRequested_) {
+      nextCapacity = requiredBytes;
+      trimRequested_ = false;
+    }
     if (nextCapacity != currentFramePixels_->capacity()) {
       auto resized = std::make_shared<std::vector<std::uint8_t>>();
       resized->reserve(nextCapacity);
@@ -422,6 +428,7 @@ class DecodePipelineStub final : public IDecodePipeline {
     path_.clear();
     mode_ = Mode::kFallbackTicker;
     currentFramePixels_.reset();
+    trimRequested_ = false;
     frame_bridge::ClearLatestFrame();
 #ifdef _WIN32
     ReleaseMfLocked();
@@ -437,6 +444,7 @@ class DecodePipelineStub final : public IDecodePipeline {
   Clock::time_point pauseAt_{};
   std::uint64_t sequence_ = 0;
   mutable std::shared_ptr<std::vector<std::uint8_t>> currentFramePixels_;
+  bool trimRequested_ = false;
 
 #ifdef _WIN32
   IMFSourceReader* sourceReader_ = nullptr;

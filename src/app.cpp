@@ -1,6 +1,7 @@
 #include "wallpaper/app.h"
 #include "wallpaper/desktop_context_policy.h"
 #include "wallpaper/frame_bridge.h"
+#include "wallpaper/long_run_load_policy.h"
 #include "wallpaper/loop_sleep_policy.h"
 #include "wallpaper/metrics_log_line.h"
 #include "wallpaper/pause_transition_policy.h"
@@ -462,6 +463,7 @@ void App::ResetPlaybackState() {
   foregroundProbeFailureStreak_ = 0;
   cachedSessionInteractive_ = true;
   cachedDesktopContextActive_ = true;
+  longRunLoadState_ = LongRunLoadState{};
   stablePauseForLoopSleep_ = false;
   wasPaused_ = false;
   decodeCacheTrimmedByPause_ = false;
@@ -474,6 +476,7 @@ void App::ResetPlaybackState() {
   pauseEnteredAt_ = RenderScheduler::Clock::time_point{};
   hardSuspendedByPause_ = false;
   pauseTransitionState_ = PauseTransitionState{};
+  decodePumpDynamicBoostMs_.store(0);
   {
     std::lock_guard<std::mutex> lock(decodedTokenMu_);
     hasLatestDecodedToken_ = false;
@@ -513,7 +516,9 @@ void App::ApplyRenderFpsCap(const int governorFps) {
   if (sourceFpsCap_ == 30 && desired > 30) {
     desired = 30;
   }
-  decodePumpHotSleepMs_.store(ComputeDecodePumpHotSleepMs(desired));
+  const int baseHotSleepMs = ComputeDecodePumpHotSleepMs(desired);
+  const int dynamicBoostMs = decodePumpDynamicBoostMs_.load();
+  decodePumpHotSleepMs_.store(std::clamp(baseHotSleepMs + dynamicBoostMs, 4, 36));
   WakeDecodePump();
   if (scheduler_.GetFpsCap() != desired) {
     scheduler_.SetFpsCap(desired);
@@ -1041,6 +1046,13 @@ void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameD
   metrics_.PushSample(metrics);
   // 每秒基于实时负载做一次帧率档位决策，避免在每帧路径引入额外分支和抖动。
   const int effectiveFps = qualityGovernor_.Update(metrics);
+  const bool hasActiveVideo = wallpaperAttached_ && decodeOpened_.load() && decodeRunning_.load();
+  const LongRunLoadDecision longRunDecision =
+      UpdateLongRunLoadPolicy(metrics, hasActiveVideo, stablePauseForLoopSleep_, &longRunLoadState_);
+  decodePumpDynamicBoostMs_.store(longRunDecision.decodeHotSleepBoostMs);
+  if (longRunDecision.requestDecodeTrim && decodePipeline_) {
+    decodePipeline_->TrimMemory();
+  }
   ApplyRenderFpsCap(effectiveFps);
   const int appliedFps = scheduler_.GetFpsCap();
   const int targetFps = NormalizeFpsCap(config_.fpsCap);

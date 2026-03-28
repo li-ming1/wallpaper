@@ -825,3 +825,26 @@
   - task_plan.md
   - progress.md
   - findings.md
+### Phase 31: 长时间运行高负载治理
+- **Status:** complete
+- Actions taken:
+  - Red: 新增 `tests/long_run_load_policy_tests.cpp` 并验证缺失实现导致失败。
+  - Green: 新增 `include/wallpaper/long_run_load_policy.h` 与 `src/long_run_load_policy.cpp`，实现长期压力迟滞与内存 trim 冷却策略。
+  - Green: `App` 增加 `decodePumpDynamicBoostMs` 与 `LongRunLoadState`，每秒按指标动态调节 decode hot-sleep。
+  - Green: `ApplyRenderFpsCap` 叠加长期负载增量并限制上限（4~36ms）。
+  - Green: `decode_pipeline_stub` 运行态 trim 改为延迟收缩（`trimRequested_`），减少可见闪烁。
+  - Green: 更新 CMake 与 PowerShell 构建脚本纳入新模块与测试。
+  - Verification: `./scripts/run_tests.ps1` 全绿（83/83）；`./scripts/build_app.ps1` 构建通过。
+- Files created/modified:
+  - include/wallpaper/long_run_load_policy.h
+  - src/long_run_load_policy.cpp
+  - tests/long_run_load_policy_tests.cpp
+  - include/wallpaper/app.h
+  - src/app.cpp
+  - src/win/decode_pipeline_stub.cpp
+  - CMakeLists.txt
+  - scripts/run_tests.ps1
+  - scripts/build_app.ps1
+  - task_plan.md
+  - progress.md
+  - findings.md

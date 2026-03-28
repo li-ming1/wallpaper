@@ -267,3 +267,12 @@ Phase 6
 - [x] Green: 探测失败初期不立即节流，按帧快速重试，缩短“启动后先动态一段时间”
 - [x] Verification: 单测通过（79/79） + 构建通过
 - **Status:** complete
+
+### Phase 31: 长时间运行高负载治理（Completed）
+- [x] Red: 新增 `long_run_load_policy` 测试并验证失败
+- [x] Green: 引入长期负载迟滞策略（中/高压两级）动态提升 decode hot-sleep
+- [x] Green: 引入内存高水位 trim 冷却策略（避免频繁回收引发抖动）
+- [x] Green: `App` 接入长期负载策略并参与 `ApplyRenderFpsCap` 热路径计算
+- [x] Green: 运行态 `TrimMemory` 改为“下一帧收缩缓冲”模式，降低可见顿挫
+- [x] Verification: 单测通过（83/83） + 构建通过
+- **Status:** complete

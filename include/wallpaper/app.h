@@ -12,6 +12,7 @@
 
 #include "wallpaper/config_store.h"
 #include "wallpaper/interfaces.h"
+#include "wallpaper/long_run_load_policy.h"
 #include "wallpaper/metrics_log_file.h"
 #include "wallpaper/metrics_sampler.h"
 #include "wallpaper/quality_governor.h"
@@ -62,6 +63,7 @@ class App final {
   std::thread decodePumpThread_;
   std::atomic<bool> decodePumpRunning_{false};
   std::atomic<int> decodePumpHotSleepMs_{4};
+  std::atomic<int> decodePumpDynamicBoostMs_{0};
   mutable std::mutex decodePumpWaitMu_;
   std::condition_variable decodePumpWaitCv_;
   bool decodePumpWakeRequested_ = false;
@@ -91,6 +93,7 @@ class App final {
   int foregroundProbeFailureStreak_ = 0;
   bool cachedSessionInteractive_ = true;
   bool cachedDesktopContextActive_ = true;
+  LongRunLoadState longRunLoadState_{};
   bool stablePauseForLoopSleep_ = false;
   bool wasPaused_ = false;
   bool decodeCacheTrimmedByPause_ = false;

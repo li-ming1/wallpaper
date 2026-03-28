@@ -35,6 +35,7 @@ $sources = @(
   "src/frame_buffer_policy.cpp",
   "src/foreground_policy.cpp",
   "src/loop_sleep_policy.cpp",
+  "src/long_run_load_policy.cpp",
   "src/video_path_matcher.cpp",
   "src/metrics_log_line.cpp",
   "src/metrics_log_file.cpp",
