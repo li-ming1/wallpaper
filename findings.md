@@ -193,3 +193,7 @@
 - `App` 接入长期负载决策：在 `MaybeSampleAndLogMetrics` 中每秒更新策略状态，动态调整 decode pump 节奏。
 - `decode_pipeline_stub` 的运行态 trim 改为“延迟到下一帧收缩缓冲”，避免直接清桥接帧带来的可见闪烁。
 - 验证：`run_tests` 全绿（83/83），`build_app` 成功。
+- 参考微软文档后继续优化：高精度计时器并非应全程开启，改为仅在“活跃 60fps 动态且低压力”场景启用，减少长时间运行系统级定时器开销。
+- 参考 DXGI 官方建议：设置 `SetMaximumFrameLatency(1)`，降低预渲染队列带来的额外延迟与内存占用。
+- 参考 D3D11 官方建议：将高频 CPU 更新纹理路径切到 `D3D11_USAGE_DYNAMIC + Map(WRITE_DISCARD)`，替代默认 `UpdateSubresource` 热路径。
+- 验证：`run_tests` 全绿（85/85），`build_app` 成功。

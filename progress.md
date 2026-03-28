@@ -848,3 +848,21 @@
   - task_plan.md
   - progress.md
   - findings.md
+### Phase 32: 官方最佳实践驱动的 CPU/内存优化
+- **Status:** complete
+- Actions taken:
+  - Red: 在 `tests/loop_sleep_policy_tests.cpp` 新增高精度计时器启用策略测试，并验证缺失实现导致失败。
+  - Green: `loop_sleep_policy` 新增 `ShouldUseHighResolutionTimer`，仅在活跃 60fps 且低压力状态启用高精度计时器。
+  - Green: `App::Run` 将高精度计时器改为动态开关，退出 60fps 动态场景时自动 `timeEndPeriod`。
+  - Green: `wallpaper_host_win` 初始化阶段调用 `IDXGIDevice1::SetMaximumFrameLatency(1)`，限制 DXGI 帧队列。
+  - Green: 视频纹理上传路径改为 `D3D11_USAGE_DYNAMIC + Map(WRITE_DISCARD)`，减少长期热路径拷贝开销。
+  - Verification: `./scripts/run_tests.ps1` 全绿（85/85）；`./scripts/build_app.ps1` 构建通过。
+- Files created/modified:
+  - include/wallpaper/loop_sleep_policy.h
+  - src/loop_sleep_policy.cpp
+  - tests/loop_sleep_policy_tests.cpp
+  - src/app.cpp
+  - src/win/wallpaper_host_win.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md

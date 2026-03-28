@@ -40,3 +40,15 @@ TEST_CASE(LoopSleepPolicy_DecodePumpHotSleepTracksFpsCap) {
   EXPECT_EQ(wallpaper::ComputeDecodePumpHotSleepMs(60), 8);
   EXPECT_EQ(wallpaper::ComputeDecodePumpHotSleepMs(30), 16);
 }
+
+TEST_CASE(LoopSleepPolicy_HighResolutionTimerEnabledOnlyForActive60Fps) {
+  EXPECT_TRUE(wallpaper::ShouldUseHighResolutionTimer(true, false, 60, 0));
+  EXPECT_TRUE(!wallpaper::ShouldUseHighResolutionTimer(false, false, 60, 0));
+  EXPECT_TRUE(!wallpaper::ShouldUseHighResolutionTimer(true, true, 60, 0));
+  EXPECT_TRUE(!wallpaper::ShouldUseHighResolutionTimer(true, false, 30, 0));
+}
+
+TEST_CASE(LoopSleepPolicy_HighResolutionTimerDisabledUnderLongRunPressure) {
+  EXPECT_TRUE(!wallpaper::ShouldUseHighResolutionTimer(true, false, 60, 1));
+  EXPECT_TRUE(!wallpaper::ShouldUseHighResolutionTimer(true, false, 60, 2));
+}

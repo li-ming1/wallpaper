@@ -276,3 +276,11 @@ Phase 6
 - [x] Green: 运行态 `TrimMemory` 改为“下一帧收缩缓冲”模式，降低可见顿挫
 - [x] Verification: 单测通过（83/83） + 构建通过
 - **Status:** complete
+
+### Phase 32: 官方最佳实践驱动的 CPU/内存优化（Completed）
+- [x] Red: 新增高精度计时器启用策略测试并验证失败
+- [x] Green: 高精度计时器改按场景启用（仅 60fps 动态且低压力时打开）
+- [x] Green: D3D 设备设置 `SetMaximumFrameLatency(1)` 限制帧队列
+- [x] Green: 视频纹理上传改为 `D3D11_USAGE_DYNAMIC + Map(WRITE_DISCARD)` 路径
+- [x] Verification: 单测通过（85/85） + 构建通过
+- **Status:** complete

@@ -220,16 +220,22 @@ bool SetAutoStartEnabled(const bool enabled) {
 
 class ScopedHighResolutionTimer final {
  public:
-  ScopedHighResolutionTimer() {
-    if (timeBeginPeriod(1) == TIMERR_NOERROR) {
-      enabled_ = true;
-    }
-  }
+  ScopedHighResolutionTimer() = default;
 
-  ~ScopedHighResolutionTimer() {
-    if (enabled_) {
-      timeEndPeriod(1);
+  ~ScopedHighResolutionTimer() { SetEnabled(false); }
+
+  void SetEnabled(const bool enabled) {
+    if (enabled == enabled_) {
+      return;
     }
+    if (enabled) {
+      if (timeBeginPeriod(1) == TIMERR_NOERROR) {
+        enabled_ = true;
+      }
+      return;
+    }
+    timeEndPeriod(1);
+    enabled_ = false;
   }
 
  private:
@@ -254,6 +260,7 @@ bool TryDetectDesktopContextActive(bool* outActive) {
 class ScopedHighResolutionTimer final {
  public:
   ScopedHighResolutionTimer() = default;
+  void SetEnabled(bool) {}
 };
 #endif
 
@@ -373,6 +380,9 @@ int App::Run() {
 
     const bool shouldPause = stablePauseForLoopSleep_;
     const bool hasActiveVideo = wallpaperAttached_ && decodeOpened_.load();
+    const bool useHighResolutionTimer = ShouldUseHighResolutionTimer(
+        hasActiveVideo, shouldPause, scheduler_.GetFpsCap(), longRunLoadState_.level);
+    timerResolution.SetEnabled(useHighResolutionTimer);
     const auto untilNextRender = std::chrono::duration_cast<std::chrono::milliseconds>(
         scheduler_.TimeUntilNextRender(RenderScheduler::Clock::now()));
     const int sleepMs =

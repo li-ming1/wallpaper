@@ -423,6 +423,15 @@ class WallpaperHostWin final : public IWallpaperHost {
       }
     }
 
+    IDXGIDevice1* dxgiDevice1 = nullptr;
+    if (SUCCEEDED(device_->QueryInterface(__uuidof(IDXGIDevice1),
+                                          reinterpret_cast<void**>(&dxgiDevice1))) &&
+        dxgiDevice1 != nullptr) {
+      // 将 DXGI 预渲染队列限制为 1，降低排队帧导致的额外内存与延迟开销。
+      dxgiDevice1->SetMaximumFrameLatency(1);
+      SafeRelease(&dxgiDevice1);
+    }
+
     IDXGIDevice* dxgiDevice = nullptr;
     IDXGIAdapter* adapter = nullptr;
     IDXGIFactory2* factory = nullptr;
@@ -600,8 +609,9 @@ class WallpaperHostWin final : public IWallpaperHost {
     texDesc.ArraySize = 1;
     texDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
     texDesc.SampleDesc.Count = 1;
-    texDesc.Usage = D3D11_USAGE_DEFAULT;
+    texDesc.Usage = D3D11_USAGE_DYNAMIC;
     texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    texDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
 
     HRESULT hr = device_->CreateTexture2D(&texDesc, nullptr, &videoTexture_);
     if (FAILED(hr)) {
@@ -639,8 +649,21 @@ class WallpaperHostWin final : public IWallpaperHost {
       return false;
     }
 
-    context_->UpdateSubresource(videoTexture_, 0, nullptr, pixels.data(),
-                                static_cast<UINT>(frame.strideBytes), 0);
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    if (FAILED(context_->Map(videoTexture_, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)) ||
+        mapped.pData == nullptr || mapped.RowPitch == 0) {
+      return false;
+    }
+
+    const auto* src = pixels.data();
+    auto* dst = static_cast<std::uint8_t*>(mapped.pData);
+    const UINT srcRowPitch = static_cast<UINT>(frame.strideBytes);
+    const UINT copyBytes = srcRowPitch < mapped.RowPitch ? srcRowPitch : mapped.RowPitch;
+    for (int row = 0; row < frame.height; ++row) {
+      std::memcpy(dst + static_cast<std::size_t>(row) * mapped.RowPitch,
+                  src + static_cast<std::size_t>(row) * srcRowPitch, copyBytes);
+    }
+    context_->Unmap(videoTexture_, 0);
     return true;
   }
 

@@ -32,4 +32,16 @@ int ComputeDecodePumpHotSleepMs(const int renderFpsCap) noexcept {
   return renderFpsCap >= 60 ? 8 : 16;
 }
 
+bool ShouldUseHighResolutionTimer(const bool hasActiveVideo, const bool stablePaused,
+                                  const int appliedFpsCap,
+                                  const int longRunLoadLevel) noexcept {
+  if (!hasActiveVideo || stablePaused) {
+    return false;
+  }
+  if (appliedFpsCap < 60) {
+    return false;
+  }
+  return longRunLoadLevel <= 0;
+}
+
 }  // namespace wallpaper
