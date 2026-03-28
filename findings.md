@@ -203,3 +203,7 @@
 - 新增 DXGI waitable object 优化：swapchain 创建优先启用 `DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT`，并在可用时改用 `IDXGISwapChain2` 的帧延迟控制。
 - Present 前增加等待对象就绪检查（非阻塞）：队列未就绪则跳过本帧，减少主线程无效渲染提交导致的长时 CPU 波动。
 - 验证：`run_tests` 全绿（85/85），`build_app` 成功。
+- 回归问题修复：waitable-object 路径在部分机型上会连续 `WAIT_TIMEOUT`，导致长期不 present，表现为“动态壁纸消失”。
+- 新增 `frame_latency_policy`：连续超时达到阈值后强制提交一帧（2 次超时后强制），并要求首帧成功后才启用 waitable 门控。
+- 异常降级：`WaitForSingleObjectEx` 返回 `WAIT_FAILED` 时自动关闭 waitable 门控，优先保证可见性。
+- 验证：`run_tests` 全绿（89/89），`build_app` 成功。

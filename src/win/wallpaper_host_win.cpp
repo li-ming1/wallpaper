@@ -1,6 +1,7 @@
 #include "wallpaper/interfaces.h"
 #include "wallpaper/frame_bridge.h"
 #include "wallpaper/desktop_attach_policy.h"
+#include "wallpaper/frame_latency_policy.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -365,11 +366,27 @@ class WallpaperHostWin final : public IWallpaperHost {
     if (context_ == nullptr || renderTargetView_ == nullptr || swapChain_ == nullptr) {
       return;
     }
-    if (frameLatencyWaitableEnabled_ && frameLatencyWaitableObject_ != nullptr) {
+    if (frameLatencyWaitableEnabled_ && frameLatencyWaitableObject_ != nullptr &&
+        frameLatencyGateArmed_) {
       const DWORD waitResult = WaitForSingleObjectEx(frameLatencyWaitableObject_, 0, FALSE);
       if (waitResult == WAIT_TIMEOUT) {
-        // DXGI 队列仍在消费上一帧时跳过本帧，减少无效 CPU/GPU 提交。
-        return;
+        ++frameLatencyTimeoutSkips_;
+        constexpr int kMaxTimeoutSkipsBeforeForce = 2;
+        if (ShouldSkipPresentOnWaitTimeout(frameLatencyWaitableEnabled_, frameLatencyGateArmed_,
+                                           frameLatencyTimeoutSkips_,
+                                           kMaxTimeoutSkipsBeforeForce)) {
+          // DXGI 队列仍在消费上一帧时跳过本帧，减少无效 CPU/GPU 提交。
+          return;
+        }
+        // 连续超时达到阈值后强制提交一帧，避免门控与调度相位错配导致长期不更新。
+        frameLatencyTimeoutSkips_ = 0;
+      } else if (waitResult == WAIT_OBJECT_0) {
+        frameLatencyTimeoutSkips_ = 0;
+      } else if (waitResult == WAIT_FAILED) {
+        // waitable-object 异常时降级为普通 Present 路径，优先保证可见性。
+        frameLatencyWaitableEnabled_ = false;
+        frameLatencyGateArmed_ = false;
+        frameLatencyTimeoutSkips_ = 0;
       }
     }
 
@@ -407,7 +424,10 @@ class WallpaperHostWin final : public IWallpaperHost {
       EnsureDesktopIconLayerVisible();
     }
 
-    swapChain_->Present(1, 0);
+    const HRESULT presentHr = swapChain_->Present(1, 0);
+    if (SUCCEEDED(presentHr)) {
+      frameLatencyGateArmed_ = true;
+    }
   }
 
  private:
@@ -495,6 +515,8 @@ class WallpaperHostWin final : public IWallpaperHost {
     }
 
     frameLatencyWaitableEnabled_ = false;
+    frameLatencyGateArmed_ = false;
+    frameLatencyTimeoutSkips_ = 0;
     frameLatencyWaitableObject_ = nullptr;
     SafeRelease(&swapChain2_);
     if (SUCCEEDED(swapChain_->QueryInterface(__uuidof(IDXGISwapChain2),
@@ -503,6 +525,8 @@ class WallpaperHostWin final : public IWallpaperHost {
       if (SUCCEEDED(swapChain2_->SetMaximumFrameLatency(1))) {
         frameLatencyWaitableObject_ = swapChain2_->GetFrameLatencyWaitableObject();
         frameLatencyWaitableEnabled_ = frameLatencyWaitableObject_ != nullptr;
+        frameLatencyGateArmed_ = false;
+        frameLatencyTimeoutSkips_ = 0;
       }
     }
 
@@ -762,6 +786,8 @@ class WallpaperHostWin final : public IWallpaperHost {
 
   void ReleaseD3D() {
     frameLatencyWaitableEnabled_ = false;
+    frameLatencyGateArmed_ = false;
+    frameLatencyTimeoutSkips_ = 0;
     if (frameLatencyWaitableObject_ != nullptr) {
       CloseHandle(frameLatencyWaitableObject_);
       frameLatencyWaitableObject_ = nullptr;
@@ -787,6 +813,8 @@ class WallpaperHostWin final : public IWallpaperHost {
   IDXGISwapChain2* swapChain2_ = nullptr;
   HANDLE frameLatencyWaitableObject_ = nullptr;
   bool frameLatencyWaitableEnabled_ = false;
+  bool frameLatencyGateArmed_ = false;
+  int frameLatencyTimeoutSkips_ = 0;
   ID3D11RenderTargetView* renderTargetView_ = nullptr;
 
   bool videoPipelineReady_ = false;

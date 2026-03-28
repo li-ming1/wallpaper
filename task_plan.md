@@ -297,3 +297,10 @@ Phase 6
 - [x] Green: Present 前无阻塞检查等待对象，队列未就绪时跳过本帧无效提交
 - [x] Verification: 单测通过（85/85） + 构建通过
 - **Status:** complete
+
+### Phase 35: waitable-object 回归修复（Completed）
+- [x] Red: 新增 `frame_latency_policy` 测试并验证失败
+- [x] Green: 引入“连续超时阈值后强制提交”策略，避免长期不 present
+- [x] Green: waitable 门控改为首帧成功后才启用，异常等待自动降级
+- [x] Verification: 单测通过（89/89） + 构建通过
+- **Status:** complete

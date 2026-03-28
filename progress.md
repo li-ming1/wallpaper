@@ -890,3 +890,22 @@
   - task_plan.md
   - findings.md
   - progress.md
+### Phase 35: waitable-object 回归修复
+- **Status:** complete
+- Actions taken:
+  - Red: 新增 `tests/frame_latency_policy_tests.cpp`，并在未实现 `src/frame_latency_policy.cpp` 时确认编译失败。
+  - Green: 新增 `frame_latency_policy`，定义 wait timeout 跳过规则（阈值前跳过，阈值后强制提交）。
+  - Green: `wallpaper_host_win` 改为“首帧成功后再启用门控”，并增加连续超时计数与 `WAIT_FAILED` 自动降级。
+  - Green: 将新模块接入 CMake、`scripts/run_tests.ps1`、`scripts/build_app.ps1`。
+  - Verification: `./scripts/run_tests.ps1` 全绿（89/89）；`./scripts/build_app.ps1` 构建通过。
+- Files created/modified:
+  - include/wallpaper/frame_latency_policy.h
+  - src/frame_latency_policy.cpp
+  - tests/frame_latency_policy_tests.cpp
+  - src/win/wallpaper_host_win.cpp
+  - CMakeLists.txt
+  - scripts/run_tests.ps1
+  - scripts/build_app.ps1
+  - task_plan.md
+  - findings.md
+  - progress.md

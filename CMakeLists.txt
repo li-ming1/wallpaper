@@ -29,6 +29,7 @@ add_library(wallpaper_core STATIC
   src/metrics_sampler.cpp
   src/frame_bridge.cpp
   src/frame_buffer_policy.cpp
+  src/frame_latency_policy.cpp
   src/long_run_load_policy.cpp
   src/probe_cadence_policy.cpp
   src/startup_policy.cpp
@@ -74,6 +75,7 @@ add_executable(wallpaper_tests
   tests/desktop_context_policy_tests.cpp
   tests/desktop_attach_policy_tests.cpp
   tests/frame_buffer_policy_tests.cpp
+  tests/frame_latency_policy_tests.cpp
   tests/frame_bridge_tests.cpp
   tests/foreground_policy_tests.cpp
   tests/loop_sleep_policy_tests.cpp
@@ -94,6 +96,7 @@ add_executable(wallpaper_tests
   src/desktop_attach_policy.cpp
   src/frame_bridge.cpp
   src/frame_buffer_policy.cpp
+  src/frame_latency_policy.cpp
   src/foreground_policy.cpp
   src/loop_sleep_policy.cpp
   src/long_run_load_policy.cpp

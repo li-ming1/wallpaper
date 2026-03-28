@@ -33,6 +33,7 @@ $sources = @(
   "src/desktop_context_policy.cpp",
   "src/desktop_attach_policy.cpp",
   "src/frame_buffer_policy.cpp",
+  "src/frame_latency_policy.cpp",
   "src/foreground_policy.cpp",
   "src/loop_sleep_policy.cpp",
   "src/long_run_load_policy.cpp",
