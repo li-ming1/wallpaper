@@ -207,3 +207,5 @@
 - 新增 `frame_latency_policy`：连续超时达到阈值后强制提交一帧（2 次超时后强制），并要求首帧成功后才启用 waitable 门控。
 - 异常降级：`WaitForSingleObjectEx` 返回 `WAIT_FAILED` 时自动关闭 waitable 门控，优先保证可见性。
 - 验证：`run_tests` 全绿（89/89），`build_app` 成功。
+- 用户现场反馈“没用”后做稳定优先处置：默认关闭 waitable-object 门控与对应 swapchain 标志，仅保留代码实现，避免不同驱动组合下再次触发显示回归。
+- 结论：先保证动态壁纸稳定可见，再做设备白名单/运行时探测后按机型启用该优化。

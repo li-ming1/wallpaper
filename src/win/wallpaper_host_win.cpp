@@ -31,6 +31,8 @@ void SafeRelease(T** ptr) {
 }
 
 constexpr wchar_t kWallpaperWindowClassName[] = L"WallpaperRenderHostWindow";
+// 某些驱动/桌面组合下 waitable-object 可能引入显示回归，默认关闭，后续按设备白名单再启用。
+constexpr bool kEnableFrameLatencyWaitableObject = false;
 
 struct VideoVertex final {
   float x;
@@ -494,7 +496,9 @@ class WallpaperHostWin final : public IWallpaperHost {
     desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     desc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
     desc.Scaling = DXGI_SCALING_STRETCH;
-    desc.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
+    desc.Flags = kEnableFrameLatencyWaitableObject
+                     ? static_cast<UINT>(DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT)
+                     : 0U;
 
     hr = factory->CreateSwapChainForHwnd(device_, renderWindow_, &desc, nullptr, nullptr, &swapChain_);
     if (FAILED(hr)) {
@@ -519,7 +523,8 @@ class WallpaperHostWin final : public IWallpaperHost {
     frameLatencyTimeoutSkips_ = 0;
     frameLatencyWaitableObject_ = nullptr;
     SafeRelease(&swapChain2_);
-    if (SUCCEEDED(swapChain_->QueryInterface(__uuidof(IDXGISwapChain2),
+    if (kEnableFrameLatencyWaitableObject &&
+        SUCCEEDED(swapChain_->QueryInterface(__uuidof(IDXGISwapChain2),
                                              reinterpret_cast<void**>(&swapChain2_))) &&
         swapChain2_ != nullptr) {
       if (SUCCEEDED(swapChain2_->SetMaximumFrameLatency(1))) {

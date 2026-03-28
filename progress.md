@@ -909,3 +909,15 @@
   - task_plan.md
   - findings.md
   - progress.md
+### Phase 36: 稳定优先回滚
+- **Status:** complete
+- Actions taken:
+  - Green: 在 `wallpaper_host_win` 增加 `kEnableFrameLatencyWaitableObject=false`，默认关闭 waitable-object 路径。
+  - Green: swapchain 创建标志改为条件启用 waitable flag，默认不携带该标志。
+  - Green: 保留 waitable 代码以便后续按设备白名单逐步开放。
+  - Verification: `./scripts/run_tests.ps1` 全绿（89/89）；`./scripts/build_app.ps1` 构建通过。
+- Files created/modified:
+  - src/win/wallpaper_host_win.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md

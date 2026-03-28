@@ -304,3 +304,9 @@ Phase 6
 - [x] Green: waitable 门控改为首帧成功后才启用，异常等待自动降级
 - [x] Verification: 单测通过（89/89） + 构建通过
 - **Status:** complete
+
+### Phase 36: 稳定优先回滚（Completed）
+- [x] Green: 默认关闭 waitable-object 门控路径，保留实现待白名单启用
+- [x] Green: swapchain 创建不再默认携带 waitable-object 标志
+- [x] Verification: 单测通过（89/89） + 构建通过
+- **Status:** complete
