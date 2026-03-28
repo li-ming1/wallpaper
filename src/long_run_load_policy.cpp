@@ -11,9 +11,9 @@ constexpr double kMediumPresentP95Ms = 8.0;
 constexpr double kHighPresentP95Ms = 10.0;
 constexpr double kMediumDroppedRatio = 0.02;
 constexpr double kHighDroppedRatio = 0.04;
-constexpr std::size_t kMediumPrivateBytes = 90U * 1024U * 1024U;
-constexpr std::size_t kHighPrivateBytes = 120U * 1024U * 1024U;
-constexpr std::size_t kTrimPrivateBytes = 130U * 1024U * 1024U;
+constexpr std::size_t kMediumPrivateBytes = 80U * 1024U * 1024U;
+constexpr std::size_t kHighPrivateBytes = 100U * 1024U * 1024U;
+constexpr std::size_t kTrimPrivateBytes = 104U * 1024U * 1024U;
 
 constexpr int kEnterMediumSamples = 4;
 constexpr int kEnterMediumFastSamples = 3;

@@ -333,3 +333,10 @@ Phase 6
 - [x] Green: CPU 回退路径改为单拷贝（去除中间大向量拷贝）
 - [x] Verification: 单测通过（90/90） + 构建通过
 - **Status:** complete
+### Phase 40: CPU-only回退链路降载迭代（Completed）
+- [x] Green: CPU回退链路增加额外 decode hot-sleep 放缓（并扩展上限到 64ms）
+- [x] Green: 长时负载策略内存阈值下调，提前触发 trim
+- [x] Green: 运行态 `TrimMemory` 增加 SourceReader Flush 与桥接帧释放
+- [x] Green: CPU回退高水位场景增加 15s 节流 working-set trim
+- [x] Verification: 单测通过（90/90） + 构建通过
+- **Status:** complete

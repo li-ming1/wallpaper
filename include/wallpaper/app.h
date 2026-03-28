@@ -107,6 +107,7 @@ class App final {
   RenderScheduler::Clock::time_point pauseEnteredAt_{};
   bool hardSuspendedByPause_ = false;
   PauseTransitionState pauseTransitionState_{};
+  RenderScheduler::Clock::time_point lastWorkingSetTrimAt_{};
   std::size_t droppedFrames_ = 0;
   std::size_t totalFrames_ = 0;
   std::size_t decodeCopyBytesInWindow_ = 0;

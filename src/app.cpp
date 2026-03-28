@@ -494,6 +494,7 @@ void App::ResetPlaybackState() {
   resumeWarmupStarted_ = false;
   nextWarmupAttemptAt_ = RenderScheduler::Clock::time_point{};
   pauseEnteredAt_ = RenderScheduler::Clock::time_point{};
+  lastWorkingSetTrimAt_ = RenderScheduler::Clock::time_point{};
   hardSuspendedByPause_ = false;
   pauseTransitionState_ = PauseTransitionState{};
   decodePumpDynamicBoostMs_.store(0);
@@ -536,9 +537,16 @@ void App::ApplyRenderFpsCap(const int governorFps) {
   if (sourceFpsCap_ == 30 && desired > 30) {
     desired = 30;
   }
-  const int baseHotSleepMs = ComputeDecodePumpHotSleepMs(desired);
-  const int dynamicBoostMs = decodePumpDynamicBoostMs_.load();
-  decodePumpHotSleepMs_.store(std::clamp(baseHotSleepMs + dynamicBoostMs, 4, 36));
+  int baseHotSleepMs = ComputeDecodePumpHotSleepMs(desired);
+  int dynamicBoostMs = decodePumpDynamicBoostMs_.load();
+  if (lastDecodePath_ == DecodePath::kCpuRgb32Fallback) {
+    // CPU-only 回退链路下进一步放缓解码拉帧频率，降低长期动态 CPU 压力。
+    baseHotSleepMs += (desired >= 60 ? 10 : 14);
+    if (dynamicBoostMs > 0) {
+      dynamicBoostMs += 8;
+    }
+  }
+  decodePumpHotSleepMs_.store(std::clamp(baseHotSleepMs + dynamicBoostMs, 6, 64));
   WakeDecodePump();
   if (scheduler_.GetFpsCap() != desired) {
     scheduler_.SetFpsCap(desired);
@@ -1076,6 +1084,16 @@ void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameD
   decodePumpDynamicBoostMs_.store(longRunDecision.decodeHotSleepBoostMs);
   if (longRunDecision.requestDecodeTrim && decodePipeline_) {
     decodePipeline_->TrimMemory();
+  }
+  if (hasActiveVideo && lastDecodePath_ == DecodePath::kCpuRgb32Fallback &&
+      longRunLoadState_.level >= 1 &&
+      metrics.workingSetBytes >= (100U * 1024U * 1024U)) {
+    constexpr std::chrono::seconds kWorkingSetTrimInterval(15);
+    if (lastWorkingSetTrimAt_ == RenderScheduler::Clock::time_point{} ||
+        (now - lastWorkingSetTrimAt_) >= kWorkingSetTrimInterval) {
+      TrimCurrentProcessWorkingSet();
+      lastWorkingSetTrimAt_ = now;
+    }
   }
   ApplyRenderFpsCap(effectiveFps);
   const int appliedFps = scheduler_.GetFpsCap();

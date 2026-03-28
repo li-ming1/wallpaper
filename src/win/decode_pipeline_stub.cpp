@@ -97,6 +97,12 @@ class DecodePipelineStub final : public IDecodePipeline {
     if (running_) {
       // 运行态不直接清空桥接帧，改为下一次发布时按当前帧尺寸收缩缓冲，避免可见闪烁。
       trimRequested_ = true;
+      if (sourceReader_ != nullptr) {
+        sourceReader_->Flush(MF_SOURCE_READER_FIRST_VIDEO_STREAM);
+      }
+      if (!mfGpuZeroCopyActive_) {
+        frame_bridge::ClearLatestFrame();
+      }
       return;
     }
     previousPublishedCpuBytes_ = 0;

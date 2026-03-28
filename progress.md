@@ -974,3 +974,16 @@
   - `./scripts/build_app.ps1` -> build/wallpaper_app.exe 成功
 - Runtime spot-check:
   - 新日志字段已生效，能直接观测 `decode_path` 与 `decode_copy_bytes_per_sec`。
+### Phase 40: CPU-only回退链路降载迭代
+- **Status:** complete
+- Actions taken:
+  - `App::ApplyRenderFpsCap` 在 `cpu_rgb32_fallback` 路径下增加额外 hot-sleep（60fps:+10ms, 30fps:+14ms），并将总上限从 36ms 提升到 64ms。
+  - `LongRunLoadPolicy` 私有内存阈值下调（80/100/104MB），让 medium/high/trim 更早触发。
+  - `DecodePipeline::TrimMemory` 在运行态对 SourceReader 执行 `Flush`，并在 CPU 回退路径释放桥接帧，减少高压期驻留。
+  - `MaybeSampleAndLogMetrics` 增加 CPU 回退场景下的 working-set 受控回收（>=100MB 且 long-run>=1，15s 节流）。
+- Verification:
+  - `./scripts/run_tests.ps1` -> 90/90 PASS
+  - `./scripts/build_app.ps1` -> build/wallpaper_app.exe 成功
+- Runtime spot-check:
+  - 日志已体现 `decode_hot_sleep_ms` 在 CPU 回退路径提高到 42/24。
+  - 回退链路短测工作集出现从 ~115MB 回落到 ~74MB 的样本（受场景影响会波动）。
