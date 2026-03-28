@@ -10,7 +10,8 @@ wallpaper::RuntimeMetrics BuildMetrics(const double cpuPercent, const std::size_
                                        const double presentP95Ms, const double droppedRatio) {
   wallpaper::RuntimeMetrics metrics;
   metrics.cpuPercent = cpuPercent;
-  metrics.privateWorkingSetBytes = workingSetBytes;
+  metrics.privateBytes = workingSetBytes;
+  metrics.workingSetBytes = workingSetBytes;
   metrics.presentP95Ms = presentP95Ms;
   metrics.droppedFrameRatio = droppedRatio;
   return metrics;
@@ -52,14 +53,14 @@ TEST_CASE(LongRunLoadPolicy_CoolsDownWithHysteresis) {
 
   for (int i = 0; i < 10; ++i) {
     const auto decision = wallpaper::UpdateLongRunLoadPolicy(
-        BuildMetrics(3.0, 90U * 1024U * 1024U, 4.0, 0.0), true, false, &state);
+        BuildMetrics(3.0, 60U * 1024U * 1024U, 4.0, 0.0), true, false, &state);
     EXPECT_TRUE(decision.decodeHotSleepBoostMs >= 0);
   }
   EXPECT_EQ(state.level, 1);
 
   for (int i = 0; i < 14; ++i) {
     const auto decision = wallpaper::UpdateLongRunLoadPolicy(
-        BuildMetrics(3.0, 90U * 1024U * 1024U, 4.0, 0.0), true, false, &state);
+        BuildMetrics(3.0, 60U * 1024U * 1024U, 4.0, 0.0), true, false, &state);
     EXPECT_TRUE(decision.decodeHotSleepBoostMs >= 0);
   }
   EXPECT_EQ(state.level, 0);

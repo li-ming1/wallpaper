@@ -960,3 +960,17 @@
   - task_plan.md
   - progress.md
   - findings.md
+### Phase 39: DXVA主路径与指标口径重构
+- **Status:** complete
+- Actions taken:
+  - `RuntimeMetrics` 拆分 `privateBytes` 与 `workingSetBytes`，修复“private_bytes 实际记录 working set”口径偏差。
+  - `metrics_log_line` 扩展字段：`decode_path`、`working_set_bytes`、`long_run_level`、`decode_hot_sleep_ms`、`decode_copy_bytes_per_sec`。
+  - `frame_bridge` 新增 GPU 帧发布（纹理句柄+格式+subresource）与 CPU 外部缓冲视图发布接口。
+  - `decode_pipeline_stub` 接入 `MF_SOURCE_READER_D3D_MANAGER`（共享 D3D 设备）并优先尝试 D3D 互操作路径。
+  - CPU 回退路径移除中间 `vector memcpy`，改为锁定 MF buffer 并通过桥接直传，减少一份 CPU 拷贝。
+  - `wallpaper_host_win` 渲染路径改为“GPU帧优先（CopySubresourceRegion）/CPU帧回退（Map）”。
+- Verification:
+  - `./scripts/run_tests.ps1` -> 90/90 PASS
+  - `./scripts/build_app.ps1` -> build/wallpaper_app.exe 成功
+- Runtime spot-check:
+  - 新日志字段已生效，能直接观测 `decode_path` 与 `decode_copy_bytes_per_sec`。

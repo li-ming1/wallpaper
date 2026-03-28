@@ -121,6 +121,11 @@ std::uint64_t FileTimeToU64(const FILETIME& ft) {
          static_cast<std::uint64_t>(ft.dwLowDateTime);
 }
 
+struct ProcessMemoryUsage final {
+  std::size_t privateBytes = 0;
+  std::size_t workingSetBytes = 0;
+};
+
 double QueryProcessCpuPercent() {
   static std::uint64_t lastProcess100ns = 0;
   static std::uint64_t lastWall100ns = 0;
@@ -165,14 +170,17 @@ double QueryProcessCpuPercent() {
   return std::clamp(cpu, 0.0, 100.0);
 }
 
-std::size_t QueryPrivateBytes() {
-  PROCESS_MEMORY_COUNTERS counters{};
+ProcessMemoryUsage QueryProcessMemoryUsage() {
+  PROCESS_MEMORY_COUNTERS_EX counters{};
   counters.cb = sizeof(counters);
   if (!GetProcessMemoryInfo(GetCurrentProcess(),
                             reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&counters), counters.cb)) {
-    return 0;
+    return {};
   }
-  return static_cast<std::size_t>(counters.WorkingSetSize);
+  ProcessMemoryUsage usage;
+  usage.privateBytes = static_cast<std::size_t>(counters.PrivateUsage);
+  usage.workingSetBytes = static_cast<std::size_t>(counters.WorkingSetSize);
+  return usage;
 }
 
 bool IsSessionInteractive() {
@@ -243,7 +251,7 @@ class ScopedHighResolutionTimer final {
 };
 #else
 double QueryProcessCpuPercent() { return 0.0; }
-std::size_t QueryPrivateBytes() { return 0; }
+ProcessMemoryUsage QueryProcessMemoryUsage() { return {}; }
 bool IsSessionInteractive() { return true; }
 bool TrimCurrentProcessWorkingSet() { return false; }
 bool SetAutoStartEnabled(bool) { return true; }
@@ -468,6 +476,8 @@ void App::ResetPlaybackState() {
   trayMenuVisible_ = false;
   lastTrayInteractionAt_ = RenderScheduler::Clock::time_point{};
   lastDecodeMode_ = DecodeMode::kUnknown;
+  lastDecodePath_ = DecodePath::kUnknown;
+  decodeCopyBytesInWindow_ = 0;
   lastSessionProbeAt_ = RenderScheduler::Clock::time_point{};
   lastForegroundProbeAt_ = RenderScheduler::Clock::time_point{};
   foregroundProbeFailureStreak_ = 0;
@@ -969,6 +979,8 @@ void App::Tick() {
 
   if (hasNewDecodedToken) {
     lastDecodeMode_ = frame.decodeMode;
+    lastDecodePath_ = frame.decodePath;
+    decodeCopyBytesInWindow_ += frame.cpuCopyBytes;
     if (frame.decodeMode == DecodeMode::kMediaFoundation) {
       if (lastDecodedTimestamp100ns_ > 0 && frame.timestamp100ns > lastDecodedTimestamp100ns_) {
         const std::int64_t delta = frame.timestamp100ns - lastDecodedTimestamp100ns_;
@@ -1048,7 +1060,9 @@ void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameD
 
   RuntimeMetrics metrics;
   metrics.cpuPercent = QueryProcessCpuPercent();
-  metrics.privateWorkingSetBytes = QueryPrivateBytes();
+  const ProcessMemoryUsage memoryUsage = QueryProcessMemoryUsage();
+  metrics.privateBytes = memoryUsage.privateBytes;
+  metrics.workingSetBytes = memoryUsage.workingSetBytes;
   metrics.presentP95Ms = TakeP95Ms(&presentSamplesMs_);
   metrics.droppedFrameRatio =
       totalFrames_ == 0 ? 0.0
@@ -1069,12 +1083,16 @@ void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameD
 
   if (!metricsLogFile_.Append(BuildMetricsCsvLine(NowUnixMs(), metrics, metricsSessionId_,
                                                   targetFps, appliedFps,
-                                                  config_.adaptiveQuality, lastDecodeMode_))) {
+                                                  config_.adaptiveQuality, lastDecodeMode_,
+                                                  lastDecodePath_, longRunLoadState_.level,
+                                                  decodePumpHotSleepMs_.load(),
+                                                  decodeCopyBytesInWindow_))) {
     // I/O 失败时静默降级，避免主渲染循环被监控路径反向影响。
   }
 
   totalFrames_ = 0;
   droppedFrames_ = 0;
+  decodeCopyBytesInWindow_ = 0;
 }
 
 }  // namespace wallpaper

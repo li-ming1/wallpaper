@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -14,6 +15,8 @@ namespace wallpaper {
 [[nodiscard]] std::string BuildMetricsCsvLine(std::int64_t unixMs, const RuntimeMetrics& metrics,
                                               std::string_view sessionId, int targetFps,
                                               int effectiveFps, bool adaptiveQualityEnabled,
-                                              DecodeMode decodeMode);
+                                              DecodeMode decodeMode, DecodePath decodePath,
+                                              int longRunLevel, int decodeHotSleepMs,
+                                              std::size_t decodeCopyBytesPerSec);
 
 }  // namespace wallpaper

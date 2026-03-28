@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -14,10 +15,20 @@ enum class DecodeMode {
   kFallbackTicker = 2,
 };
 
+enum class DecodePath {
+  kUnknown = 0,
+  kDxvaZeroCopy = 1,
+  kCpuRgb32Fallback = 2,
+  kFallbackTicker = 3,
+};
+
 struct FrameToken final {
   std::uint64_t sequence = 0;
   std::int64_t timestamp100ns = 0;
   DecodeMode decodeMode = DecodeMode::kUnknown;
+  DecodePath decodePath = DecodePath::kUnknown;
+  bool gpuBacked = false;
+  std::size_t cpuCopyBytes = 0;
   bool hasColor = false;
   float colorR = 0.0f;
   float colorG = 0.0f;

@@ -8,7 +8,8 @@ namespace wallpaper {
 
 struct RuntimeMetrics final {
   double cpuPercent = 0.0;
-  std::size_t privateWorkingSetBytes = 0;
+  std::size_t privateBytes = 0;
+  std::size_t workingSetBytes = 0;
   double presentP95Ms = 0.0;
   double droppedFrameRatio = 0.0;
 };

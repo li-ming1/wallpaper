@@ -1,4 +1,5 @@
 #include "wallpaper/interfaces.h"
+#include "wallpaper/d3d11_interop_device.h"
 #include "wallpaper/frame_buffer_policy.h"
 
 #include "wallpaper/frame_bridge.h"
@@ -8,13 +9,15 @@
 #include <filesystem>
 #include <memory>
 #include <mutex>
-#include <vector>
 
 #ifdef _WIN32
 #include <windows.h>
 
+#include <d3d11.h>
+#include <dxgi.h>
 #include <mfapi.h>
 #include <mferror.h>
+#include <mfobjects.h>
 #include <mfidl.h>
 #include <mfreadwrite.h>
 #include <propvarutil.h>
@@ -96,7 +99,7 @@ class DecodePipelineStub final : public IDecodePipeline {
       trimRequested_ = true;
       return;
     }
-    currentFramePixels_.reset();
+    previousPublishedCpuBytes_ = 0;
     frame_bridge::ClearLatestFrame();
     trimRequested_ = false;
   }
@@ -140,6 +143,9 @@ class DecodePipelineStub final : public IDecodePipeline {
     sequence_ = expectedIndex;
     frame->sequence = sequence_;
     frame->decodeMode = DecodeMode::kFallbackTicker;
+    frame->decodePath = DecodePath::kFallbackTicker;
+    frame->gpuBacked = false;
+    frame->cpuCopyBytes = 0;
     // 100ns 单位，便于未来与 MF 时间戳对齐。
     frame->timestamp100ns = static_cast<std::int64_t>(sequence_ * 333333);
     return true;
@@ -173,14 +179,16 @@ class DecodePipelineStub final : public IDecodePipeline {
     }
 
     const auto createReader = [&](const bool enableVideoProcessing,
+                                  const bool tryD3DInterop,
                                   IMFSourceReader** const outReader) -> bool {
       if (outReader == nullptr) {
         return false;
       }
       *outReader = nullptr;
 
+      bool useD3DInterop = false;
       IMFAttributes* readerAttributes = nullptr;
-      HRESULT hr = MFCreateAttributes(&readerAttributes, 3);
+      HRESULT hr = MFCreateAttributes(&readerAttributes, 4);
       if (SUCCEEDED(hr) && readerAttributes != nullptr) {
         // 低延迟模式可减少解码链路内部排队帧数，从而降低内存峰值。
         hr = readerAttributes->SetUINT32(MF_LOW_LATENCY, TRUE);
@@ -192,6 +200,23 @@ class DecodePipelineStub final : public IDecodePipeline {
       if (SUCCEEDED(hr) && readerAttributes != nullptr && enableVideoProcessing) {
         // 回退路径：在无法直接协商输出时再开启软件视频处理。
         hr = readerAttributes->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, TRUE);
+      }
+      if (SUCCEEDED(hr) && readerAttributes != nullptr && tryD3DInterop) {
+        ID3D11Device* sharedDevice = d3d11_interop::AcquireSharedDevice();
+        if (sharedDevice != nullptr) {
+          if (dxgiDeviceManager_ == nullptr &&
+              FAILED(MFCreateDXGIDeviceManager(&dxgiDeviceResetToken_, &dxgiDeviceManager_))) {
+            dxgiDeviceManager_ = nullptr;
+          }
+          if (dxgiDeviceManager_ != nullptr &&
+              SUCCEEDED(dxgiDeviceManager_->ResetDevice(sharedDevice, dxgiDeviceResetToken_))) {
+            if (SUCCEEDED(readerAttributes->SetUnknown(MF_SOURCE_READER_D3D_MANAGER,
+                                                       dxgiDeviceManager_))) {
+              useD3DInterop = true;
+            }
+          }
+          sharedDevice->Release();
+        }
       }
       if (FAILED(hr)) {
         if (readerAttributes != nullptr) {
@@ -208,6 +233,7 @@ class DecodePipelineStub final : public IDecodePipeline {
       if (FAILED(hr) || reader == nullptr) {
         return false;
       }
+      mfD3DInteropEnabled_ = useD3DInterop;
       *outReader = reader;
       return true;
     };
@@ -226,15 +252,14 @@ class DecodePipelineStub final : public IDecodePipeline {
         return false;
       }
 
-      const auto setOutType = [&](const bool withDesktopHint) -> HRESULT {
+      const auto setOutType = [&](const bool withDesktopHint, const GUID& subtype) -> HRESULT {
         IMFMediaType* outType = nullptr;
         HRESULT localHr = MFCreateMediaType(&outType);
         if (SUCCEEDED(localHr)) {
           localHr = outType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
         }
         if (SUCCEEDED(localHr)) {
-          // 直接输出 RGB32，渲染链路保持简单稳定。
-          localHr = outType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32);
+          localHr = outType->SetGUID(MF_MT_SUBTYPE, subtype);
         }
         if (SUCCEEDED(localHr) && withDesktopHint) {
           UINT32 hintWidth = 0;
@@ -255,12 +280,25 @@ class DecodePipelineStub final : public IDecodePipeline {
         return localHr;
       };
 
-      hr = setOutType(true);
-      if (FAILED(hr)) {
-        // 某些编解码链路不接受帧大小提示，回退到默认输出协商。
-        hr = setOutType(false);
+      const GUID preferredSubtypes[] = {
+          mfD3DInteropEnabled_ ? MFVideoFormat_ARGB32 : MFVideoFormat_RGB32,
+          MFVideoFormat_RGB32,
+      };
+
+      bool configured = false;
+      for (const GUID& subtype : preferredSubtypes) {
+        hr = setOutType(true, subtype);
+        if (FAILED(hr)) {
+          // 某些编解码链路不接受帧大小提示，回退到默认输出协商。
+          hr = setOutType(false, subtype);
+        }
+        if (SUCCEEDED(hr)) {
+          selectedOutputSubtype_ = subtype;
+          configured = true;
+          break;
+        }
       }
-      if (FAILED(hr)) {
+      if (!configured) {
         return false;
       }
 
@@ -277,14 +315,14 @@ class DecodePipelineStub final : public IDecodePipeline {
     UINT32 width = 0;
     UINT32 height = 0;
     IMFSourceReader* reader = nullptr;
-    bool opened = createReader(false, &reader) && configureReader(reader, &width, &height);
+    bool opened = createReader(false, true, &reader) && configureReader(reader, &width, &height);
     if (!opened) {
       if (reader != nullptr) {
         reader->Release();
         reader = nullptr;
       }
       // 某些设备/编码器必须启用软件视频处理才能协商到 RGB32。
-      opened = createReader(true, &reader) && configureReader(reader, &width, &height);
+      opened = createReader(true, false, &reader) && configureReader(reader, &width, &height);
     }
     if (!opened || reader == nullptr) {
       if (reader != nullptr) {
@@ -297,6 +335,8 @@ class DecodePipelineStub final : public IDecodePipeline {
     frameWidth_ = width;
     frameHeight_ = height;
     frameStride_ = width * 4;
+    mfGpuZeroCopyActive_ =
+        mfD3DInteropEnabled_ && IsEqualGUID(selectedOutputSubtype_, MFVideoFormat_ARGB32);
     mfBaseOffset100ns_ = 0;
     mfLastRawTimestamp100ns_ = -1;
     mfLastOutputTimestamp100ns_ = -1;
@@ -320,10 +360,17 @@ class DecodePipelineStub final : public IDecodePipeline {
       sourceReader_->Release();
       sourceReader_ = nullptr;
     }
+    if (dxgiDeviceManager_ != nullptr) {
+      dxgiDeviceManager_->Release();
+      dxgiDeviceManager_ = nullptr;
+    }
     // 保持 MF runtime 常驻进程生命周期，避免频繁 Stop/Open 或退出时的明显卡顿。
     frameWidth_ = 0;
     frameHeight_ = 0;
     frameStride_ = 0;
+    mfD3DInteropEnabled_ = false;
+    mfGpuZeroCopyActive_ = false;
+    selectedOutputSubtype_ = GUID{};
     mfBaseOffset100ns_ = 0;
     mfLastRawTimestamp100ns_ = -1;
     mfLastOutputTimestamp100ns_ = -1;
@@ -343,16 +390,61 @@ class DecodePipelineStub final : public IDecodePipeline {
     return SUCCEEDED(hr);
   }
 
-  bool PublishSampleToBridgeLocked(IMFSample* sample, const std::uint64_t sequence,
-                                   const std::int64_t timestamp100ns) {
+  struct PublishResult final {
+    bool ok = false;
+    bool gpuBacked = false;
+    std::size_t cpuCopyBytes = 0;
+  };
+
+  PublishResult PublishSampleToBridgeLocked(IMFSample* sample, const std::uint64_t sequence,
+                                            const std::int64_t timestamp100ns) {
     if (sample == nullptr || frameWidth_ == 0 || frameHeight_ == 0 || frameStride_ == 0) {
-      return false;
+      return {};
+    }
+
+    if (mfGpuZeroCopyActive_) {
+      IMFMediaBuffer* indexedBuffer = nullptr;
+      if (SUCCEEDED(sample->GetBufferByIndex(0, &indexedBuffer)) && indexedBuffer != nullptr) {
+        IMFDXGIBuffer* dxgiBuffer = nullptr;
+        if (SUCCEEDED(indexedBuffer->QueryInterface(__uuidof(IMFDXGIBuffer),
+                                                    reinterpret_cast<void**>(&dxgiBuffer))) &&
+            dxgiBuffer != nullptr) {
+          ID3D11Texture2D* texture = nullptr;
+          UINT subresourceIndex = 0;
+          const HRESULT getResourceHr =
+              dxgiBuffer->GetResource(__uuidof(ID3D11Texture2D),
+                                      reinterpret_cast<void**>(&texture));
+          const HRESULT getSubresourceHr = dxgiBuffer->GetSubresourceIndex(&subresourceIndex);
+          if (SUCCEEDED(getResourceHr) && SUCCEEDED(getSubresourceHr) && texture != nullptr) {
+            D3D11_TEXTURE2D_DESC desc{};
+            texture->GetDesc(&desc);
+            std::shared_ptr<void> textureHolder(
+                texture, [](void* ptr) {
+                  if (ptr != nullptr) {
+                    static_cast<ID3D11Texture2D*>(ptr)->Release();
+                  }
+                });
+            frame_bridge::PublishLatestGpuFrame(
+                static_cast<int>(frameWidth_), static_cast<int>(frameHeight_), timestamp100ns,
+                sequence, static_cast<std::uint32_t>(desc.Format), subresourceIndex,
+                std::move(textureHolder));
+            dxgiBuffer->Release();
+            indexedBuffer->Release();
+            return PublishResult{true, true, 0};
+          }
+          if (texture != nullptr) {
+            texture->Release();
+          }
+          dxgiBuffer->Release();
+        }
+        indexedBuffer->Release();
+      }
     }
 
     IMFMediaBuffer* mediaBuffer = nullptr;
     HRESULT hr = sample->ConvertToContiguousBuffer(&mediaBuffer);
     if (FAILED(hr) || mediaBuffer == nullptr) {
-      return false;
+      return {};
     }
 
     BYTE* rawData = nullptr;
@@ -360,37 +452,31 @@ class DecodePipelineStub final : public IDecodePipeline {
     DWORD currentLength = 0;
     hr = mediaBuffer->Lock(&rawData, &maxLength, &currentLength);
     if (FAILED(hr) || rawData == nullptr || currentLength == 0) {
-      if (mediaBuffer != nullptr) {
-        mediaBuffer->Release();
-      }
-      return false;
+      mediaBuffer->Release();
+      return {};
     }
 
-    if (currentFramePixels_ == nullptr) {
-      currentFramePixels_ = std::make_shared<std::vector<std::uint8_t>>();
-    }
     const std::size_t requiredBytes = static_cast<std::size_t>(currentLength);
-    std::size_t nextCapacity = DecideFrameBufferCapacity(currentFramePixels_->capacity(), requiredBytes);
-    if (trimRequested_) {
-      nextCapacity = requiredBytes;
-      trimRequested_ = false;
-    }
-    if (nextCapacity != currentFramePixels_->capacity()) {
-      auto resized = std::make_shared<std::vector<std::uint8_t>>();
-      resized->reserve(nextCapacity);
-      resized->resize(requiredBytes);
-      currentFramePixels_ = std::move(resized);
-    } else if (currentFramePixels_->size() != requiredBytes) {
-      currentFramePixels_->resize(requiredBytes);
-    }
-    std::memcpy(currentFramePixels_->data(), rawData, currentLength);
-    mediaBuffer->Unlock();
-    mediaBuffer->Release();
+    const std::size_t nextCapacity =
+        trimRequested_ ? requiredBytes
+                       : DecideFrameBufferCapacity(previousPublishedCpuBytes_, requiredBytes);
+    trimRequested_ = false;
+    previousPublishedCpuBytes_ = nextCapacity;
 
-    frame_bridge::PublishLatestFrame(static_cast<int>(frameWidth_), static_cast<int>(frameHeight_),
-                                     static_cast<int>(frameStride_), timestamp100ns, sequence,
-                                     currentFramePixels_);
-    return true;
+    std::shared_ptr<void> bufferHolder(
+        mediaBuffer, [](void* ptr) {
+          if (ptr != nullptr) {
+            auto* buffer = static_cast<IMFMediaBuffer*>(ptr);
+            buffer->Unlock();
+            buffer->Release();
+          }
+        });
+
+    frame_bridge::PublishLatestFrameView(
+        static_cast<int>(frameWidth_), static_cast<int>(frameHeight_), static_cast<int>(frameStride_),
+        timestamp100ns, sequence, static_cast<const std::uint8_t*>(rawData), requiredBytes,
+        std::move(bufferHolder));
+    return PublishResult{true, false, requiredBytes};
   }
 
   bool TryAcquireMediaFoundationFrameLocked(FrameToken* frame) {
@@ -449,10 +535,14 @@ class DecodePipelineStub final : public IDecodePipeline {
     frame->timestamp100ns = outputTimestamp100ns;
     mfLastRawTimestamp100ns_ = rawTimestamp100ns;
     mfLastOutputTimestamp100ns_ = outputTimestamp100ns;
-
-    const bool published = PublishSampleToBridgeLocked(sample, sequence_, outputTimestamp100ns);
+    const PublishResult publishResult =
+        PublishSampleToBridgeLocked(sample, sequence_, outputTimestamp100ns);
+    frame->gpuBacked = publishResult.gpuBacked;
+    frame->cpuCopyBytes = publishResult.cpuCopyBytes;
+    frame->decodePath = publishResult.gpuBacked ? DecodePath::kDxvaZeroCopy
+                                                : DecodePath::kCpuRgb32Fallback;
     sample->Release();
-    return published;
+    return publishResult.ok;
   }
 #endif
 
@@ -464,7 +554,7 @@ class DecodePipelineStub final : public IDecodePipeline {
     sequence_ = 0;
     path_.clear();
     mode_ = Mode::kFallbackTicker;
-    currentFramePixels_.reset();
+    previousPublishedCpuBytes_ = 0;
     trimRequested_ = false;
     frame_bridge::ClearLatestFrame();
 #ifdef _WIN32
@@ -480,12 +570,17 @@ class DecodePipelineStub final : public IDecodePipeline {
   Clock::time_point timelineStart_{};
   Clock::time_point pauseAt_{};
   std::uint64_t sequence_ = 0;
-  mutable std::shared_ptr<std::vector<std::uint8_t>> currentFramePixels_;
+  std::size_t previousPublishedCpuBytes_ = 0;
   bool trimRequested_ = false;
 
 #ifdef _WIN32
   IMFSourceReader* sourceReader_ = nullptr;
+  IMFDXGIDeviceManager* dxgiDeviceManager_ = nullptr;
+  UINT dxgiDeviceResetToken_ = 0;
   bool mfStarted_ = false;
+  bool mfD3DInteropEnabled_ = false;
+  bool mfGpuZeroCopyActive_ = false;
+  GUID selectedOutputSubtype_ = GUID{};
   std::uint32_t frameWidth_ = 0;
   std::uint32_t frameHeight_ = 0;
   std::uint32_t frameStride_ = 0;

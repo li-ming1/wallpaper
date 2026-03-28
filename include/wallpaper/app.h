@@ -79,6 +79,7 @@ class App final {
   RenderScheduler::Clock::time_point lastMetricsAt_{};
   std::vector<double> presentSamplesMs_;
   DecodeMode lastDecodeMode_ = DecodeMode::kUnknown;
+  DecodePath lastDecodePath_ = DecodePath::kUnknown;
   FrameToken lastPresentedFrame_{};
   bool hasLastPresentedFrame_ = false;
   std::uint64_t syntheticSequence_ = 0;
@@ -108,6 +109,7 @@ class App final {
   PauseTransitionState pauseTransitionState_{};
   std::size_t droppedFrames_ = 0;
   std::size_t totalFrames_ = 0;
+  std::size_t decodeCopyBytesInWindow_ = 0;
 };
 
 }  // namespace wallpaper

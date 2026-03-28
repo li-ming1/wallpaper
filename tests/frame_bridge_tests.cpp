@@ -31,3 +31,20 @@ TEST_CASE(FrameBridge_ClearRemovesFrame) {
   wallpaper::frame_bridge::LatestFrame latest;
   EXPECT_TRUE(!wallpaper::frame_bridge::TryGetLatestFrame(&latest));
 }
+
+TEST_CASE(FrameBridge_PublishAndReadLatestGpuFrame) {
+  wallpaper::frame_bridge::ClearLatestFrame();
+
+  auto textureHolder = std::shared_ptr<void>(reinterpret_cast<void*>(0x1), [](void*) {});
+  wallpaper::frame_bridge::PublishLatestGpuFrame(1920, 1080, 1000, 7, 87, 0,
+                                                 std::move(textureHolder));
+
+  wallpaper::frame_bridge::LatestFrame latest;
+  EXPECT_TRUE(wallpaper::frame_bridge::TryGetLatestFrame(&latest));
+  EXPECT_EQ(latest.width, 1920);
+  EXPECT_EQ(latest.height, 1080);
+  EXPECT_TRUE(latest.gpuBacked);
+  EXPECT_TRUE(latest.gpuTexture != nullptr);
+  EXPECT_EQ(static_cast<int>(latest.sequence), 7);
+  EXPECT_TRUE(latest.rgbaPixels == nullptr);
+}

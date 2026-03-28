@@ -325,3 +325,11 @@ Phase 6
 - [x] Green: 托盘与窗口类图标改为按系统尺寸 `LoadImage` 多分辨率加载
 - [x] Verification: 单测通过（89/89） + 构建通过
 - **Status:** complete
+### Phase 39: DXVA主路径与指标口径重构（Completed）
+- [x] Green: RuntimeMetrics 拆分 `privateBytes/workingSetBytes`
+- [x] Green: 指标日志新增 `decode_path/long_run_level/decode_hot_sleep_ms/decode_copy_bytes_per_sec`
+- [x] Green: frame_bridge 支持 GPU 纹理帧与 CPU 外部缓冲视图
+- [x] Green: MF 解码接入 D3D manager 互操作尝试（DXVA 主路径）
+- [x] Green: CPU 回退路径改为单拷贝（去除中间大向量拷贝）
+- [x] Verification: 单测通过（90/90） + 构建通过
+- **Status:** complete

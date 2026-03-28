@@ -1,4 +1,5 @@
 #include "wallpaper/interfaces.h"
+#include "wallpaper/d3d11_interop_device.h"
 #include "wallpaper/frame_bridge.h"
 #include "wallpaper/desktop_attach_policy.h"
 #include "wallpaper/frame_latency_policy.h"
@@ -438,11 +439,19 @@ class WallpaperHostWin final : public IWallpaperHost {
     bool drewVideo = false;
     bool hasVideoTexture = videoSrv_ != nullptr && videoTexture_ != nullptr;
     frame_bridge::LatestFrame latestFrame;
-    if (frame_bridge::TryGetLatestFrame(&latestFrame) &&
-        latestFrame.rgbaPixels != nullptr && latestFrame.sequence != lastVideoSequence_) {
-      if (EnsureVideoTexture(static_cast<UINT>(latestFrame.width),
-                             static_cast<UINT>(latestFrame.height)) &&
-          UploadVideoFrame(latestFrame) && DrawVideoTexture()) {
+    if (frame_bridge::TryGetLatestFrame(&latestFrame) && latestFrame.sequence != lastVideoSequence_) {
+      if (latestFrame.gpuBacked && latestFrame.gpuTexture != nullptr &&
+          EnsureVideoTextureForGpu(static_cast<UINT>(latestFrame.width),
+                                   static_cast<UINT>(latestFrame.height),
+                                   static_cast<DXGI_FORMAT>(latestFrame.dxgiFormat)) &&
+          CopyGpuVideoFrame(latestFrame) && DrawVideoTexture()) {
+        lastVideoSequence_ = latestFrame.sequence;
+        hasVideoTexture = true;
+        drewVideo = true;
+      } else if (latestFrame.rgbaData != nullptr &&
+                 EnsureVideoTextureForCpu(static_cast<UINT>(latestFrame.width),
+                                          static_cast<UINT>(latestFrame.height)) &&
+                 UploadVideoFrame(latestFrame) && DrawVideoTexture()) {
         lastVideoSequence_ = latestFrame.sequence;
         hasVideoTexture = true;
         drewVideo = true;
@@ -480,9 +489,8 @@ class WallpaperHostWin final : public IWallpaperHost {
 
  private:
   bool InitializeD3D() {
-    // 单线程渲染路径启用 single-threaded 设备，减少线程安全开销。
-    // 约束：本项目所有 D3D 设备/上下文调用均在主线程执行。
-    UINT createFlags = D3D11_CREATE_DEVICE_SINGLETHREADED;
+    // 设备同时用于渲染与解码互操作，需保持线程安全能力。
+    UINT createFlags = 0;
 
     D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_0;
     const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0,
@@ -498,6 +506,9 @@ class WallpaperHostWin final : public IWallpaperHost {
         return false;
       }
     }
+
+    // 解码与渲染共享同一 D3D11 设备，供 MF SourceReader 走 D3D 互操作零拷贝路径。
+    d3d11_interop::SetSharedDevice(device_);
 
     IDXGIDevice1* dxgiDevice1 = nullptr;
     if (SUCCEEDED(device_->QueryInterface(__uuidof(IDXGIDevice1),
@@ -698,15 +709,18 @@ class WallpaperHostWin final : public IWallpaperHost {
     SafeRelease(&videoTexture_);
     videoTexWidth_ = 0;
     videoTexHeight_ = 0;
+    videoTexFormat_ = DXGI_FORMAT_UNKNOWN;
+    videoTextureCpuWritable_ = false;
   }
 
-  bool EnsureVideoTexture(const UINT width, const UINT height) {
+  bool EnsureVideoTextureForCpu(const UINT width, const UINT height) {
     if (!videoPipelineReady_ || device_ == nullptr || width == 0 || height == 0) {
       return false;
     }
 
     if (videoTexture_ != nullptr && videoSrv_ != nullptr &&
-        videoTexWidth_ == width && videoTexHeight_ == height) {
+        videoTexWidth_ == width && videoTexHeight_ == height &&
+        videoTexFormat_ == DXGI_FORMAT_B8G8R8A8_UNORM && videoTextureCpuWritable_) {
       return true;
     }
 
@@ -740,11 +754,79 @@ class WallpaperHostWin final : public IWallpaperHost {
 
     videoTexWidth_ = width;
     videoTexHeight_ = height;
+    videoTexFormat_ = DXGI_FORMAT_B8G8R8A8_UNORM;
+    videoTextureCpuWritable_ = true;
+    return true;
+  }
+
+  bool EnsureVideoTextureForGpu(const UINT width, const UINT height, const DXGI_FORMAT format) {
+    if (!videoPipelineReady_ || device_ == nullptr || width == 0 || height == 0) {
+      return false;
+    }
+    if (format == DXGI_FORMAT_UNKNOWN) {
+      return false;
+    }
+
+    if (videoTexture_ != nullptr && videoSrv_ != nullptr &&
+        videoTexWidth_ == width && videoTexHeight_ == height &&
+        videoTexFormat_ == format && !videoTextureCpuWritable_) {
+      return true;
+    }
+
+    ReleaseVideoTexture();
+
+    D3D11_TEXTURE2D_DESC texDesc{};
+    texDesc.Width = width;
+    texDesc.Height = height;
+    texDesc.MipLevels = 1;
+    texDesc.ArraySize = 1;
+    texDesc.Format = format;
+    texDesc.SampleDesc.Count = 1;
+    texDesc.Usage = D3D11_USAGE_DEFAULT;
+    texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    texDesc.CPUAccessFlags = 0;
+
+    HRESULT hr = device_->CreateTexture2D(&texDesc, nullptr, &videoTexture_);
+    if (FAILED(hr)) {
+      return false;
+    }
+
+    D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+    srvDesc.Format = texDesc.Format;
+    srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Texture2D.MipLevels = 1;
+    hr = device_->CreateShaderResourceView(videoTexture_, &srvDesc, &videoSrv_);
+    if (FAILED(hr)) {
+      ReleaseVideoTexture();
+      return false;
+    }
+
+    videoTexWidth_ = width;
+    videoTexHeight_ = height;
+    videoTexFormat_ = format;
+    videoTextureCpuWritable_ = false;
+    return true;
+  }
+
+  bool CopyGpuVideoFrame(const frame_bridge::LatestFrame& frame) {
+    if (context_ == nullptr || videoTexture_ == nullptr || frame.gpuTexture == nullptr) {
+      return false;
+    }
+    if (!frame.gpuBacked) {
+      return false;
+    }
+    if (frame.width <= 0 || frame.height <= 0) {
+      return false;
+    }
+
+    auto* sourceTexture = frame.gpuTexture;
+    context_->CopySubresourceRegion(videoTexture_, 0, 0, 0, 0, sourceTexture,
+                                    frame.gpuSubresourceIndex, nullptr);
     return true;
   }
 
   bool UploadVideoFrame(const frame_bridge::LatestFrame& frame) {
-    if (context_ == nullptr || videoTexture_ == nullptr || frame.rgbaPixels == nullptr) {
+    if (context_ == nullptr || videoTexture_ == nullptr || frame.rgbaData == nullptr) {
       return false;
     }
 
@@ -752,10 +834,9 @@ class WallpaperHostWin final : public IWallpaperHost {
       return false;
     }
 
-    const auto& pixels = *frame.rgbaPixels;
     const std::size_t minBytes = static_cast<std::size_t>(frame.strideBytes) *
                                  static_cast<std::size_t>(frame.height);
-    if (pixels.size() < minBytes) {
+    if (frame.rgbaDataBytes < minBytes) {
       return false;
     }
 
@@ -765,7 +846,7 @@ class WallpaperHostWin final : public IWallpaperHost {
       return false;
     }
 
-    const auto* src = pixels.data();
+    const auto* src = frame.rgbaData;
     auto* dst = static_cast<std::uint8_t*>(mapped.pData);
     const UINT srcRowPitch = static_cast<UINT>(frame.strideBytes);
     const UINT copyBytes = srcRowPitch < mapped.RowPitch ? srcRowPitch : mapped.RowPitch;
@@ -838,6 +919,7 @@ class WallpaperHostWin final : public IWallpaperHost {
   }
 
   void ReleaseD3D() {
+    d3d11_interop::ClearSharedDevice(device_);
     frameLatencyWaitableEnabled_ = false;
     frameLatencyGateArmed_ = false;
     frameLatencyTimeoutSkips_ = 0;
@@ -885,6 +967,8 @@ class WallpaperHostWin final : public IWallpaperHost {
   ID3D11ShaderResourceView* videoSrv_ = nullptr;
   UINT videoTexWidth_ = 0;
   UINT videoTexHeight_ = 0;
+  DXGI_FORMAT videoTexFormat_ = DXGI_FORMAT_UNKNOWN;
+  bool videoTextureCpuWritable_ = false;
   std::uint64_t lastVideoSequence_ = 0;
 };
 

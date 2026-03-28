@@ -11,9 +11,9 @@ constexpr double kMediumPresentP95Ms = 8.0;
 constexpr double kHighPresentP95Ms = 10.0;
 constexpr double kMediumDroppedRatio = 0.02;
 constexpr double kHighDroppedRatio = 0.04;
-constexpr std::size_t kMediumWorkingSetBytes = 140U * 1024U * 1024U;
-constexpr std::size_t kHighWorkingSetBytes = 170U * 1024U * 1024U;
-constexpr std::size_t kTrimWorkingSetBytes = 180U * 1024U * 1024U;
+constexpr std::size_t kMediumPrivateBytes = 90U * 1024U * 1024U;
+constexpr std::size_t kHighPrivateBytes = 120U * 1024U * 1024U;
+constexpr std::size_t kTrimPrivateBytes = 130U * 1024U * 1024U;
 
 constexpr int kEnterMediumSamples = 4;
 constexpr int kEnterMediumFastSamples = 3;
@@ -53,12 +53,12 @@ LongRunLoadDecision UpdateLongRunLoadPolicy(const RuntimeMetrics& metrics, const
   const bool highPressure =
       metrics.cpuPercent >= kHighCpuPercent || metrics.presentP95Ms >= kHighPresentP95Ms ||
       metrics.droppedFrameRatio >= kHighDroppedRatio ||
-      metrics.privateWorkingSetBytes >= kHighWorkingSetBytes;
+      metrics.privateBytes >= kHighPrivateBytes;
   const bool mediumPressure =
       highPressure || metrics.cpuPercent >= kMediumCpuPercent ||
       metrics.presentP95Ms >= kMediumPresentP95Ms ||
       metrics.droppedFrameRatio >= kMediumDroppedRatio ||
-      metrics.privateWorkingSetBytes >= kMediumWorkingSetBytes;
+      metrics.privateBytes >= kMediumPrivateBytes;
 
   if (highPressure) {
     state->highPressureSamples = std::min(state->highPressureSamples + 1, 1024);
@@ -100,7 +100,7 @@ LongRunLoadDecision UpdateLongRunLoadPolicy(const RuntimeMetrics& metrics, const
   decision.decodeHotSleepBoostMs = LevelToHotSleepBoostMs(state->level);
 
   const bool allowTrimByPressure = state->level >= 1 || mediumPressure;
-  if (allowTrimByPressure && metrics.privateWorkingSetBytes >= kTrimWorkingSetBytes &&
+  if (allowTrimByPressure && metrics.privateBytes >= kTrimPrivateBytes &&
       state->trimCooldownSamples == 0) {
     decision.requestDecodeTrim = true;
     state->trimCooldownSamples = kTrimCooldownSamples;
