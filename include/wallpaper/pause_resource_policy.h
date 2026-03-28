@@ -10,4 +10,8 @@ namespace wallpaper {
 [[nodiscard]] bool ShouldRestoreResourcesOnResume(bool isStillPaused,
                                                   bool releasedByPause) noexcept;
 
+// 全屏暂停时是否保留壁纸层，用最后一帧维持“静态壁纸”观感。
+[[nodiscard]] bool ShouldKeepWallpaperLayerDuringPause(bool wallpaperAttached,
+                                                       bool hasLastPresentedFrame) noexcept;
+
 }  // namespace wallpaper

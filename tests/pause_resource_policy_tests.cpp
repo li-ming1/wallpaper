@@ -13,3 +13,9 @@ TEST_CASE(PauseResourcePolicy_RestoresOnlyWhenResumeAfterSuspend) {
   EXPECT_TRUE(!wallpaper::ShouldRestoreResourcesOnResume(true, true));
   EXPECT_TRUE(!wallpaper::ShouldRestoreResourcesOnResume(false, false));
 }
+
+TEST_CASE(PauseResourcePolicy_KeepsWallpaperLayerForStaticPauseFrame) {
+  EXPECT_TRUE(wallpaper::ShouldKeepWallpaperLayerDuringPause(true, true));
+  EXPECT_TRUE(!wallpaper::ShouldKeepWallpaperLayerDuringPause(true, false));
+  EXPECT_TRUE(!wallpaper::ShouldKeepWallpaperLayerDuringPause(false, true));
+}

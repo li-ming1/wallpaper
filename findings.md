@@ -117,3 +117,6 @@
 - 全屏档继续降唤醒：主循环 pause 睡眠 80ms，解码泵无解码准备睡眠 30ms。
 - 目标：让全屏场景下 CPU/内存变化“可感知”，而非仅小幅波动。
 - 验证：`run_tests` 全绿（53/53），`build_app` 成功。
+- 调整全屏策略：从“Stop + Detach”升级为“Stop decode + Keep wallpaper layer when last frame exists”。
+- 效果预期：全屏期间看起来像静态壁纸；退出全屏后自动恢复动态播放，避免退回系统原壁纸。
+- 验证：`run_tests` 全绿（54/54），`build_app` 成功。

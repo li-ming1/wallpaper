@@ -474,3 +474,19 @@
   - task_plan.md
   - findings.md
   - progress.md
+### Phase 12: 全屏静态壁纸无缝恢复
+- **Status:** complete
+- Actions taken:
+  - Red: 在 `tests/pause_resource_policy_tests.cpp` 增加 `ShouldKeepWallpaperLayerDuringPause` 用例并验证编译失败。
+  - Green: 在 `pause_resource_policy` 新增 `ShouldKeepWallpaperLayerDuringPause` 策略实现。
+  - Green: 在 `src/app.cpp` pause 边沿改为“释放解码资源但按策略保留壁纸层”，不再一刀切 `DetachWallpaper()`。
+  - Green: 仅在不保留壁纸层时清空 `lastPresentedFrame`，以维持静态壁纸观感。
+  - Verification: `./scripts/run_tests.ps1` 与 `./scripts/build_app.ps1` 均通过。
+- Files created/modified:
+  - include/wallpaper/pause_resource_policy.h
+  - src/pause_resource_policy.cpp
+  - tests/pause_resource_policy_tests.cpp
+  - src/app.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md

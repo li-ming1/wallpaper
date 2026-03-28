@@ -615,12 +615,16 @@ void App::Tick() {
   if (shouldPause) {
     if (!wasPaused_) {
       const bool hasActiveVideoResources = wallpaperAttached_ || decodeOpened_.load();
+      const bool keepWallpaperLayer =
+          ShouldKeepWallpaperLayerDuringPause(wallpaperAttached_, hasLastPresentedFrame_);
       if (ShouldReleaseResourcesOnPause(shouldPause, hasActiveVideoResources)) {
-        // 全屏时释放重资源（解码器 + 桌面渲染窗口）以获得可感知的 CPU/内存下降。
+        // 全屏时释放解码资源；若已有最后一帧则保留壁纸层呈现“静态壁纸”观感。
         decodePipeline_->Stop();
         decodeOpened_.store(false);
         decodeRunning_.store(false);
-        DetachWallpaper();
+        if (!keepWallpaperLayer) {
+          DetachWallpaper();
+        }
         resourcesReleasedByPause_ = true;
       } else {
         resourcesReleasedByPause_ = false;
@@ -630,8 +634,10 @@ void App::Tick() {
       frame_bridge::ClearLatestFrame();
       presentSamplesMs_.clear();
       presentSamplesMs_.shrink_to_fit();
-      hasLastPresentedFrame_ = false;
-      lastPresentedFrame_ = FrameToken{};
+      if (!keepWallpaperLayer) {
+        hasLastPresentedFrame_ = false;
+        lastPresentedFrame_ = FrameToken{};
+      }
       {
         std::lock_guard<std::mutex> lock(decodedTokenMu_);
         hasLatestDecodedToken_ = false;

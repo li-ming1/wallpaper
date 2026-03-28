@@ -129,3 +129,10 @@ Phase 6
 - [x] Green: pause 档位睡眠进一步拉长（主循环 80ms，解码泵 no-ready 30ms）
 - [x] Verification: 单测通过 + 构建通过
 - **Status:** complete
+
+### Phase 12: 全屏静态壁纸无缝恢复（Completed）
+- [x] Red: 新增“暂停保留壁纸层”策略测试并先触发失败
+- [x] Green: 全屏时仅停解码，保留最后一帧壁纸层
+- [x] Green: 退出全屏自动恢复解码并无缝续播
+- [x] Verification: 单测通过 + 构建通过
+- **Status:** complete
