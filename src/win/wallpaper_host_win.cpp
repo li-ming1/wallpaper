@@ -405,8 +405,9 @@ class WallpaperHostWin final : public IWallpaperHost {
 
  private:
   bool InitializeD3D() {
-    // 性能优先：默认关闭 D3D debug layer，避免大量额外内存占用。
-    UINT createFlags = 0;
+    // 单线程渲染路径启用 single-threaded 设备，减少线程安全开销。
+    // 约束：本项目所有 D3D 设备/上下文调用均在主线程执行。
+    UINT createFlags = D3D11_CREATE_DEVICE_SINGLETHREADED;
 
     D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_0;
     const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0,
@@ -463,11 +464,17 @@ class WallpaperHostWin final : public IWallpaperHost {
     desc.SampleDesc.Count = 1;
     desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     desc.BufferCount = 2;
-    desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+    desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     desc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
     desc.Scaling = DXGI_SCALING_STRETCH;
 
     hr = factory->CreateSwapChainForHwnd(device_, renderWindow_, &desc, nullptr, nullptr, &swapChain_);
+    if (FAILED(hr)) {
+      // 兼容回退：部分旧驱动可能不支持 FLIP_DISCARD。
+      desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+      hr = factory->CreateSwapChainForHwnd(device_, renderWindow_, &desc, nullptr, nullptr,
+                                           &swapChain_);
+    }
     SafeRelease(&factory);
     if (FAILED(hr)) {
       return false;

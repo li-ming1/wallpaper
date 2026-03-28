@@ -284,3 +284,9 @@ Phase 6
 - [x] Green: 视频纹理上传改为 `D3D11_USAGE_DYNAMIC + Map(WRITE_DISCARD)` 路径
 - [x] Verification: 单测通过（85/85） + 构建通过
 - **Status:** complete
+
+### Phase 33: 渲染链路进一步降耗（Completed）
+- [x] Green: D3D 设备启用 `D3D11_CREATE_DEVICE_SINGLETHREADED`（主线程独占渲染调用）
+- [x] Green: swapchain 优先 `FLIP_DISCARD`，失败回退 `FLIP_SEQUENTIAL`
+- [x] Verification: 单测通过（85/85） + 构建通过
+- **Status:** complete

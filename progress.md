@@ -866,3 +866,14 @@
   - task_plan.md
   - findings.md
   - progress.md
+### Phase 33: 渲染链路进一步降耗
+- **Status:** complete
+- Actions taken:
+  - Green: `wallpaper_host_win` 的 D3D 设备创建 flags 切到 `D3D11_CREATE_DEVICE_SINGLETHREADED`，减少单线程场景锁开销。
+  - Green: swapchain `SwapEffect` 优先 `DXGI_SWAP_EFFECT_FLIP_DISCARD`，若创建失败回退 `DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL`。
+  - Verification: `./scripts/run_tests.ps1` 全绿（85/85）；`./scripts/build_app.ps1` 构建通过。
+- Files created/modified:
+  - src/win/wallpaper_host_win.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md

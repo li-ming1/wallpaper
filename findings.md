@@ -197,3 +197,6 @@
 - 参考 DXGI 官方建议：设置 `SetMaximumFrameLatency(1)`，降低预渲染队列带来的额外延迟与内存占用。
 - 参考 D3D11 官方建议：将高频 CPU 更新纹理路径切到 `D3D11_USAGE_DYNAMIC + Map(WRITE_DISCARD)`，替代默认 `UpdateSubresource` 热路径。
 - 验证：`run_tests` 全绿（85/85），`build_app` 成功。
+- 继续参考前人资料（微软 DXGI flip model 文档）：推荐使用 flip model 获得更高效的桌面合成路径。
+- 本轮渲染链路补充：D3D 设备启用 `D3D11_CREATE_DEVICE_SINGLETHREADED`；swapchain 优先 `FLIP_DISCARD` 并保留 `FLIP_SEQUENTIAL` 回退，提高兼容性。
+- 验证：`run_tests` 全绿（85/85），`build_app` 成功。
