@@ -23,6 +23,7 @@ add_library(wallpaper_core STATIC
   src/resource_arbiter.cpp
   src/metrics_sampler.cpp
   src/frame_bridge.cpp
+  src/startup_policy.cpp
 )
 target_include_directories(wallpaper_core PUBLIC include)
 
@@ -69,6 +70,7 @@ add_executable(wallpaper_tests
   tests/quality_governor_tests.cpp
   tests/render_scheduler_tests.cpp
   tests/resource_arbiter_tests.cpp
+  tests/startup_policy_tests.cpp
   tests/video_path_matcher_tests.cpp
   src/config_store.cpp
   src/desktop_attach_policy.cpp
@@ -79,6 +81,7 @@ add_executable(wallpaper_tests
   src/quality_governor.cpp
   src/render_scheduler.cpp
   src/resource_arbiter.cpp
+  src/startup_policy.cpp
   src/video_path_matcher.cpp
 )
 

@@ -1,6 +1,7 @@
 #include "wallpaper/app.h"
 #include "wallpaper/foreground_policy.h"
 #include "wallpaper/metrics_log_line.h"
+#include "wallpaper/startup_policy.h"
 #include "wallpaper/video_path_matcher.h"
 
 #include <algorithm>
@@ -262,20 +263,18 @@ bool App::Initialize() {
     return false;
   }
 
-  if (!wallpaperHost_->AttachToDesktop()) {
-    return false;
+  if (ShouldActivateVideoPipeline(config_.videoPath)) {
+    if (!StartVideoPipelineForPath(config_.videoPath)) {
+      // 路径存在但启动失败时降级到“仅托盘运行”，避免出现不可控遮盖层。
+      config_.videoPath.clear();
+      DetachWallpaper();
+    }
+  } else {
+    // 缺失配置或路径失效时不附着壁纸窗口，避免幕布遮罩影响桌面体验。
+    config_.videoPath.clear();
+    DetachWallpaper();
   }
-  wallpaperHost_->ResizeForDisplays();
 
-  // 即使没有配置视频，也启动内置动态源模式，保证开箱即有动态效果。
-  if (!decodePipeline_->Open(config_.videoPath, config_.codecPolicy)) {
-    return false;
-  }
-  decodeOpened_.store(true);
-  if (!decodePipeline_->Start()) {
-    return false;
-  }
-  decodeRunning_.store(true);
   SetAutoStartEnabled(config_.autoStart);
   lastMetricsAt_ = RenderScheduler::Clock::now();
   if (!metricsLogFile_.EnsureReady()) {
@@ -317,9 +316,7 @@ int App::Run() {
     decodeRunning_.store(false);
     decodeOpened_.store(false);
   }
-  if (wallpaperHost_) {
-    wallpaperHost_->DetachFromDesktop();
-  }
+  DetachWallpaper();
   if (trayController_) {
     trayController_->StopMessageLoop();
   }
@@ -337,6 +334,73 @@ void App::ScheduleConfigSave() {
     return;
   }
   pendingSave_ = configStore_.SaveAsync(config_);
+}
+
+bool App::EnsureWallpaperAttached() {
+  if (!wallpaperHost_) {
+    return false;
+  }
+  if (wallpaperAttached_) {
+    return true;
+  }
+
+  if (!wallpaperHost_->AttachToDesktop()) {
+    return false;
+  }
+  wallpaperHost_->ResizeForDisplays();
+  wallpaperAttached_ = true;
+  return true;
+}
+
+void App::DetachWallpaper() {
+  if (!wallpaperHost_ || !wallpaperAttached_) {
+    return;
+  }
+  wallpaperHost_->DetachFromDesktop();
+  wallpaperAttached_ = false;
+}
+
+void App::ResetPlaybackState() {
+  hasLastPresentedFrame_ = false;
+  syntheticSequence_ = 0;
+  lastDecodedTimestamp100ns_ = -1;
+  sourceFpsCap_ = 60;
+  sourceFpsHint30_ = 0;
+  sourceFpsHint60_ = 0;
+  lastDecodeMode_ = DecodeMode::kUnknown;
+  {
+    std::lock_guard<std::mutex> lock(decodedTokenMu_);
+    hasLatestDecodedToken_ = false;
+    latestDecodedToken_ = FrameToken{};
+  }
+}
+
+bool App::StartVideoPipelineForPath(const std::string& path) {
+  if (!decodePipeline_ || !ShouldActivateVideoPipeline(path)) {
+    return false;
+  }
+  if (!EnsureWallpaperAttached()) {
+    return false;
+  }
+  if (!decodePipeline_->Open(path, config_.codecPolicy)) {
+    decodeOpened_.store(false);
+    decodeRunning_.store(false);
+    DetachWallpaper();
+    return false;
+  }
+  decodeOpened_.store(true);
+  if (!decodePipeline_->Start()) {
+    decodePipeline_->Stop();
+    decodeOpened_.store(false);
+    decodeRunning_.store(false);
+    DetachWallpaper();
+    return false;
+  }
+  decodeRunning_.store(true);
+  ResetPlaybackState();
+  ApplyRenderFpsCap(qualityGovernor_.CurrentFps());
+  scheduler_.Reset();
+  return true;
 }
 
 void App::ApplyRenderFpsCap(const int governorFps) {
@@ -358,34 +422,35 @@ bool App::ApplyVideoPath(const std::string& newPath) {
   }
 
   const std::string oldPath = config_.videoPath;
+  const bool canRestoreOldPath = ShouldActivateVideoPipeline(oldPath);
   decodePipeline_->Stop();
   decodeOpened_.store(false);
   decodeRunning_.store(false);
+  ResetPlaybackState();
 
-  if (!decodePipeline_->Open(newPath, config_.codecPolicy)) {
-    if (decodePipeline_->Open(oldPath, config_.codecPolicy)) {
-      decodeOpened_.store(true);
-      decodeRunning_.store(decodePipeline_->Start());
+  const auto restoreOldVideo = [this, &oldPath, canRestoreOldPath]() {
+    if (canRestoreOldPath) {
+      StartVideoPipelineForPath(oldPath);
     }
+  };
+
+  if (newPath.empty()) {
+    config_.videoPath.clear();
+    DetachWallpaper();
+    return true;
+  }
+
+  if (!ShouldActivateVideoPipeline(newPath)) {
+    restoreOldVideo();
     return false;
   }
 
-  decodeOpened_.store(true);
-  decodeRunning_.store(decodePipeline_->Start());
-  config_.videoPath = newPath;
-  hasLastPresentedFrame_ = false;
-  syntheticSequence_ = 0;
-  lastDecodedTimestamp100ns_ = -1;
-  sourceFpsCap_ = 60;
-  sourceFpsHint30_ = 0;
-  sourceFpsHint60_ = 0;
-  {
-    std::lock_guard<std::mutex> lock(decodedTokenMu_);
-    hasLatestDecodedToken_ = false;
-    latestDecodedToken_ = FrameToken{};
+  if (!StartVideoPipelineForPath(newPath)) {
+    restoreOldVideo();
+    return false;
   }
-  ApplyRenderFpsCap(qualityGovernor_.CurrentFps());
-  scheduler_.Reset();
+
+  config_.videoPath = newPath;
   return true;
 }
 
@@ -501,7 +566,7 @@ bool App::HandleTrayActions() {
 }
 
 void App::Tick() {
-  if (!decodePipeline_ || !wallpaperHost_) {
+  if (!decodePipeline_ || !wallpaperHost_ || !wallpaperAttached_) {
     MaybeSampleAndLogMetrics(false, false, 0.0);
     return;
   }
@@ -595,8 +660,14 @@ void App::Tick() {
   } else if (hasLastPresentedFrame_) {
     frame = lastPresentedFrame_;
   } else {
-    frame.sequence = ++syntheticSequence_;
-    frame.decodeMode = lastDecodeMode_;
+    // 首帧未就绪时不做任何呈现，彻底消除启动瞬间回退底色“幕布”。
+    MaybeSampleAndLogMetrics(false, false, 0.0);
+    return;
+  }
+
+  if (!ShouldPresentFrame(hasNewDecodedToken, hasLastPresentedFrame_)) {
+    MaybeSampleAndLogMetrics(false, false, 0.0);
+    return;
   }
 
   const auto presentBegin = RenderScheduler::Clock::now();

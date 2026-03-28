@@ -25,6 +25,7 @@ $sources = @(
   "tests/quality_governor_tests.cpp",
   "tests/render_scheduler_tests.cpp",
   "tests/resource_arbiter_tests.cpp",
+  "tests/startup_policy_tests.cpp",
   "tests/video_path_matcher_tests.cpp",
   "src/config_store.cpp",
   "src/desktop_attach_policy.cpp",
@@ -35,6 +36,7 @@ $sources = @(
   "src/quality_governor.cpp",
   "src/render_scheduler.cpp",
   "src/resource_arbiter.cpp",
+  "src/startup_policy.cpp",
   "src/video_path_matcher.cpp"
 )
 

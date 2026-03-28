@@ -31,6 +31,10 @@ class App final {
  private:
   bool HandleTrayActions();
   bool ApplyVideoPath(const std::string& newPath);
+  bool EnsureWallpaperAttached();
+  void DetachWallpaper();
+  void ResetPlaybackState();
+  bool StartVideoPipelineForPath(const std::string& path);
   void ApplyRenderFpsCap(int governorFps);
   void StartDecodePump();
   void StopDecodePump();
@@ -59,6 +63,7 @@ class App final {
   std::atomic<bool> running_{false};
   std::atomic<bool> decodeOpened_{false};
   std::atomic<bool> decodeRunning_{false};
+  bool wallpaperAttached_ = false;
   std::future<void> pendingSave_;
   RenderScheduler::Clock::time_point lastMetricsAt_{};
   std::vector<double> presentSamplesMs_;

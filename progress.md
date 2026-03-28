@@ -373,3 +373,26 @@
 | What's the goal? | Performance-first Windows wallpaper app |
 | What have I learned? | See findings.md |
 | What have I done? | See above |
+
+### Phase 7: 启动遮盖层与无效路径治理
+- **Status:** in_progress
+- Actions taken:
+  - 复盘启动链路与渲染回退路径，确认三类问题的触发代码位于 `src/app.cpp` 与 `src/win/wallpaper_host_win.cpp`。
+  - 形成提审方案：无效/缺失视频路径不附着壁纸层，首帧到达后再显示窗口。
+  - 准备进入 TDD Red 阶段新增测试。
+- Actions taken:
+  - Red: 新增 `tests/startup_policy_tests.cpp` 并先跑出编译失败（缺失 `startup_policy`）。
+  - Green: 新增 `include/wallpaper/startup_policy.h`、`src/startup_policy.cpp`，接入 `src/app.cpp`。
+  - Green: 重构 App 启动与换源流程，引入 `EnsureWallpaperAttached/DetachWallpaper/StartVideoPipelineForPath`，无效路径降级到仅托盘运行。
+  - Green: 修改 `src/win/wallpaper_host_win.cpp`，窗口默认隐藏，首个视频帧可绘制后再显示。
+  - Verification: `./scripts/run_tests.ps1` 通过；`./scripts/build_app.ps1` 初次失败后修复源文件列表，再次构建通过。
+- Files created/modified:
+  - include/wallpaper/startup_policy.h
+  - src/startup_policy.cpp
+  - tests/startup_policy_tests.cpp
+  - include/wallpaper/app.h
+  - src/app.cpp
+  - src/win/wallpaper_host_win.cpp
+  - scripts/run_tests.ps1
+  - scripts/build_app.ps1
+  - CMakeLists.txt

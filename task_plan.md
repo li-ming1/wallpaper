@@ -86,3 +86,17 @@ Phase 6
 ## Notes
 - Enforce TDD for each new behavior.
 - Keep modules split when readability threshold is exceeded.
+
+### Phase 7: 启动遮盖层与无效路径治理（In Progress）
+- [ ] Red: 新增启动策略失败测试（路径有效性与首帧前不呈现）
+- [ ] Green: 实现启动策略模块并接入 App 初始化/换源
+- [ ] Green: 调整 Windows 宿主窗口首帧后再可见
+- [ ] Verification: 运行测试与构建验证
+- **Status:** in_progress
+
+### Phase 7: 启动遮盖层与无效路径治理（Completed）
+- [x] Red: 新增启动策略失败测试（路径有效性与首帧前不呈现）
+- [x] Green: 实现启动策略模块并接入 App 初始化/换源
+- [x] Green: 调整 Windows 宿主窗口首帧后再可见
+- [x] Verification: 单测通过 + `wallpaper_app.exe` 构建通过
+- **Status:** complete

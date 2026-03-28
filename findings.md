@@ -92,3 +92,12 @@
 
 ## Visual/Browser Findings
 - None
+
+## 2026-03-28 启动体验问题调研
+- 现状：`App::Initialize()` 对 `decodePipeline_->Open(config.videoPath)` 失败直接返回 false，导致“无效路径时程序看起来无响应”。
+- 现状：配置缺失时 `videoPath` 为空，解码 stub 会走 fallback ticker，渲染端 `DrawFallback()` 持续绘制动态底色，形成“幕布遮盖层”。
+- 现状：配置正常时首帧尚未解码前，`Tick()` 也会用 synthetic token 驱动 `DrawFallback()`，产生启动瞬时幕布闪现。
+- 决策：移除“无视频也强制动态色场”的启动策略，改为“仅在有有效视频并拿到首帧后显示壁纸层”。
+- 修复策略落地：新增 `startup_policy`（路径有效性 + 首帧呈现门控），并将 App 启动/换源改为“无有效视频则仅托盘运行”。
+- 修复策略落地：Windows 壁纸宿主窗口改为默认隐藏，只有拿到可绘制视频纹理后才 `ShowWindow`，启动瞬时不再出现幕布闪现。
+- 验证：`scripts/run_tests.ps1` 全绿（36/36），`scripts/build_app.ps1` 构建成功（含 `src/startup_policy.cpp`）。

@@ -31,7 +31,8 @@ $sources = @(
   "src/render_scheduler.cpp",
   "src/resource_arbiter.cpp",
   "src/metrics_sampler.cpp",
-  "src/frame_bridge.cpp"
+  "src/frame_bridge.cpp",
+  "src/startup_policy.cpp"
 )
 
 $compileArgs = @(

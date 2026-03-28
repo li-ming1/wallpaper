@@ -290,7 +290,7 @@ class WallpaperHostWin final : public IWallpaperHost {
         return nullptr;
       }
       return CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_TRANSPARENT, kWallpaperWindowClassName, L"",
-                             WS_CHILD | WS_VISIBLE,
+                             WS_CHILD,
                              0, 0, bounds.right - bounds.left,
                              bounds.bottom - bounds.top, parent, nullptr, instance_, nullptr);
     };
@@ -327,7 +327,7 @@ class WallpaperHostWin final : public IWallpaperHost {
     }
 
     SetWindowPos(renderWindow_, HWND_BOTTOM, 0, 0, bounds.right - bounds.left,
-                 bounds.bottom - bounds.top, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                 bounds.bottom - bounds.top, SWP_NOACTIVATE);
     EnsureDesktopIconLayerVisible();
     attached_ = true;
     return true;
@@ -341,6 +341,7 @@ class WallpaperHostWin final : public IWallpaperHost {
       renderWindow_ = nullptr;
     }
     desktopParent_ = nullptr;
+    renderWindowVisible_ = false;
   }
 
   void ResizeForDisplays() override {
@@ -355,8 +356,7 @@ class WallpaperHostWin final : public IWallpaperHost {
       return;
     }
 
-    SetWindowPos(renderWindow_, HWND_BOTTOM, 0, 0, width, height,
-                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    SetWindowPos(renderWindow_, HWND_BOTTOM, 0, 0, width, height, SWP_NOACTIVATE);
     EnsureDesktopIconLayerVisible();
     ResizeSwapChain(static_cast<UINT>(width), static_cast<UINT>(height));
   }
@@ -391,7 +391,13 @@ class WallpaperHostWin final : public IWallpaperHost {
     }
 
     if (!drewVideo) {
-      DrawFallback(frame);
+      return;
+    }
+
+    if (!renderWindowVisible_) {
+      ShowWindow(renderWindow_, SW_SHOWNOACTIVATE);
+      renderWindowVisible_ = true;
+      EnsureDesktopIconLayerVisible();
     }
 
     swapChain_->Present(1, 0);
@@ -711,6 +717,7 @@ class WallpaperHostWin final : public IWallpaperHost {
   HWND desktopParent_ = nullptr;
   HWND renderWindow_ = nullptr;
   bool attached_ = false;
+  bool renderWindowVisible_ = false;
 
   ID3D11Device* device_ = nullptr;
   ID3D11DeviceContext* context_ = nullptr;
