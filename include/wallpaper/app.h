@@ -81,6 +81,8 @@ class App final {
   ForegroundState cachedForegroundState_ = ForegroundState::kWindowed;
   bool wasPaused_ = false;
   bool resourcesReleasedByPause_ = false;
+  bool resumePipelinePending_ = false;
+  RenderScheduler::Clock::time_point nextResumeAttemptAt_{};
   std::size_t droppedFrames_ = 0;
   std::size_t totalFrames_ = 0;
 };

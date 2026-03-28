@@ -36,12 +36,13 @@ bool IsShellForegroundClass(const std::wstring& className) {
 
 bool ShouldTreatForegroundAsFullscreen(const std::wstring& className, const bool coversMonitor,
                                        const bool isVisible) {
-  if (!isVisible || !coversMonitor) {
+  if (!coversMonitor) {
     return false;
   }
   if (IsShellForegroundClass(className)) {
     return false;
   }
+  (void)isVisible;
   return true;
 }
 

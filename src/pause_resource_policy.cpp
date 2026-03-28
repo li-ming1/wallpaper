@@ -13,8 +13,8 @@ bool ShouldRestoreResourcesOnResume(const bool isStillPaused,
 }
 
 bool ShouldKeepWallpaperLayerDuringPause(const bool wallpaperAttached,
-                                         const bool hasLastPresentedFrame) noexcept {
-  return wallpaperAttached && hasLastPresentedFrame;
+                                         const bool /*hasLastPresentedFrame*/) noexcept {
+  return wallpaperAttached;
 }
 
 }  // namespace wallpaper

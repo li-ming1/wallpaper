@@ -142,3 +142,11 @@ Phase 6
 - [x] Green: 引入近似覆盖判定 + 扩展帧边界读取
 - [x] Verification: 单测通过，临时目录构建通过（主产物被运行中进程占用）
 - **Status:** complete
+
+### Phase 14: 全屏暂停触发与恢复稳定性修复（Completed）
+- [x] Red: 新增/调整策略测试并先触发失败
+- [x] Green: 全屏时保持壁纸层，不再因 pause 退回系统原壁纸
+- [x] Green: 恢复路径增加自动重试，避免一次恢复失败后永久不恢复
+- [x] Green: 放宽全屏识别对可见性依赖
+- [x] Verification: 单测通过 + 构建通过
+- **Status:** complete

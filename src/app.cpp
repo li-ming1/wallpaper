@@ -395,6 +395,8 @@ void App::ResetPlaybackState() {
   cachedForegroundState_ = ForegroundState::kWindowed;
   wasPaused_ = false;
   resourcesReleasedByPause_ = false;
+  resumePipelinePending_ = false;
+  nextResumeAttemptAt_ = RenderScheduler::Clock::time_point{};
   {
     std::lock_guard<std::mutex> lock(decodedTokenMu_);
     hasLatestDecodedToken_ = false;
@@ -412,7 +414,6 @@ bool App::StartVideoPipelineForPath(const std::string& path) {
   if (!decodePipeline_->Open(path, config_.codecPolicy)) {
     decodeOpened_.store(false);
     decodeRunning_.store(false);
-    DetachWallpaper();
     return false;
   }
   decodeOpened_.store(true);
@@ -420,7 +421,6 @@ bool App::StartVideoPipelineForPath(const std::string& path) {
     decodePipeline_->Stop();
     decodeOpened_.store(false);
     decodeRunning_.store(false);
-    DetachWallpaper();
     return false;
   }
   decodeRunning_.store(true);
@@ -628,13 +628,11 @@ void App::Tick() {
       const bool keepWallpaperLayer =
           ShouldKeepWallpaperLayerDuringPause(wallpaperAttached_, hasLastPresentedFrame_);
       if (ShouldReleaseResourcesOnPause(shouldPause, hasActiveVideoResources)) {
-        // 全屏时释放解码资源；若已有最后一帧则保留壁纸层呈现“静态壁纸”观感。
+        // 全屏时释放解码资源；壁纸层保持常驻，维持静态壁纸观感。
         decodePipeline_->Stop();
         decodeOpened_.store(false);
         decodeRunning_.store(false);
-        if (!keepWallpaperLayer) {
-          DetachWallpaper();
-        }
+        (void)keepWallpaperLayer;
         resourcesReleasedByPause_ = true;
       } else {
         resourcesReleasedByPause_ = false;
@@ -644,10 +642,6 @@ void App::Tick() {
       frame_bridge::ClearLatestFrame();
       presentSamplesMs_.clear();
       presentSamplesMs_.shrink_to_fit();
-      if (!keepWallpaperLayer) {
-        hasLastPresentedFrame_ = false;
-        lastPresentedFrame_ = FrameToken{};
-      }
       {
         std::lock_guard<std::mutex> lock(decodedTokenMu_);
         hasLatestDecodedToken_ = false;
@@ -664,11 +658,20 @@ void App::Tick() {
     scheduler_.Reset();
     if (ShouldRestoreResourcesOnResume(false, resourcesReleasedByPause_)) {
       resourcesReleasedByPause_ = false;
-      if (ShouldActivateVideoPipeline(config_.videoPath)) {
-        StartVideoPipelineForPath(config_.videoPath);
-      }
+      resumePipelinePending_ = ShouldActivateVideoPipeline(config_.videoPath);
+      nextResumeAttemptAt_ = now;
     }
     wasPaused_ = false;
+  }
+
+  if (resumePipelinePending_ && now >= nextResumeAttemptAt_) {
+    if (ShouldActivateVideoPipeline(config_.videoPath) &&
+        StartVideoPipelineForPath(config_.videoPath)) {
+      resumePipelinePending_ = false;
+      nextResumeAttemptAt_ = RenderScheduler::Clock::time_point{};
+    } else {
+      nextResumeAttemptAt_ = now + std::chrono::seconds(1);
+    }
   }
 
   if (decodeOpened_.load() && !decodeRunning_.load()) {

@@ -505,3 +505,21 @@
   - task_plan.md
   - findings.md
   - progress.md
+### Phase 14: 全屏暂停触发与恢复稳定性修复
+- **Status:** complete
+- Actions taken:
+  - Red: 修改 `pause_resource_policy` 与 `foreground_policy` 相关测试，先验证失败。
+  - Green: `ShouldKeepWallpaperLayerDuringPause` 改为只要壁纸层已附着就保持层级。
+  - Green: `Tick` 中 pause 边沿改为仅释放解码资源，不再 Detach 壁纸层；resume 引入 `resumePipelinePending_` 自动重试。
+  - Green: `ShouldTreatForegroundAsFullscreen` 不再以 `isVisible` 作为必要条件。
+  - Verification: `./scripts/run_tests.ps1` 与 `./scripts/build_app.ps1` 均通过。
+- Files created/modified:
+  - include/wallpaper/app.h
+  - src/app.cpp
+  - src/foreground_policy.cpp
+  - src/pause_resource_policy.cpp
+  - tests/foreground_policy_tests.cpp
+  - tests/pause_resource_policy_tests.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md
