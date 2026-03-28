@@ -64,12 +64,20 @@ struct TrayAction final {
   std::string payload;
 };
 
+struct TrayMenuState final {
+  int fpsCap = 30;
+  bool autoStart = false;
+  bool adaptiveQuality = true;
+  bool hasVideo = false;
+};
+
 class ITrayController {
  public:
   virtual ~ITrayController() = default;
 
   virtual void StartMessageLoop() = 0;
   virtual void StopMessageLoop() = 0;
+  virtual void UpdateMenuState(const TrayMenuState& state) = 0;
   [[nodiscard]] virtual bool IsExitRequested() const = 0;
   virtual bool TryDequeueAction(TrayAction* action) = 0;
 };

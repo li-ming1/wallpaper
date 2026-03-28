@@ -73,6 +73,11 @@ class TrayControllerWin final : public ITrayController {
     workerThreadId_.store(0);
   }
 
+  void UpdateMenuState(const TrayMenuState& state) override {
+    std::lock_guard<std::mutex> lock(menuStateMu_);
+    menuState_ = state;
+  }
+
   [[nodiscard]] bool IsExitRequested() const override {
     return exitRequested_.load();
   }
@@ -257,22 +262,51 @@ class TrayControllerWin final : public ITrayController {
     if (messageWindow_ == nullptr) {
       return;
     }
+    TrayMenuState state{};
+    {
+      std::lock_guard<std::mutex> lock(menuStateMu_);
+      state = menuState_;
+    }
 
     HMENU menu = CreatePopupMenu();
     if (menu == nullptr) {
       return;
     }
-    AppendMenuW(menu, MF_STRING, kMenuSet30FpsId, L"Set 30 FPS");
-    AppendMenuW(menu, MF_STRING, kMenuSet60FpsId, L"Set 60 FPS");
+    const auto fps30Flags = static_cast<UINT>(MF_STRING |
+                                              (state.fpsCap == 30 ? MF_CHECKED : MF_UNCHECKED) |
+                                              (state.fpsCap == 30 ? MF_GRAYED : 0));
+    const auto fps60Flags = static_cast<UINT>(MF_STRING |
+                                              (state.fpsCap == 60 ? MF_CHECKED : MF_UNCHECKED) |
+                                              (state.fpsCap == 60 ? MF_GRAYED : 0));
+    AppendMenuW(menu, fps30Flags, kMenuSet30FpsId, L"Set 30 FPS");
+    AppendMenuW(menu, fps60Flags, kMenuSet60FpsId, L"Set 60 FPS");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, kMenuSelectVideoId, L"Select Video...");
-    AppendMenuW(menu, MF_STRING, kMenuClearVideoId, L"Clear Video");
+    const auto clearVideoFlags = static_cast<UINT>(MF_STRING | (state.hasVideo ? 0 : MF_GRAYED));
+    AppendMenuW(menu, clearVideoFlags, kMenuClearVideoId, L"Clear Video");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(menu, MF_STRING, kMenuEnableAutoStartId, L"Enable Auto Start");
-    AppendMenuW(menu, MF_STRING, kMenuDisableAutoStartId, L"Disable Auto Start");
+    const auto enableAutoFlags = static_cast<UINT>(MF_STRING |
+                                                   (state.autoStart ? MF_CHECKED : MF_UNCHECKED) |
+                                                   (state.autoStart ? MF_GRAYED : 0));
+    const auto disableAutoFlags =
+        static_cast<UINT>(MF_STRING |
+                          (!state.autoStart ? MF_CHECKED : MF_UNCHECKED) |
+                          (!state.autoStart ? MF_GRAYED : 0));
+    AppendMenuW(menu, enableAutoFlags, kMenuEnableAutoStartId, L"Enable Auto Start");
+    AppendMenuW(menu, disableAutoFlags, kMenuDisableAutoStartId, L"Disable Auto Start");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(menu, MF_STRING, kMenuEnableAdaptiveQualityId, L"Enable Adaptive Quality");
-    AppendMenuW(menu, MF_STRING, kMenuDisableAdaptiveQualityId, L"Disable Adaptive Quality");
+    const auto enableAdaptiveFlags =
+        static_cast<UINT>(MF_STRING |
+                          (state.adaptiveQuality ? MF_CHECKED : MF_UNCHECKED) |
+                          (state.adaptiveQuality ? MF_GRAYED : 0));
+    const auto disableAdaptiveFlags =
+        static_cast<UINT>(MF_STRING |
+                          (!state.adaptiveQuality ? MF_CHECKED : MF_UNCHECKED) |
+                          (!state.adaptiveQuality ? MF_GRAYED : 0));
+    AppendMenuW(menu, enableAdaptiveFlags, kMenuEnableAdaptiveQualityId,
+                L"Enable Adaptive Quality");
+    AppendMenuW(menu, disableAdaptiveFlags, kMenuDisableAdaptiveQualityId,
+                L"Disable Adaptive Quality");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, kMenuExitId, L"Exit");
 
@@ -297,6 +331,8 @@ class TrayControllerWin final : public ITrayController {
   NOTIFYICONDATAW nid_{};
   std::mutex actionsMu_;
   std::deque<TrayAction> pendingActions_;
+  std::mutex menuStateMu_;
+  TrayMenuState menuState_{};
 };
 
 #else
@@ -305,6 +341,7 @@ class TrayControllerWin final : public ITrayController {
  public:
   void StartMessageLoop() override {}
   void StopMessageLoop() override {}
+  void UpdateMenuState(const TrayMenuState&) override {}
   [[nodiscard]] bool IsExitRequested() const override { return false; }
   bool TryDequeueAction(TrayAction*) override { return false; }
 };

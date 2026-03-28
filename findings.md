@@ -166,3 +166,7 @@
 - 修复解码泵忙轮询根因：拿到帧分支现在也执行 sleep，避免长期动态壁纸下出现高频自旋。
 - 恢复丝滑度继续优化：深挂起恢复阶段从“Open 预热”提升到“Open + Start 预热”，切回动态时减少首帧等待顿挫。
 - 验证：`run_tests` 全绿（76/76），`build_app` 成功。
+- 托盘状态可视化：Set 30/60、Enable/Disable Auto Start、Enable/Disable Adaptive Quality 增加勾选状态，当前生效项置灰。
+- App 侧状态同步：新增 `SyncTrayMenuState`，在初始化及每次配置变更后同步真实状态，避免“点了什么看不出来”。
+- 清除/重选/退出卡顿优化：解码停止路径移除频繁 `MFShutdown`，将 MF runtime 常驻进程生命周期，降低同步停启阻塞。
+- 验证：`run_tests` 全绿（76/76），`build_app` 成功。

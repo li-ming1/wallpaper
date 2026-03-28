@@ -222,3 +222,10 @@ Phase 6
 - [x] Green: 深挂起恢复阶段提前启动解码，减少切回动态的首帧等待
 - [x] Verification: 单测通过（76/76） + 构建通过
 - **Status:** complete
+
+### Phase 25: 清除/重选/退出卡顿与托盘状态可视化（Completed）
+- [x] Green: 托盘菜单支持实时状态勾选与已生效项置灰
+- [x] Green: App 主动同步真实状态（FPS/AutoStart/Adaptive/HasVideo）
+- [x] Green: 解码 Stop 路径去除 MF 频繁 shutdown，降低清除/重选/退出卡顿
+- [x] Verification: 单测通过（76/76） + 构建通过
+- **Status:** complete

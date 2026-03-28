@@ -280,10 +280,7 @@ class DecodePipelineStub final : public IDecodePipeline {
       sourceReader_->Release();
       sourceReader_ = nullptr;
     }
-    if (mfStarted_) {
-      MFShutdown();
-      mfStarted_ = false;
-    }
+    // 保持 MF runtime 常驻进程生命周期，避免频繁 Stop/Open 或退出时的明显卡顿。
     frameWidth_ = 0;
     frameHeight_ = 0;
     frameStride_ = 0;

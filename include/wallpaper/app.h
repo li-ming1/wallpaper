@@ -40,6 +40,7 @@ class App final {
   void ApplyRenderFpsCap(int governorFps);
   void StartDecodePump();
   void StopDecodePump();
+  void SyncTrayMenuState() const;
   void ScheduleConfigSave();
   void Tick();
   void MaybeSampleAndLogMetrics(bool attemptedRender, bool frameDropped, double presentMs);

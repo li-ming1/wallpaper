@@ -726,3 +726,20 @@
   - task_plan.md
   - findings.md
   - progress.md
+### Phase 25: 清除/重选/退出卡顿与托盘状态可视化
+- **Status:** complete
+- Actions taken:
+  - Green: `ITrayController` 新增 `UpdateMenuState`，`App` 新增 `SyncTrayMenuState` 并在初始化与配置变更后同步真实状态。
+  - Green: Windows 托盘菜单增加实时勾选与灰置逻辑（Set 30/60、Enable/Disable Auto Start、Enable/Disable Adaptive Quality、Clear Video）。
+  - Green: `decode_pipeline_stub` 停止路径去除频繁 `MFShutdown`，保留 runtime 常驻以降低 Clear/Select/Exit 的同步阻塞。
+  - Verification: `./scripts/run_tests.ps1` 全绿（76/76）；`./scripts/build_app.ps1` 构建通过。
+- Files created/modified:
+  - include/wallpaper/interfaces.h
+  - include/wallpaper/app.h
+  - src/app.cpp
+  - src/platform_stubs.cpp
+  - src/win/tray_controller_win.cpp
+  - src/win/decode_pipeline_stub.cpp
+  - task_plan.md
+  - progress.md
+  - findings.md

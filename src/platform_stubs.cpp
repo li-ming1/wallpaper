@@ -26,6 +26,7 @@ class TrayControllerStub final : public ITrayController {
  public:
   void StartMessageLoop() override {}
   void StopMessageLoop() override {}
+  void UpdateMenuState(const TrayMenuState&) override {}
   [[nodiscard]] bool IsExitRequested() const override { return false; }
   bool TryDequeueAction(TrayAction*) override { return false; }
 };

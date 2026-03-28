@@ -315,6 +315,7 @@ bool App::Initialize() {
   if (!metricsLogFile_.EnsureReady()) {
     // 指标日志写入失败不应阻止主功能启动，降级为无落盘监控。
   }
+  SyncTrayMenuState();
 
   return true;
 }
@@ -363,6 +364,18 @@ int App::Run() {
 }
 
 void App::RequestStop() { running_.store(false); }
+
+void App::SyncTrayMenuState() const {
+  if (!trayController_) {
+    return;
+  }
+  TrayMenuState state;
+  state.fpsCap = NormalizeFpsCap(config_.fpsCap);
+  state.autoStart = config_.autoStart;
+  state.adaptiveQuality = config_.adaptiveQuality;
+  state.hasVideo = !config_.videoPath.empty();
+  trayController_->UpdateMenuState(state);
+}
 
 void App::ScheduleConfigSave() {
   if (pendingSave_.valid() &&
@@ -563,6 +576,7 @@ bool App::HandleTrayActions() {
   }
 
   bool configChanged = false;
+  bool trayStateChanged = false;
   TrayAction action;
   while (trayController_->TryDequeueAction(&action)) {
     switch (action.type) {
@@ -575,6 +589,7 @@ bool App::HandleTrayActions() {
           qualityGovernor_.SetTargetFps(config_.fpsCap);
           ApplyRenderFpsCap(qualityGovernor_.CurrentFps());
           configChanged = true;
+          trayStateChanged = true;
         }
         break;
       case TrayActionType::kSetFps60:
@@ -583,28 +598,33 @@ bool App::HandleTrayActions() {
           qualityGovernor_.SetTargetFps(config_.fpsCap);
           ApplyRenderFpsCap(qualityGovernor_.CurrentFps());
           configChanged = true;
+          trayStateChanged = true;
         }
         break;
       case TrayActionType::kSelectVideo:
         if (!action.payload.empty() && ApplyVideoPath(action.payload)) {
           configChanged = true;
+          trayStateChanged = true;
         }
         break;
       case TrayActionType::kClearVideo:
         if (ApplyVideoPath({})) {
           configChanged = true;
+          trayStateChanged = true;
         }
         break;
       case TrayActionType::kEnableAutoStart:
         if (!config_.autoStart && SetAutoStartEnabled(true)) {
           config_.autoStart = true;
           configChanged = true;
+          trayStateChanged = true;
         }
         break;
       case TrayActionType::kDisableAutoStart:
         if (config_.autoStart && SetAutoStartEnabled(false)) {
           config_.autoStart = false;
           configChanged = true;
+          trayStateChanged = true;
         }
         break;
       case TrayActionType::kEnableAdaptiveQuality:
@@ -613,6 +633,7 @@ bool App::HandleTrayActions() {
           qualityGovernor_.SetEnabled(true);
           ApplyRenderFpsCap(qualityGovernor_.CurrentFps());
           configChanged = true;
+          trayStateChanged = true;
         }
         break;
       case TrayActionType::kDisableAdaptiveQuality:
@@ -621,6 +642,7 @@ bool App::HandleTrayActions() {
           qualityGovernor_.SetEnabled(false);
           ApplyRenderFpsCap(qualityGovernor_.CurrentFps());
           configChanged = true;
+          trayStateChanged = true;
         }
         break;
       case TrayActionType::kNone:
@@ -631,6 +653,9 @@ bool App::HandleTrayActions() {
 
   if (configChanged) {
     ScheduleConfigSave();
+  }
+  if (trayStateChanged) {
+    SyncTrayMenuState();
   }
   return true;
 }
