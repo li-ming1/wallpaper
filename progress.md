@@ -650,3 +650,79 @@
   - task_plan.md
   - findings.md
   - progress.md
+### Phase 21: CPU/内存迭代优化四
+- **Status:** complete
+- Actions taken:
+  - Green: 调整 `loop_sleep_policy`（pause 主循环 110ms、无视频 70ms、active 下限 2ms；decode no-ready 45ms、no-frame 退避上限 16ms）。
+  - Green: 新增 `SelectRuntimeProbeIntervals`，暂停态将 session/foreground 探测间隔提升到 `1200ms/260ms`。
+  - Green: `App` 引入 `stablePauseForLoopSleep_`，主循环睡眠不再用原始 pause 信号，避免抖动导致的无效唤醒。
+  - Green: `IDecodePipeline` 新增 `TrimMemory()`；轻暂停超过 1500ms 后只回收解码帧缓存，不破坏软暂停恢复路径。
+  - Verification: `./scripts/run_tests.ps1` 全绿（72/72）；`./scripts/build_app.ps1` 构建通过。
+- Files created/modified:
+  - include/wallpaper/interfaces.h
+  - src/platform_stubs.cpp
+  - src/win/decode_pipeline_stub.cpp
+  - include/wallpaper/loop_sleep_policy.h
+  - src/loop_sleep_policy.cpp
+  - tests/loop_sleep_policy_tests.cpp
+  - include/wallpaper/probe_cadence_policy.h
+  - src/probe_cadence_policy.cpp
+  - tests/probe_cadence_policy_tests.cpp
+  - include/wallpaper/pause_suspend_policy.h
+  - src/pause_suspend_policy.cpp
+  - tests/pause_suspend_policy_tests.cpp
+  - include/wallpaper/app.h
+  - src/app.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md
+### Phase 22: 长静态内存回收与抖动抑制
+- **Status:** complete
+- Actions taken:
+  - Green: `pause_suspend_policy` 新增 `SelectHardSuspendThreshold`，支持激进/保守两档深挂起阈值选择。
+  - Green: `App::Tick` 中将非系统态（普通非桌面上下文）深挂起阈值设为 12s，长静态可释放 MF 解码链路。
+  - Green: 深挂起后调用 `EmptyWorkingSet(GetCurrentProcess())`，让长静态内存下降更可见。
+  - Green: 解码泵拿到帧后的 sleep 从 0ms 改为 2ms，降低长期动态时线程空转 CPU。
+  - Verification: `./scripts/run_tests.ps1` 全绿（74/74）；`./scripts/build_app.ps1` 构建通过。
+- Files created/modified:
+  - include/wallpaper/pause_suspend_policy.h
+  - src/pause_suspend_policy.cpp
+  - tests/pause_suspend_policy_tests.cpp
+  - src/app.cpp
+  - src/loop_sleep_policy.cpp
+  - tests/loop_sleep_policy_tests.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md
+### Phase 23: 深挂起恢复卡顿修复
+- **Status:** complete
+- Actions taken:
+  - Green: `pause_suspend_policy` 新增 `ShouldWarmResumeDuringPause`，用于“离开 pause 且已深挂起”条件下的预热判定。
+  - Green: `App::Tick` 在仍处于 pause 迟滞窗口时预热 `decodePipeline->Open()`，恢复时只执行 `Start()`，降低恢复卡顿。
+  - Green: 深挂起恢复期间 exit delay 从 180ms 动态提升到 360ms，为预热留出缓冲；若用户再次回到暂停态，自动回收预热资源。
+  - Verification: `./scripts/run_tests.ps1` 全绿（75/75）；`./scripts/build_app.ps1` 构建通过。
+- Files created/modified:
+  - include/wallpaper/pause_suspend_policy.h
+  - src/pause_suspend_policy.cpp
+  - tests/pause_suspend_policy_tests.cpp
+  - include/wallpaper/app.h
+  - src/app.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md
+### Phase 24: 动态高负载与恢复顿挫联合优化
+- **Status:** complete
+- Actions taken:
+  - Green: 新增 `ComputeDecodePumpHotSleepMs` 并接入 `ApplyRenderFpsCap`，按渲染上限动态设置解码泵有帧睡眠（60fps=4ms, 30fps=8ms）。
+  - Green: 修复 `StartDecodePump` 的关键路径：拿到帧后也执行 sleep，避免解码线程长期忙轮询导致 CPU 偏高。
+  - Green: 深挂起恢复预热从“仅 Open”升级为“Open 后提前 Start”，在退出 pause 时直接进入连续解码。
+  - Verification: `./scripts/run_tests.ps1` 全绿（76/76）；`./scripts/build_app.ps1` 构建通过。
+- Files created/modified:
+  - include/wallpaper/loop_sleep_policy.h
+  - src/loop_sleep_policy.cpp
+  - tests/loop_sleep_policy_tests.cpp
+  - include/wallpaper/app.h
+  - src/app.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md

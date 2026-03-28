@@ -28,3 +28,15 @@ TEST_CASE(ProbeCadencePolicy_ClockRollbackForcesRefresh) {
   const auto now = wallpaper::ProbeClock::time_point{} + 10ms;
   EXPECT_TRUE(wallpaper::ShouldRefreshRuntimeProbe(now, last, 100ms));
 }
+
+TEST_CASE(ProbeCadencePolicy_SelectsAggressiveCadenceWhenRunning) {
+  const auto intervals = wallpaper::SelectRuntimeProbeIntervals(false);
+  EXPECT_EQ(intervals.session, 300ms);
+  EXPECT_EQ(intervals.foreground, 120ms);
+}
+
+TEST_CASE(ProbeCadencePolicy_SelectsSparseCadenceWhenPaused) {
+  const auto intervals = wallpaper::SelectRuntimeProbeIntervals(true);
+  EXPECT_EQ(intervals.session, 1200ms);
+  EXPECT_EQ(intervals.foreground, 260ms);
+}

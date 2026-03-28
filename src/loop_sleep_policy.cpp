@@ -7,25 +7,29 @@ namespace wallpaper {
 int ComputeMainLoopSleepMs(const bool shouldPause, const bool hasActiveVideo,
                            const std::chrono::milliseconds untilNextRender) noexcept {
   if (shouldPause) {
-    return 80;
+    return 110;
   }
   if (!hasActiveVideo) {
-    return 50;
+    return 70;
   }
 
   const auto waitMs = static_cast<int>(untilNextRender.count());
-  return std::clamp(waitMs, 1, 20);
+  return std::clamp(waitMs, 2, 24);
 }
 
 int ComputeDecodePumpSleepMs(const bool decodeReady, const bool frameAcquired,
                              const int previousSleepMs) noexcept {
   if (!decodeReady) {
-    return 30;
+    return 45;
   }
   if (frameAcquired) {
-    return 0;
+    return 2;
   }
-  return std::clamp(previousSleepMs + 1, 1, 12);
+  return std::clamp(previousSleepMs + 1, 2, 16);
+}
+
+int ComputeDecodePumpHotSleepMs(const int renderFpsCap) noexcept {
+  return renderFpsCap >= 60 ? 4 : 8;
 }
 
 }  // namespace wallpaper

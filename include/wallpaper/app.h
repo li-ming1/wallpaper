@@ -58,6 +58,7 @@ class App final {
   std::unique_ptr<ITrayController> trayController_;
   std::thread decodePumpThread_;
   std::atomic<bool> decodePumpRunning_{false};
+  std::atomic<int> decodePumpHotSleepMs_{4};
   std::mutex decodedTokenMu_;
   FrameToken latestDecodedToken_{};
   bool hasLatestDecodedToken_ = false;
@@ -81,10 +82,15 @@ class App final {
   RenderScheduler::Clock::time_point lastForegroundProbeAt_{};
   bool cachedSessionInteractive_ = true;
   bool cachedDesktopContextActive_ = true;
+  bool stablePauseForLoopSleep_ = false;
   bool wasPaused_ = false;
+  bool decodeCacheTrimmedByPause_ = false;
   bool resourcesReleasedByPause_ = false;
   bool resumePipelinePending_ = false;
   RenderScheduler::Clock::time_point nextResumeAttemptAt_{};
+  bool resumeWarmupOpened_ = false;
+  bool resumeWarmupStarted_ = false;
+  RenderScheduler::Clock::time_point nextWarmupAttemptAt_{};
   RenderScheduler::Clock::time_point pauseEnteredAt_{};
   bool hardSuspendedByPause_ = false;
   PauseTransitionState pauseTransitionState_{};

@@ -18,6 +18,7 @@ class DecodePipelineStub final : public IDecodePipeline {
   bool Start() override { return true; }
   void Pause() override {}
   void Stop() override {}
+  void TrimMemory() override {}
   bool TryAcquireLatestFrame(FrameToken*) override { return false; }
 };
 

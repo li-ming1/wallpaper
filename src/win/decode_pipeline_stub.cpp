@@ -89,6 +89,15 @@ class DecodePipelineStub final : public IDecodePipeline {
     ResetStateLocked();
   }
 
+  void TrimMemory() override {
+    std::lock_guard<std::mutex> lock(mu_);
+    if (running_) {
+      return;
+    }
+    currentFramePixels_.reset();
+    frame_bridge::ClearLatestFrame();
+  }
+
   bool TryAcquireLatestFrame(FrameToken* frame) override {
     if (frame == nullptr) {
       return false;

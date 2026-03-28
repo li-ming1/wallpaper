@@ -194,3 +194,31 @@ Phase 6
 - [x] Green: 延长硬挂起阈值（8s），降低短中时长切换的恢复卡顿
 - [x] Verification: 单测通过（67/67） + 构建通过
 - **Status:** complete
+
+### Phase 21: CPU/内存迭代优化四（Completed）
+- [x] Green: 暂停态主循环睡眠与解码泵退避进一步降频
+- [x] Green: 暂停态 runtime probe 改为稀疏采样，降低 Win32 探测频率
+- [x] Green: 轻暂停持续后仅回收解码帧缓存（不 Stop 管线），降低内存驻留峰值
+- [x] Verification: 单测通过（72/72） + 构建通过
+- **Status:** complete
+
+### Phase 22: 长静态内存回收与抖动抑制（Completed）
+- [x] Green: 长静态场景允许保守阈值深度挂起（12s），释放解码链路内存
+- [x] Green: 深度挂起后触发进程工作集回收，提升内存下降可见性
+- [x] Green: 解码泵“有帧”最小睡眠从 0ms 调整到 2ms，抑制长期动态忙轮询
+- [x] Verification: 单测通过（74/74） + 构建通过
+- **Status:** complete
+
+### Phase 23: 深挂起恢复卡顿修复（Completed）
+- [x] Green: 退出 pause 迟滞窗口内预热 `Open`，恢复时仅执行 `Start`
+- [x] Green: 深挂起恢复场景延长 exit delay（360ms）用于预热，减少解冻顿挫
+- [x] Green: 预热后若再次回到暂停态自动回收，防止频繁切换反向抬升内存
+- [x] Verification: 单测通过（75/75） + 构建通过
+- **Status:** complete
+
+### Phase 24: 动态高负载与恢复顿挫联合优化（Completed）
+- [x] Green: 修复解码泵“拿到帧后未有效睡眠”的忙轮询路径
+- [x] Green: 新增按渲染帧率上限的解码泵 hot-sleep 策略（60fps->4ms, 30fps->8ms）
+- [x] Green: 深挂起恢复阶段提前启动解码，减少切回动态的首帧等待
+- [x] Verification: 单测通过（76/76） + 构建通过
+- **Status:** complete

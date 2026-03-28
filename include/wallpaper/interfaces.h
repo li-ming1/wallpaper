@@ -42,6 +42,7 @@ class IDecodePipeline {
   virtual bool Start() = 0;
   virtual void Pause() = 0;
   virtual void Stop() = 0;
+  virtual void TrimMemory() = 0;
   virtual bool TryAcquireLatestFrame(FrameToken* frame) = 0;
 };
 

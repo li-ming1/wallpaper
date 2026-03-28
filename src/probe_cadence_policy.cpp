@@ -14,4 +14,12 @@ bool ShouldRefreshRuntimeProbe(const ProbeClock::time_point now,
   return (now - lastSampleAt) >= interval;
 }
 
+RuntimeProbeIntervals SelectRuntimeProbeIntervals(const bool stablePaused) noexcept {
+  if (stablePaused) {
+    return RuntimeProbeIntervals{std::chrono::milliseconds(1200),
+                                 std::chrono::milliseconds(260)};
+  }
+  return RuntimeProbeIntervals{};
+}
+
 }  // namespace wallpaper

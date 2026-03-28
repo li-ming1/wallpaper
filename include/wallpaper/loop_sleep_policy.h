@@ -12,4 +12,7 @@ namespace wallpaper {
 [[nodiscard]] int ComputeDecodePumpSleepMs(bool decodeReady, bool frameAcquired,
                                            int previousSleepMs) noexcept;
 
+// 根据当前渲染帧率上限给出“有帧时”解码泵睡眠，避免长期动态场景忙轮询。
+[[nodiscard]] int ComputeDecodePumpHotSleepMs(int renderFpsCap) noexcept;
+
 }  // namespace wallpaper

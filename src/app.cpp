@@ -152,6 +152,10 @@ bool IsSessionInteractive() {
   return true;
 }
 
+bool TrimCurrentProcessWorkingSet() {
+  return EmptyWorkingSet(GetCurrentProcess()) != FALSE;
+}
+
 bool SetAutoStartEnabled(const bool enabled) {
   constexpr wchar_t kRunPath[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
   constexpr wchar_t kValueName[] = L"WallpaperDynamicDesktop";
@@ -202,6 +206,7 @@ class ScopedHighResolutionTimer final {
 double QueryProcessCpuPercent() { return 0.0; }
 std::size_t QueryPrivateBytes() { return 0; }
 bool IsSessionInteractive() { return true; }
+bool TrimCurrentProcessWorkingSet() { return false; }
 bool SetAutoStartEnabled(bool) { return true; }
 bool TryDetectDesktopContextActive(bool* outActive) {
   if (outActive == nullptr) {
@@ -332,7 +337,7 @@ int App::Run() {
     }
     Tick();
 
-    const bool shouldPause = arbiter_.ShouldPause();
+    const bool shouldPause = stablePauseForLoopSleep_;
     const bool hasActiveVideo = wallpaperAttached_ && decodeOpened_.load();
     const auto untilNextRender = std::chrono::duration_cast<std::chrono::milliseconds>(
         scheduler_.TimeUntilNextRender(RenderScheduler::Clock::now()));
@@ -409,10 +414,15 @@ void App::ResetPlaybackState() {
   lastForegroundProbeAt_ = RenderScheduler::Clock::time_point{};
   cachedSessionInteractive_ = true;
   cachedDesktopContextActive_ = true;
+  stablePauseForLoopSleep_ = false;
   wasPaused_ = false;
+  decodeCacheTrimmedByPause_ = false;
   resourcesReleasedByPause_ = false;
   resumePipelinePending_ = false;
   nextResumeAttemptAt_ = RenderScheduler::Clock::time_point{};
+  resumeWarmupOpened_ = false;
+  resumeWarmupStarted_ = false;
+  nextWarmupAttemptAt_ = RenderScheduler::Clock::time_point{};
   pauseEnteredAt_ = RenderScheduler::Clock::time_point{};
   hardSuspendedByPause_ = false;
   pauseTransitionState_ = PauseTransitionState{};
@@ -454,6 +464,7 @@ void App::ApplyRenderFpsCap(const int governorFps) {
   if (sourceFpsCap_ == 30 && desired > 30) {
     desired = 30;
   }
+  decodePumpHotSleepMs_.store(ComputeDecodePumpHotSleepMs(desired));
   if (scheduler_.GetFpsCap() != desired) {
     scheduler_.SetFpsCap(desired);
   }
@@ -506,7 +517,7 @@ void App::StartDecodePump() {
   }
 
   decodePumpThread_ = std::thread([this]() {
-    int decodeIdleSleepMs = 1;
+    int decodeIdleSleepMs = 2;
     while (decodePumpRunning_.load()) {
       const bool decodeReady = decodePipeline_ && decodeOpened_.load() && decodeRunning_.load();
       if (!decodeReady) {
@@ -514,8 +525,8 @@ void App::StartDecodePump() {
         std::this_thread::sleep_for(std::chrono::milliseconds(decodeIdleSleepMs));
         continue;
       }
-      if (decodeIdleSleepMs > 1) {
-        decodeIdleSleepMs = 1;
+      if (decodeIdleSleepMs > 2) {
+        decodeIdleSleepMs = 2;
       }
 
       FrameToken token{};
@@ -524,6 +535,11 @@ void App::StartDecodePump() {
         latestDecodedToken_ = token;
         hasLatestDecodedToken_ = true;
         decodeIdleSleepMs = ComputeDecodePumpSleepMs(true, true, decodeIdleSleepMs);
+        const int hotSleepMs = decodePumpHotSleepMs_.load();
+        if (hotSleepMs > decodeIdleSleepMs) {
+          decodeIdleSleepMs = hotSleepMs;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(decodeIdleSleepMs));
       } else {
         decodeIdleSleepMs = ComputeDecodePumpSleepMs(true, false, decodeIdleSleepMs);
         std::this_thread::sleep_for(std::chrono::milliseconds(decodeIdleSleepMs));
@@ -621,19 +637,19 @@ bool App::HandleTrayActions() {
 
 void App::Tick() {
   if (!decodePipeline_ || !wallpaperHost_ || !wallpaperAttached_) {
+    stablePauseForLoopSleep_ = false;
     MaybeSampleAndLogMetrics(false, false, 0.0);
     return;
   }
 
-  constexpr std::chrono::milliseconds kSessionProbeInterval(300);
-  constexpr std::chrono::milliseconds kForegroundProbeInterval(120);
+  const RuntimeProbeIntervals probeIntervals = SelectRuntimeProbeIntervals(wasPaused_);
   const auto now = RenderScheduler::Clock::now();
-  if (ShouldRefreshRuntimeProbe(now, lastSessionProbeAt_, kSessionProbeInterval)) {
+  if (ShouldRefreshRuntimeProbe(now, lastSessionProbeAt_, probeIntervals.session)) {
     cachedSessionInteractive_ = IsSessionInteractive();
     lastSessionProbeAt_ = now;
   }
   const bool shouldProbeForeground =
-      ShouldRefreshRuntimeProbe(now, lastForegroundProbeAt_, kForegroundProbeInterval);
+      ShouldRefreshRuntimeProbe(now, lastForegroundProbeAt_, probeIntervals.foreground);
   if (shouldProbeForeground) {
     bool desktopContextActive = cachedDesktopContextActive_;
     if (TryDetectDesktopContextActive(&desktopContextActive)) {
@@ -647,10 +663,16 @@ void App::Tick() {
   const bool rawShouldPause = arbiter_.ShouldPause();
   constexpr std::chrono::milliseconds kPauseEnterDelay(110);
   constexpr std::chrono::milliseconds kPauseExitDelay(180);
-  constexpr std::chrono::milliseconds kHardSuspendAfter(8000);
+  constexpr std::chrono::milliseconds kPauseExitDelayWarmup(360);
+  constexpr std::chrono::milliseconds kTrimDecodeCacheAfter(2500);
+  constexpr std::chrono::milliseconds kHardSuspendAfterAggressive(8000);
+  constexpr std::chrono::milliseconds kHardSuspendAfterConservative(12000);
+  const auto effectivePauseExitDelay =
+      hardSuspendedByPause_ ? kPauseExitDelayWarmup : kPauseExitDelay;
   const bool shouldPause =
-      UpdatePauseTransition(rawShouldPause, now, kPauseEnterDelay, kPauseExitDelay,
+      UpdatePauseTransition(rawShouldPause, now, kPauseEnterDelay, effectivePauseExitDelay,
                             &pauseTransitionState_);
+  stablePauseForLoopSleep_ = shouldPause;
 
   if (shouldPause) {
     if (!wasPaused_) {
@@ -661,22 +683,75 @@ void App::Tick() {
       }
       resourcesReleasedByPause_ = false;
       hardSuspendedByPause_ = false;
+      decodeCacheTrimmedByPause_ = false;
+      resumeWarmupOpened_ = false;
+      resumeWarmupStarted_ = false;
+      nextWarmupAttemptAt_ = RenderScheduler::Clock::time_point{};
       pauseEnteredAt_ = now;
       scheduler_.Reset();
       // 保留最后一帧并仅停止解码，让切换到“静态壁纸”时更自然。
       presentSamplesMs_.clear();
       wasPaused_ = true;
-    } else if (!hardSuspendedByPause_ && decodeOpened_.load() &&
-               arbiter_.ShouldAllowHardSuspend() &&
-               ShouldHardSuspendDuringPause(
-                   std::chrono::duration_cast<std::chrono::milliseconds>(now - pauseEnteredAt_),
-                   kHardSuspendAfter)) {
-      // 长暂停再升级为硬挂起，兼顾资源回收与短切换流畅性。
-      decodePipeline_->Stop();
-      decodeOpened_.store(false);
-      decodeRunning_.store(false);
-      hardSuspendedByPause_ = true;
-      resourcesReleasedByPause_ = true;
+    } else if (!hardSuspendedByPause_ && decodeOpened_.load()) {
+      const auto pausedDuration =
+          std::chrono::duration_cast<std::chrono::milliseconds>(now - pauseEnteredAt_);
+      if (!decodeCacheTrimmedByPause_ &&
+          ShouldTrimDecodeCacheDuringPause(pausedDuration, kTrimDecodeCacheAfter)) {
+        // 轻暂停持续一段时间后释放 CPU 侧帧缓存，降低内存驻留峰值。
+        decodePipeline_->TrimMemory();
+        decodeCacheTrimmedByPause_ = true;
+      }
+      const bool allowAggressiveSuspend = arbiter_.ShouldAllowHardSuspend();
+      const auto hardSuspendThreshold =
+          SelectHardSuspendThreshold(allowAggressiveSuspend, kHardSuspendAfterAggressive,
+                                     kHardSuspendAfterConservative);
+      if (ShouldHardSuspendDuringPause(pausedDuration, hardSuspendThreshold)) {
+        // 长暂停再升级为硬挂起，兼顾资源回收与短切换流畅性。
+        decodePipeline_->Stop();
+        TrimCurrentProcessWorkingSet();
+        decodeOpened_.store(false);
+        decodeRunning_.store(false);
+        hardSuspendedByPause_ = true;
+        resumeWarmupOpened_ = false;
+        resumeWarmupStarted_ = false;
+        nextWarmupAttemptAt_ = now;
+        resourcesReleasedByPause_ = true;
+      }
+    } else if (hardSuspendedByPause_) {
+      const bool shouldWarmResume = ShouldWarmResumeDuringPause(rawShouldPause, hardSuspendedByPause_);
+      if (shouldWarmResume && !resumeWarmupOpened_ && now >= nextWarmupAttemptAt_) {
+        if (ShouldActivateVideoPipeline(config_.videoPath) &&
+            decodePipeline_->Open(config_.videoPath, config_.codecPolicy)) {
+          // 在退出 pause 迟滞窗口内预热 Open，恢复时只需 Start，降低解冻卡顿。
+          decodeOpened_.store(true);
+          decodeRunning_.store(false);
+          resumeWarmupOpened_ = true;
+          resumeWarmupStarted_ = false;
+          nextWarmupAttemptAt_ = RenderScheduler::Clock::time_point{};
+        } else {
+          nextWarmupAttemptAt_ = now + std::chrono::milliseconds(500);
+        }
+      } else if (shouldWarmResume && resumeWarmupOpened_ && !resumeWarmupStarted_) {
+        if (decodePipeline_->Start()) {
+          decodeRunning_.store(true);
+          resumeWarmupStarted_ = true;
+        } else {
+          decodePipeline_->Stop();
+          decodeOpened_.store(false);
+          decodeRunning_.store(false);
+          resumeWarmupOpened_ = false;
+          resumeWarmupStarted_ = false;
+          nextWarmupAttemptAt_ = now + std::chrono::milliseconds(500);
+        }
+      } else if (!shouldWarmResume && resumeWarmupOpened_) {
+        // 预热后又回到暂停态时回收预热资源，避免频繁切换导致内存反复抬升。
+        decodePipeline_->Stop();
+        decodeOpened_.store(false);
+        decodeRunning_.store(false);
+        resumeWarmupOpened_ = false;
+        resumeWarmupStarted_ = false;
+        nextWarmupAttemptAt_ = now + std::chrono::milliseconds(500);
+      }
     }
     MaybeSampleAndLogMetrics(false, false, 0.0);
     return;
@@ -686,13 +761,30 @@ void App::Tick() {
     // 从 pause 恢复后重置调度，让 ShouldRender() 立即放行首帧，减少恢复黑屏/静止时间。
     scheduler_.Reset();
     if (hardSuspendedByPause_) {
-      resumePipelinePending_ = ShouldActivateVideoPipeline(config_.videoPath);
-      nextResumeAttemptAt_ = now;
+      if (resumeWarmupOpened_ && decodeOpened_.load()) {
+        if (!resumeWarmupStarted_ && !decodePipeline_->Start()) {
+          decodePipeline_->Stop();
+          decodeOpened_.store(false);
+          decodeRunning_.store(false);
+          resumePipelinePending_ = ShouldActivateVideoPipeline(config_.videoPath);
+          nextResumeAttemptAt_ = now;
+        } else {
+          decodeRunning_.store(true);
+          resumeWarmupStarted_ = true;
+        }
+      } else {
+        resumePipelinePending_ = ShouldActivateVideoPipeline(config_.videoPath);
+        nextResumeAttemptAt_ = now;
+      }
     } else if (decodeOpened_.load() && !decodeRunning_.load()) {
       decodeRunning_.store(decodePipeline_->Start());
     }
     resourcesReleasedByPause_ = false;
     hardSuspendedByPause_ = false;
+    decodeCacheTrimmedByPause_ = false;
+    resumeWarmupOpened_ = false;
+    resumeWarmupStarted_ = false;
+    nextWarmupAttemptAt_ = RenderScheduler::Clock::time_point{};
     pauseEnteredAt_ = RenderScheduler::Clock::time_point{};
     wasPaused_ = false;
   }
