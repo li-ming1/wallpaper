@@ -70,3 +70,7 @@ TEST_CASE(DecodeAsyncReadPolicy_EndOfStreamRequestsSeekBeforeRead) {
   EXPECT_EQ(wallpaper::PeekDecodeAsyncReadAction(state),
             wallpaper::DecodeAsyncReadAction::kIssueRead);
 }
+
+TEST_CASE(DecodeAsyncReadPolicy_DoesNotPrefetchImmediatelyAfterConsume) {
+  EXPECT_TRUE(!wallpaper::ShouldIssueReadImmediatelyAfterConsume());
+}

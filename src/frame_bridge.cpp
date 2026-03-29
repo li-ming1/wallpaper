@@ -1,5 +1,6 @@
 #include "wallpaper/frame_bridge.h"
 
+#include <atomic>
 #include <mutex>
 
 namespace wallpaper::frame_bridge {
@@ -8,6 +9,7 @@ namespace {
 std::mutex g_frameMutex;
 LatestFrame g_latestFrame;
 bool g_hasFrame = false;
+std::atomic<std::uint64_t> g_latestSequence{0};
 
 }  // namespace
 
@@ -48,6 +50,7 @@ void PublishLatestFrame(const int width, const int height, const int strideBytes
                               const_cast<std::uint8_t*>(g_latestFrame.rgbaPixels->data()));
   }
   g_hasFrame = true;
+  g_latestSequence.store(sequence, std::memory_order_release);
 }
 
 void PublishLatestFrameView(const int width, const int height, const int strideBytes,
@@ -82,6 +85,7 @@ void PublishLatestFrameView(const int width, const int height, const int strideB
   g_latestFrame.rgbaDataBytes = rgbaDataBytes;
   g_latestFrame.rgbaDataHolder = std::move(rgbaDataHolder);
   g_hasFrame = true;
+  g_latestSequence.store(sequence, std::memory_order_release);
 }
 
 void PublishLatestNv12FrameView(const int width, const int height, const int yPlaneStrideBytes,
@@ -122,6 +126,7 @@ void PublishLatestNv12FrameView(const int width, const int height, const int yPl
   g_latestFrame.uvPlaneBytes = uvPlaneBytes;
   g_latestFrame.uvPlaneStrideBytes = uvPlaneStrideBytes;
   g_hasFrame = true;
+  g_latestSequence.store(sequence, std::memory_order_release);
 }
 
 void PublishLatestGpuFrame(const int width, const int height, const std::int64_t timestamp100ns,
@@ -159,6 +164,7 @@ void PublishLatestGpuFrame(const int width, const int height, const std::int64_t
   g_latestFrame.uvPlaneBytes = 0;
   g_latestFrame.uvPlaneStrideBytes = 0;
   g_hasFrame = true;
+  g_latestSequence.store(sequence, std::memory_order_release);
 }
 
 bool TryGetLatestFrame(LatestFrame* outFrame) {
@@ -180,10 +186,47 @@ bool TryGetLatestFrame(LatestFrame* outFrame) {
   return true;
 }
 
+bool TryGetLatestFrameIfNewer(const std::uint64_t lastSeenSequence, LatestFrame* outFrame) {
+  if (outFrame == nullptr) {
+    return false;
+  }
+  if (g_latestSequence.load(std::memory_order_acquire) <= lastSeenSequence) {
+    return false;
+  }
+
+  std::lock_guard<std::mutex> lock(g_frameMutex);
+  if (!g_hasFrame || g_latestFrame.sequence <= lastSeenSequence) {
+    return false;
+  }
+  if (!g_latestFrame.gpuBacked && g_latestFrame.rgbaDataHolder == nullptr) {
+    return false;
+  }
+  if (g_latestFrame.gpuBacked && g_latestFrame.gpuTextureHolder == nullptr) {
+    return false;
+  }
+  *outFrame = g_latestFrame;
+  return true;
+}
+
+void ReleaseLatestFrameIfSequenceConsumed(const std::uint64_t consumedSequence) {
+  if (consumedSequence == 0) {
+    return;
+  }
+
+  std::lock_guard<std::mutex> lock(g_frameMutex);
+  if (!g_hasFrame || g_latestFrame.sequence != consumedSequence) {
+    return;
+  }
+  g_latestFrame = LatestFrame{};
+  g_hasFrame = false;
+  g_latestSequence.store(0, std::memory_order_release);
+}
+
 void ClearLatestFrame() {
   std::lock_guard<std::mutex> lock(g_frameMutex);
   g_latestFrame = LatestFrame{};
   g_hasFrame = false;
+  g_latestSequence.store(0, std::memory_order_release);
 }
 
 }  // namespace wallpaper::frame_bridge

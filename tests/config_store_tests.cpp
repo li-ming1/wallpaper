@@ -82,3 +82,18 @@ TEST_CASE(ConfigStore_LoadRewritesLegacyPauseKeys) {
 
   std::filesystem::remove(path);
 }
+
+TEST_CASE(ConfigStore_ExistsReflectsConfigFileState) {
+  const auto path = std::filesystem::temp_directory_path() / "wallpaper_exists_config.json";
+  std::filesystem::remove(path);
+
+  wallpaper::ConfigStore store(path);
+  EXPECT_TRUE(!store.Exists());
+
+  wallpaper::Config cfg;
+  cfg.videoPath = "D:/videos/demo.mp4";
+  store.Save(cfg);
+  EXPECT_TRUE(store.Exists());
+
+  std::filesystem::remove(path);
+}

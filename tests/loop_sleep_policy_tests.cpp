@@ -1,4 +1,5 @@
 #include "wallpaper/loop_sleep_policy.h"
+#include "wallpaper/decode_token_gate_policy.h"
 #include "wallpaper/source_frame_rate_policy.h"
 
 #include <chrono>
@@ -34,8 +35,11 @@ TEST_CASE(LoopSleepPolicy_DecodePumpFrameReadyRunsHot) {
 
 TEST_CASE(LoopSleepPolicy_DecodePumpNoFrameUsesBackoff) {
   EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(true, false, 1), 2);
-  EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(true, false, 15), 16);
-  EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(true, false, 16), 16);
+  EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(true, false, 2), 4);
+  EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(true, false, 4), 8);
+  EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(true, false, 8), 12);
+  EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(true, false, 22), 24);
+  EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(true, false, 24), 24);
 }
 
 TEST_CASE(LoopSleepPolicy_DecodePumpHotSleepTracksFpsCap) {
@@ -76,4 +80,32 @@ TEST_CASE(LoopSleepPolicy_HighResolutionTimerDisabledForCpuFallbackUnlessWarmupA
       true, false, 60, 0, wallpaper::DecodePath::kCpuNv12Fallback, false));
   EXPECT_TRUE(wallpaper::ShouldUseHighResolutionTimer(
       true, false, 60, 0, wallpaper::DecodePath::kCpuNv12Fallback, true));
+}
+
+TEST_CASE(LoopSleepPolicy_DecodePumpWakeDependsOnRenderCapChange) {
+  EXPECT_TRUE(!wallpaper::ShouldWakeDecodePumpForRenderCapUpdate(28, 28, 30, 30));
+  EXPECT_TRUE(wallpaper::ShouldWakeDecodePumpForRenderCapUpdate(28, 30, 30, 30));
+  EXPECT_TRUE(wallpaper::ShouldWakeDecodePumpForRenderCapUpdate(28, 28, 30, 60));
+}
+
+TEST_CASE(LoopSleepPolicy_DecodePumpWakeNotificationUsesDedupe) {
+  EXPECT_TRUE(wallpaper::ShouldNotifyDecodePumpWake(false));
+  EXPECT_TRUE(!wallpaper::ShouldNotifyDecodePumpWake(true));
+}
+
+TEST_CASE(DecodeTokenGatePolicy_SkipsWhenNoDecodedSequence) {
+  EXPECT_TRUE(!wallpaper::ShouldAttemptDecodedTokenConsume(false, 0, 0));
+  EXPECT_TRUE(!wallpaper::ShouldAttemptDecodedTokenConsume(true, 11, 0));
+}
+
+TEST_CASE(DecodeTokenGatePolicy_ConsumesWhenNoLastPresentedFrame) {
+  EXPECT_TRUE(wallpaper::ShouldAttemptDecodedTokenConsume(false, 0, 7));
+}
+
+TEST_CASE(DecodeTokenGatePolicy_SkipsWhenSequenceUnchanged) {
+  EXPECT_TRUE(!wallpaper::ShouldAttemptDecodedTokenConsume(true, 42, 42));
+}
+
+TEST_CASE(DecodeTokenGatePolicy_ConsumesWhenSequenceAdvanced) {
+  EXPECT_TRUE(wallpaper::ShouldAttemptDecodedTokenConsume(true, 42, 43));
 }

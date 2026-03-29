@@ -10,7 +10,6 @@
 #include <d3dcompiler.h>
 #include <dxgi1_3.h>
 
-#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <iterator>
@@ -380,6 +379,8 @@ class WallpaperHostWin final : public IWallpaperHost {
 
     SetWindowPos(renderWindow_, HWND_BOTTOM, 0, 0, bounds.right - bounds.left,
                  bounds.bottom - bounds.top, SWP_NOACTIVATE);
+    UpdateRenderViewportCache(static_cast<UINT>(bounds.right - bounds.left),
+                              static_cast<UINT>(bounds.bottom - bounds.top));
     EnsureDesktopIconLayerVisible();
     attached_ = true;
     return true;
@@ -394,6 +395,8 @@ class WallpaperHostWin final : public IWallpaperHost {
     }
     desktopParent_ = nullptr;
     renderWindowVisible_ = false;
+    renderViewportWidth_ = 0;
+    renderViewportHeight_ = 0;
   }
 
   void ResizeForDisplays() override {
@@ -409,6 +412,7 @@ class WallpaperHostWin final : public IWallpaperHost {
     }
 
     SetWindowPos(renderWindow_, HWND_BOTTOM, 0, 0, width, height, SWP_NOACTIVATE);
+    UpdateRenderViewportCache(static_cast<UINT>(width), static_cast<UINT>(height));
     EnsureDesktopIconLayerVisible();
     ResizeSwapChain(static_cast<UINT>(width), static_cast<UINT>(height));
   }
@@ -465,13 +469,14 @@ class WallpaperHostWin final : public IWallpaperHost {
     bool drewVideo = false;
     bool hasVideoTexture = HasAnyVideoTexture();
     frame_bridge::LatestFrame latestFrame;
-    if (frame_bridge::TryGetLatestFrame(&latestFrame) && latestFrame.sequence != lastVideoSequence_) {
+    if (frame_bridge::TryGetLatestFrameIfNewer(lastVideoSequence_, &latestFrame)) {
       if (latestFrame.gpuBacked && latestFrame.gpuTexture != nullptr &&
           EnsureVideoTextureForGpu(static_cast<UINT>(latestFrame.width),
                                    static_cast<UINT>(latestFrame.height),
                                    static_cast<DXGI_FORMAT>(latestFrame.dxgiFormat)) &&
           CopyGpuVideoFrame(latestFrame) && DrawVideoTexture()) {
         lastVideoSequence_ = latestFrame.sequence;
+        frame_bridge::ReleaseLatestFrameIfSequenceConsumed(lastVideoSequence_);
         hasVideoTexture = true;
         drewVideo = true;
       } else if (latestFrame.pixelFormat == frame_bridge::PixelFormat::kNv12 &&
@@ -480,6 +485,7 @@ class WallpaperHostWin final : public IWallpaperHost {
                                            static_cast<UINT>(latestFrame.height)) &&
                  UploadVideoFrameNv12(latestFrame) && DrawVideoNv12Texture()) {
         lastVideoSequence_ = latestFrame.sequence;
+        frame_bridge::ReleaseLatestFrameIfSequenceConsumed(lastVideoSequence_);
         hasVideoTexture = true;
         drewVideo = true;
       } else if (latestFrame.rgbaData != nullptr &&
@@ -487,6 +493,7 @@ class WallpaperHostWin final : public IWallpaperHost {
                                           static_cast<UINT>(latestFrame.height)) &&
                  UploadVideoFrame(latestFrame) && DrawVideoTexture()) {
         lastVideoSequence_ = latestFrame.sequence;
+        frame_bridge::ReleaseLatestFrameIfSequenceConsumed(lastVideoSequence_);
         hasVideoTexture = true;
         drewVideo = true;
       }
@@ -524,6 +531,31 @@ class WallpaperHostWin final : public IWallpaperHost {
   [[nodiscard]] bool IsOccluded() const override { return swapChainOccluded_; }
 
  private:
+  void UpdateRenderViewportCache(const UINT width, const UINT height) {
+    if (width == 0 || height == 0) {
+      return;
+    }
+    renderViewportWidth_ = width;
+    renderViewportHeight_ = height;
+  }
+
+  bool RefreshRenderViewportCacheFromWindow() {
+    if (renderWindow_ == nullptr) {
+      return false;
+    }
+    RECT rect{};
+    if (!GetClientRect(renderWindow_, &rect)) {
+      return false;
+    }
+    const int width = rect.right - rect.left;
+    const int height = rect.bottom - rect.top;
+    if (width <= 0 || height <= 0) {
+      return false;
+    }
+    UpdateRenderViewportCache(static_cast<UINT>(width), static_cast<UINT>(height));
+    return true;
+  }
+
   bool InitializeD3D() {
     // 设备同时用于渲染与解码互操作，需保持线程安全能力。
     UINT createFlags = 0;
@@ -574,10 +606,17 @@ class WallpaperHostWin final : public IWallpaperHost {
       return false;
     }
 
-    RECT rect{};
-    GetClientRect(renderWindow_, &rect);
-    const UINT width = static_cast<UINT>(rect.right - rect.left);
-    const UINT height = static_cast<UINT>(rect.bottom - rect.top);
+    if (!RefreshRenderViewportCacheFromWindow()) {
+      const RECT fallbackBounds = GetVirtualChildBounds();
+      const int fallbackWidth = fallbackBounds.right - fallbackBounds.left;
+      const int fallbackHeight = fallbackBounds.bottom - fallbackBounds.top;
+      if (fallbackWidth > 0 && fallbackHeight > 0) {
+        UpdateRenderViewportCache(static_cast<UINT>(fallbackWidth),
+                                  static_cast<UINT>(fallbackHeight));
+      }
+    }
+    const UINT width = renderViewportWidth_ > 0 ? renderViewportWidth_ : 1280U;
+    const UINT height = renderViewportHeight_ > 0 ? renderViewportHeight_ : 720U;
 
     DXGI_SWAP_CHAIN_DESC1 desc{};
     desc.Width = width;
@@ -1062,11 +1101,14 @@ class WallpaperHostWin final : public IWallpaperHost {
       return false;
     }
 
-    RECT rect{};
-    GetClientRect(renderWindow_, &rect);
+    if (renderViewportWidth_ == 0 || renderViewportHeight_ == 0) {
+      if (!RefreshRenderViewportCacheFromWindow()) {
+        return false;
+      }
+    }
     D3D11_VIEWPORT viewport{};
-    viewport.Width = static_cast<float>(rect.right - rect.left);
-    viewport.Height = static_cast<float>(rect.bottom - rect.top);
+    viewport.Width = static_cast<float>(renderViewportWidth_);
+    viewport.Height = static_cast<float>(renderViewportHeight_);
     viewport.MinDepth = 0.0f;
     viewport.MaxDepth = 1.0f;
     context_->RSSetViewports(1, &viewport);
@@ -1109,18 +1151,6 @@ class WallpaperHostWin final : public IWallpaperHost {
     return false;
   }
 
-  void DrawFallback(const FrameToken& frame) {
-    const float phase = static_cast<float>(frame.sequence % 6000ULL) * 0.0020f;
-    // 使用低频正弦变化产生平滑动态色彩，确保即使无视频输入也有可见动态效果。
-    const float red = 0.20f + 0.30f * (0.5f + 0.5f * std::sin(phase));
-    const float green = 0.20f + 0.30f * (0.5f + 0.5f * std::sin(phase + 2.10f));
-    const float blue = 0.20f + 0.30f * (0.5f + 0.5f * std::sin(phase + 4.20f));
-    const float color[4] = {red, green, blue, 1.0f};
-
-    context_->OMSetRenderTargets(1, &renderTargetView_, nullptr);
-    context_->ClearRenderTargetView(renderTargetView_, color);
-  }
-
   void ResizeSwapChain(UINT width, UINT height) {
     if (swapChain_ == nullptr || context_ == nullptr) {
       return;
@@ -1129,6 +1159,7 @@ class WallpaperHostWin final : public IWallpaperHost {
     context_->OMSetRenderTargets(0, nullptr, nullptr);
     SafeRelease(&renderTargetView_);
     if (SUCCEEDED(swapChain_->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0))) {
+      UpdateRenderViewportCache(width, height);
       CreateRenderTargetView();
     }
   }
@@ -1140,6 +1171,8 @@ class WallpaperHostWin final : public IWallpaperHost {
     frameLatencyTimeoutSkips_ = 0;
     swapChainOccluded_ = false;
     nextOcclusionProbeAtTick_ = 0;
+    renderViewportWidth_ = 0;
+    renderViewportHeight_ = 0;
     if (frameLatencyWaitableObject_ != nullptr) {
       CloseHandle(frameLatencyWaitableObject_);
       frameLatencyWaitableObject_ = nullptr;
@@ -1171,6 +1204,8 @@ class WallpaperHostWin final : public IWallpaperHost {
   bool swapChainOccluded_ = false;
   ULONGLONG nextOcclusionProbeAtTick_ = 0;
   ID3D11RenderTargetView* renderTargetView_ = nullptr;
+  UINT renderViewportWidth_ = 0;
+  UINT renderViewportHeight_ = 0;
 
   bool videoPipelineReady_ = false;
   ID3D11VertexShader* videoVertexShader_ = nullptr;

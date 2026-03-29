@@ -4,7 +4,7 @@
 Implement a Windows 10/11 dynamic wallpaper app from an empty repo with strict performance-first architecture (WorkerW + MF + D3D11), plus tests for core logic.
 
 ## Current Phase
-Phase 47
+Phase 54
 
 ## Phases
 ### Phase 1: Requirements & Discovery
@@ -395,4 +395,68 @@ Phase 47
 - [x] Green: 引入 NV12 对齐布局推导，修复 UV 平面起点不能简单按 `visibleHeight * pitch` 计算的问题
 - [x] Green: `decode_pipeline_stub` 仅在单 buffer sample 时走 `Lock2D` 直视图，多 buffer 回退连续缓冲
 - [x] Verification: 单测通过（125/125） + 构建通过
+- **Status:** complete
+
+### Phase 48: 渲染参数稳定态去唤醒优化（Completed）
+- [x] Red: 新增 `LoopSleepPolicy_DecodePumpWakeDependsOnRenderCapChange` 测试并先触发编译失败
+- [x] Green: 新增 `ShouldWakeDecodePumpForRenderCapUpdate` 策略函数
+- [x] Green: `App::ApplyRenderFpsCap` 改为“仅在帧率档位或 hot-sleep 变化时才唤醒解码泵”
+- [x] Verification: 单测通过（126/126） + 构建通过
+- **Status:** complete
+
+### Phase 49: 互斥热点与退避节奏迭代优化（Completed）
+- [x] Red: 新增 `FrameBridge_TryGetLatestFrameIfNewerSkipsSameSequence` 与 decode pump 退避测试并先触发失败
+- [x] Green: `frame_bridge` 增加 `TryGetLatestFrameIfNewer`，仅新帧才进入互斥区复制
+- [x] Green: `wallpaper_host_win` 呈现路径改为基于序列号的“新帧读取”
+- [x] Green: 解码泵无帧退避升级为“2->4->8->(+4) ... ->24ms”以减少空转唤醒
+- [x] Green: 去除 `presentSamplesMs_` 的 `shrink_to_fit` 热路径并预留固定容量，降低内存碎片风险
+- [x] Green: NV12 `Lock2D` 快路径移除额外 `new` 持有对象分配
+- [x] Verification: 单测通过（127/127） + 构建通过
+- **Status:** complete
+
+### Phase 50: 唤醒去重与渲染系统调用收敛（Completed）
+- [x] Red: 新增 `LoopSleepPolicy_DecodePumpWakeNotificationUsesDedupe` 并先触发编译失败
+- [x] Green: 新增 `ShouldNotifyDecodePumpWake`，`WakeDecodePump` 改为去重通知 + `notify_one`
+- [x] Green: `wallpaper_host_win` 引入 viewport 尺寸缓存，移除每帧 `GetClientRect`
+- [x] Green: 清理 `decode_pipeline_stub` 未使用字段 `asyncReadyFlags_`
+- [x] Verification: 单测通过（128/128） + 构建通过
+- **Status:** complete
+
+### Phase 51: 解码 token 消费前置门控（Completed）
+- [x] Red: 新增 `DecodeTokenGatePolicy_*` 测试，锁定“仅新序列才尝试消费 token”策略
+- [x] Green: 新增 `decode_token_gate_policy` 并接入 `App::Tick`，无新序列时跳过 `decodedTokenMu_` 锁
+- [x] Green: 新增 `latestDecodedSequence_` 原子镜像，解码线程发布 token 时同步更新
+- [x] Verification: 单测通过（132/132） + 构建通过
+- **Status:** complete
+
+### Phase 52: 首次运行峰值压降（Completed）
+- [x] Red: 新增 `StartupPolicy_ShouldDeferVideoDecodeStart` 与 `ConfigStore_Exists` 测试并先触发失败
+- [x] Green: 新增 `ConfigStore::Exists()`，用于判定首启场景
+- [x] Green: 新增 `ShouldDeferVideoDecodeStart`，首次运行且有效视频时初始化阶段仅 Open，不立即 Start 解码
+- [x] Green: `StartVideoPipelineForPath` 增加 `startDecodeImmediately` 参数并接入 `Initialize`
+- [x] Green: `Run` 中 active-video 判定收敛为 `decodeOpened && decodeRunning`，避免“仅 open 未解码”误判为活跃
+- [x] Verification: 单测通过（136/136） + 构建通过
+- **Status:** complete
+
+### Phase 53: 桌面常驻帧缓存释放（Completed）
+- [x] Red: 新增 `FrameBridge_ReleaseConsumed*` 测试并先触发失败
+- [x] Green: `frame_bridge` 新增 `ReleaseLatestFrameIfSequenceConsumed`
+- [x] Green: `wallpaper_host_win` 在新帧上传/拷贝成功后按序列释放 bridge 持有帧资源
+- [x] Verification: 单测通过（138/138） + 构建通过
+- **Status:** complete
+
+### Phase 54: 首启窗口降载 + 单实例保护（Completed）
+- [x] Red: 新增 `StartupPolicy_DeferredDecode*`、`DecodeAsyncReadPolicy_DoesNotPrefetchImmediatelyAfterConsume` 测试并先触发失败
+- [x] Green: 首启延迟启动增加最小等待窗口（2.5s），避免首次运行进入解码热路径过快
+- [x] Green: MF async consume 后改为 lazy read（不立即 prefetch 下一帧），压降动态桌面常驻内存
+- [x] Green: 主进程增加单实例互斥（重复启动直接退出）
+- [x] Verification: 单测通过（142/142） + 构建通过
+- **Status:** complete
+
+### Phase 55: 单实例守卫漏洞修复（Completed）
+- [x] Red: 新增 `SingleInstancePolicy_FallbackToLocalMutexOnlyOnNonExistingErrors` 测试并先触发失败
+- [x] Green: 新增 `ShouldFallbackToLocalMutex` 策略，禁止在“已有实例”错误码下回退到 `Local` 互斥量
+- [x] Green: `main.cpp` 的 `ScopedSingleInstanceMutex` 改为“全局互斥失败仅在可回退错误下尝试本地互斥”
+- [x] Green: 移除启动时进程枚举守卫，降低首启 CPU 干扰；补齐 lock file 句柄释放避免句柄泄漏
+- [x] Verification: 单测通过（146/146） + 构建通过 + 本机双开验证第二实例退出
 - **Status:** complete

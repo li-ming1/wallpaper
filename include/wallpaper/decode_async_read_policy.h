@@ -23,5 +23,6 @@ void MarkDecodeAsyncReadIssued(DecodeAsyncReadState* state);
 void MarkDecodeAsyncReadCompleted(bool hasSample, bool endOfStream, DecodeAsyncReadState* state);
 void MarkDecodeAsyncReadSampleConsumed(DecodeAsyncReadState* state);
 void MarkDecodeAsyncReadSeekCompleted(DecodeAsyncReadState* state);
+[[nodiscard]] bool ShouldIssueReadImmediatelyAfterConsume() noexcept;
 
 }  // namespace wallpaper

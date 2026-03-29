@@ -61,6 +61,9 @@ void PublishLatestGpuFrame(int width, int height, std::int64_t timestamp100ns,
                            std::uint32_t subresourceIndex,
                            std::shared_ptr<void> gpuTextureHolder);
 [[nodiscard]] bool TryGetLatestFrame(LatestFrame* outFrame);
+[[nodiscard]] bool TryGetLatestFrameIfNewer(std::uint64_t lastSeenSequence,
+                                            LatestFrame* outFrame);
+void ReleaseLatestFrameIfSequenceConsumed(std::uint64_t consumedSequence);
 void ClearLatestFrame();
 
 }  // namespace wallpaper::frame_bridge

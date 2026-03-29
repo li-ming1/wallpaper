@@ -25,7 +25,14 @@ int ComputeDecodePumpSleepMs(const bool decodeReady, const bool frameAcquired,
   if (frameAcquired) {
     return 2;
   }
-  return std::clamp(previousSleepMs + 1, 2, 16);
+  if (previousSleepMs < 2) {
+    return 2;
+  }
+  const int boundedPreviousSleepMs = std::clamp(previousSleepMs, 2, 24);
+  if (boundedPreviousSleepMs <= 4) {
+    return std::clamp(boundedPreviousSleepMs * 2, 2, 24);
+  }
+  return std::clamp(boundedPreviousSleepMs + 4, 2, 24);
 }
 
 int ComputeDecodePumpHotSleepMs(const int renderFpsCap, const int sourceFps) noexcept {
@@ -43,6 +50,16 @@ int ComputeDecodePumpHotSleepMs(const int renderFpsCap, const int sourceFps) noe
     return 36;
   }
   return 40;
+}
+
+bool ShouldWakeDecodePumpForRenderCapUpdate(const int previousHotSleepMs, const int nextHotSleepMs,
+                                            const int previousFpsCap,
+                                            const int nextFpsCap) noexcept {
+  return previousHotSleepMs != nextHotSleepMs || previousFpsCap != nextFpsCap;
+}
+
+bool ShouldNotifyDecodePumpWake(const bool wakeAlreadyRequested) noexcept {
+  return !wakeAlreadyRequested;
 }
 
 bool ShouldUseHighResolutionTimer(const bool hasActiveVideo, const bool stablePaused,

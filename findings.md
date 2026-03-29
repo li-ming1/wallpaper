@@ -273,3 +273,66 @@
   - `decode_pipeline_stub` 的 NV12 直视图路径改为“仅单 buffer sample 且 `IMF2DBuffer` 可用时启用”；其余情况走 `ConvertToContiguousBuffer` 保守回退，优先保证正确性。
   - 这次修复同时保留了安全场景下的 `Lock2D` 直视图快路径，没有把全部 NV12 强行退回成每帧额外拷贝。
 - 验证：`run_tests` 全绿（125/125），`build_app` 成功。
+- 2026-03-29 新增发现（系统审查续轮）：`App::ApplyRenderFpsCap` 在高频路径会无条件 `WakeDecodePump()`；当 `fpsCap` 与 `decode hot-sleep` 未变化时，这属于纯额外线程唤醒，会带来不必要 CPU 调度开销。
+- 2026-03-29 新增决策：
+  - 增加 `ShouldWakeDecodePumpForRenderCapUpdate`，只在“渲染帧率档位变化”或“解码热睡眠变化”时唤醒解码泵。
+  - `App::ApplyRenderFpsCap` 改为条件更新：`decodePumpHotSleepMs_` 仅在值变更时写入，`WakeDecodePump()` 仅在策略判定需要时触发。
+- 验证：`run_tests` 全绿（126/126），`build_app -BuildDir build_tmp` 成功。
+- 2026-03-29 继续迭代发现：`wallpaper_host_win` 每次 `Present` 都调用 `frame_bridge::TryGetLatestFrame`，即使无新帧也会进入互斥锁并复制 `LatestFrame`（含多个 `shared_ptr`），属于长期动态热点。
+- 2026-03-29 继续迭代决策：
+  - `frame_bridge` 增加 `TryGetLatestFrameIfNewer(lastSeenSequence, outFrame)`，先走原子序列号快判，只有新帧才进入锁区复制，降低无效锁竞争。
+  - `wallpaper_host_win` 接入新接口，去掉“取完再比较 sequence”的低效路径。
+  - 解码泵无帧退避从线性 `+1` 调整为分段增长（`2->4->8->12...->24ms`），更快进入低唤醒区，进一步压低空转 CPU。
+  - `presentSamplesMs_` 改为固定预留容量并移除 `shrink_to_fit`，避免 attach/detach 周期带来的堆收缩抖动与碎片化风险。
+  - NV12 `Lock2D` 快路径移除 `new Locked2DBufferHolder`，改为共享对象别名持有，减少每帧额外堆分配。
+- 验证：`run_tests` 全绿（127/127），`build_app -BuildDir build_tmp` 成功。
+- 2026-03-29 继续迭代发现：`WakeDecodePump` 在高频路径可能连续重复 `notify_all`，而解码泵仅单线程等待，重复广播属于无效调度开销。
+- 2026-03-29 继续迭代决策：
+  - 新增 `ShouldNotifyDecodePumpWake`，仅在 wake 标记从 false->true 时发送通知，并改用 `notify_one`，降低条件变量广播成本。
+  - `wallpaper_host_win` 增加 viewport 尺寸缓存（初始化/resize/swapchain resize 时更新），绘制路径直接使用缓存，避免每帧 `GetClientRect` Win32 调用。
+  - 清理 `decode_pipeline_stub` 中未使用的 `asyncReadyFlags_` 字段与相关写入，减少状态噪声。
+- 验证：`run_tests` 全绿（128/128），`build_app -BuildDir build_tmp` 成功。
+- 2026-03-29 继续迭代发现：`App::Tick` 在每个渲染周期都会进入 `decodedTokenMu_`，即使解码序列未变化也要走一次锁检查；在 `30fps` 源 + `60fps` 渲染场景属于稳定的无效锁竞争热点。
+- 2026-03-29 继续迭代决策：
+  - 新增 `decode_token_gate_policy`，先用原子序列号判断“是否可能有新 token”，仅在序列前进时才进入互斥区复制 token。
+  - `App` 新增 `latestDecodedSequence_` 原子镜像，解码泵发布新 token 后同步 `store(release)`；渲染侧 `load(acquire)` 做前置门控。
+  - 在 `hasLastPresentedFrame_` 且序列未前进时，`Tick` 直接复用 `lastPresentedFrame_`，避免无意义锁进入。
+- 验证：`run_tests` 全绿（132/132），`build_app -BuildDir build_tmp` 成功。
+- 2026-03-29 新增现场问题：首次运行阶段 CPU/内存峰值偏高，用户体感明显。
+- 2026-03-29 新增决策（首启降峰）：
+  - 新增 `ConfigStore::Exists()` 用于识别“配置文件是否在本次启动前已存在”。
+  - 新增 `ShouldDeferVideoDecodeStart(configExistedBeforeLoad, hasValidVideoPath)`：
+    - 首次运行且存在有效视频时，初始化阶段先 `Open` 管线但不 `Start` 解码。
+    - 真正 `Start` 推迟到运行循环首轮探测之后，由既有 pause/desktop-context 策略决定是否启动。
+  - `StartVideoPipelineForPath` 新增 `startDecodeImmediately` 参数，保持非首启路径行为不变。
+  - `Run` 中 `hasActiveVideo` 收敛为 `decodeOpened && decodeRunning`，避免“已 Open 但未解码”阶段被当作活跃视频，减少不必要高精度定时与调度。
+- 预期效果：首启时解码线程和帧上传热路径推迟启动，可明显降低启动瞬时 CPU 抬升和内存峰值。
+- 验证：`run_tests` 全绿（136/136），`build_app -BuildDir build_tmp` 成功。
+- 2026-03-29 用户反馈复现：桌面上下文长期运行比进入全屏/非桌面上下文高约 30MB，且不回收；切换到非桌面后可回收。
+- 根因定位：
+  - 桌面动态路径下 `frame_bridge` 会持有“最新帧”的底层样本内存（CPU/NV12/GPU holder），用于跨线程交接。
+  - 在高分辨率素材下这一帧可能接近 30MB；而进入非桌面 pause 后会清桥接帧，所以出现“立刻降 30MB”的体感。
+- 2026-03-29 新增决策（常驻差值回收）：
+  - 新增 `ReleaseLatestFrameIfSequenceConsumed`：仅当渲染线程确认已消费某序列帧时，释放 bridge 对该帧的持有。
+  - `wallpaper_host_win` 在成功 `Copy/Upload + Draw` 后按序列调用释放，确保不会误删更新序列。
+  - 这样桌面动态路径也不会长期常驻那一帧样本内存，缩小与 pause 场景的常驻差值。
+- 验证：`run_tests` 全绿（138/138），`build_app -BuildDir build_tmp` 成功。
+- 2026-03-29 用户二次反馈：首启峰值仍高，且要求单实例保护。
+- 2026-03-29 新增决策（再次压峰）：
+  - 首启延迟解码从“仅 deferred”升级为“deferred + 2.5s 最小等待窗口”，降低首次运行进入解码热路径的即时冲击。
+  - MF 异步读取策略新增 `ShouldIssueReadImmediatelyAfterConsume=false`，消费样本后不立即 prefetch 下一帧，减少桌面动态场景 ready-sample 常驻内存。
+  - `main.cpp` 增加单实例互斥锁（`Local\\WallpaperDynamicDesktop.Singleton`），重复启动直接退出，避免多实例叠加导致 CPU/内存暴涨。
+- 验证：`run_tests` 全绿（142/142），`build_app -BuildDir build_tmp` 成功。
+- 2026-03-29 新增现场问题：用户反馈“仍可多实例”，说明单实例实现在真实环境下仍有放行路径。
+- 根因定位：
+  - `main.cpp` 里 `TryAcquire` 逻辑在 `Global\\...` 获取失败后无条件尝试 `Local\\...`。
+  - 当失败原因本身是“已有实例”（如 `ERROR_ALREADY_EXISTS`）时，回退 `Local` 会错误放行第二实例。
+  - 额外的进程枚举守卫启动成本高，且在权限不对等场景可能无法稳定识别既有进程，带来误判风险。
+- 2026-03-29 新增决策（单实例强一致修复）：
+  - 新增 `ShouldFallbackToLocalMutex`，仅在非“已有实例”错误下允许从 `Global` 回退 `Local`。
+  - `ScopedSingleInstanceMutex` 改为显式区分 mutex 与 lock file 获取状态，`ShouldAllowSingleInstanceStartup` 按双守卫判定。
+  - 移除进程枚举守卫，保留命名互斥 + 独占 lock file 两级守卫；同时修复 lock file 句柄未释放问题。
+- 验证：
+  - `run_tests` 全绿（146/146）
+  - `build_app -BuildDir build_tmp` 成功
+  - 本机双开验证：第二实例立即退出，仅保留 1 个进程

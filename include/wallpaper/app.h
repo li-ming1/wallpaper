@@ -40,7 +40,8 @@ class App final {
   void DetachWallpaper();
   void ResetPlaybackState(bool resetLongRunState = true);
   bool StartVideoPipelineForPath(const std::string& path, int longRunLoadLevel = 0,
-                                 bool resetLongRunState = true);
+                                 bool resetLongRunState = true,
+                                 bool startDecodeImmediately = true);
   void ApplyRenderFpsCap(int governorFps);
   void StartDecodePump();
   void StopDecodePump();
@@ -74,6 +75,7 @@ class App final {
   std::mutex decodedTokenMu_;
   FrameToken latestDecodedToken_{};
   bool hasLatestDecodedToken_ = false;
+  std::atomic<std::uint64_t> latestDecodedSequence_{0};
 
   std::atomic<bool> running_{false};
   std::atomic<bool> decodeOpened_{false};
@@ -108,6 +110,8 @@ class App final {
   bool resumeWarmupOpened_ = false;
   bool resumeWarmupStarted_ = false;
   RenderScheduler::Clock::time_point nextWarmupAttemptAt_{};
+  bool startupDecodeDeferred_ = false;
+  RenderScheduler::Clock::time_point startupDecodeDeferredAt_{};
   RenderScheduler::Clock::time_point pauseEnteredAt_{};
   bool hardSuspendedByPause_ = false;
   PauseTransitionState pauseTransitionState_{};

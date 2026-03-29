@@ -1,5 +1,6 @@
 #include "wallpaper/app.h"
 #include "wallpaper/desktop_context_policy.h"
+#include "wallpaper/decode_token_gate_policy.h"
 #include "wallpaper/frame_bridge.h"
 #include "wallpaper/long_run_load_policy.h"
 #include "wallpaper/loop_sleep_policy.h"
@@ -335,7 +336,10 @@ App::App(std::filesystem::path configPath)
                       7),
       metrics_(300),
       qualityGovernor_(),
-      metricsSessionId_(BuildMetricsSessionId()) {}
+      metricsSessionId_(BuildMetricsSessionId()) {
+  // 指标窗口为固定低量样本，预留容量可降低反复扩容带来的堆分配与碎片风险。
+  presentSamplesMs_.reserve(128);
+}
 
 App::~App() {
   RequestStop();
@@ -346,6 +350,7 @@ App::~App() {
 }
 
 bool App::Initialize() {
+  const bool configExistedBeforeLoad = configStore_.Exists();
   config_ = configStore_.LoadAsync().get();
   qualityGovernor_.SetTargetFps(config_.fpsCap);
   qualityGovernor_.SetEnabled(config_.adaptiveQuality);
@@ -359,11 +364,17 @@ bool App::Initialize() {
     return false;
   }
 
-  if (ShouldActivateVideoPipeline(config_.videoPath)) {
-    if (!StartVideoPipelineForPath(config_.videoPath)) {
+  const bool hasValidVideoPath = ShouldActivateVideoPipeline(config_.videoPath);
+  const bool deferDecodeAtStartup =
+      ShouldDeferVideoDecodeStart(configExistedBeforeLoad, hasValidVideoPath);
+  if (hasValidVideoPath) {
+    if (!StartVideoPipelineForPath(config_.videoPath, 0, true, !deferDecodeAtStartup)) {
       // 路径存在但启动失败时降级到“仅托盘运行”，避免出现不可控遮盖层。
       config_.videoPath.clear();
       DetachWallpaper();
+    } else if (deferDecodeAtStartup) {
+      startupDecodeDeferred_ = true;
+      startupDecodeDeferredAt_ = RenderScheduler::Clock::now();
     }
   } else {
     // 缺失配置或路径失效时不附着壁纸窗口，避免幕布遮罩影响桌面体验。
@@ -400,7 +411,7 @@ int App::Run() {
     Tick();
 
     const bool shouldPause = stablePauseForLoopSleep_;
-    const bool hasActiveVideo = wallpaperAttached_ && decodeOpened_.load();
+    const bool hasActiveVideo = wallpaperAttached_ && decodeOpened_.load() && decodeRunning_.load();
     const bool useHighResolutionTimer = ShouldUseHighResolutionTimer(
         hasActiveVideo, shouldPause, scheduler_.GetFpsCap(), longRunLoadState_.level,
         lastDecodePath_, decodeWarmupActive_.load());
@@ -470,14 +481,12 @@ void App::DetachWallpaper() {
   if (!wallpaperHost_ || !wallpaperAttached_) {
     frame_bridge::ClearLatestFrame();
     presentSamplesMs_.clear();
-    presentSamplesMs_.shrink_to_fit();
     return;
   }
   wallpaperHost_->DetachFromDesktop();
   wallpaperAttached_ = false;
   frame_bridge::ClearLatestFrame();
   presentSamplesMs_.clear();
-  presentSamplesMs_.shrink_to_fit();
 }
 
 void App::ResetPlaybackState(const bool resetLongRunState) {
@@ -510,6 +519,8 @@ void App::ResetPlaybackState(const bool resetLongRunState) {
   resumeWarmupOpened_ = false;
   resumeWarmupStarted_ = false;
   nextWarmupAttemptAt_ = RenderScheduler::Clock::time_point{};
+  startupDecodeDeferred_ = false;
+  startupDecodeDeferredAt_ = RenderScheduler::Clock::time_point{};
   pauseEnteredAt_ = RenderScheduler::Clock::time_point{};
   lastWorkingSetTrimAt_ = RenderScheduler::Clock::time_point{};
   hardSuspendedByPause_ = false;
@@ -523,10 +534,12 @@ void App::ResetPlaybackState(const bool resetLongRunState) {
     hasLatestDecodedToken_ = false;
     latestDecodedToken_ = FrameToken{};
   }
+  latestDecodedSequence_.store(0, std::memory_order_release);
 }
 
 bool App::StartVideoPipelineForPath(const std::string& path, const int longRunLoadLevel,
-                                    const bool resetLongRunState) {
+                                    const bool resetLongRunState,
+                                    const bool startDecodeImmediately) {
   if (!decodePipeline_ || !ShouldActivateVideoPipeline(path)) {
     return false;
   }
@@ -545,16 +558,24 @@ bool App::StartVideoPipelineForPath(const std::string& path, const int longRunLo
     return false;
   }
   decodeOpened_.store(true);
-  if (!decodePipeline_->Start()) {
-    decodePipeline_->Stop();
-    decodeOpened_.store(false);
+  if (startDecodeImmediately) {
+    if (!decodePipeline_->Start()) {
+      decodePipeline_->Stop();
+      decodeOpened_.store(false);
+      decodeRunning_.store(false);
+      return false;
+    }
+    decodeRunning_.store(true);
+    startupDecodeDeferred_ = false;
+    startupDecodeDeferredAt_ = RenderScheduler::Clock::time_point{};
+  } else {
     decodeRunning_.store(false);
-    return false;
   }
-  decodeRunning_.store(true);
   ResetPlaybackState(resetLongRunState);
   decodeOpenLongRunLevel_ = longRunLoadLevel;
-  WakeDecodePump();
+  if (startDecodeImmediately) {
+    WakeDecodePump();
+  }
   ApplyRenderFpsCap(qualityGovernor_.CurrentFps());
   scheduler_.Reset();
   return true;
@@ -574,10 +595,19 @@ void App::ApplyRenderFpsCap(const int governorFps) {
       dynamicBoostMs += 8;
     }
   }
-  decodePumpHotSleepMs_.store(std::clamp(baseHotSleepMs + dynamicBoostMs, 6, 64));
-  WakeDecodePump();
-  if (scheduler_.GetFpsCap() != desired) {
+  const int nextHotSleepMs = std::clamp(baseHotSleepMs + dynamicBoostMs, 6, 64);
+  const int previousHotSleepMs = decodePumpHotSleepMs_.load();
+  const int previousFpsCap = scheduler_.GetFpsCap();
+
+  if (previousHotSleepMs != nextHotSleepMs) {
+    decodePumpHotSleepMs_.store(nextHotSleepMs);
+  }
+  if (previousFpsCap != desired) {
     scheduler_.SetFpsCap(desired);
+  }
+  if (ShouldWakeDecodePumpForRenderCapUpdate(previousHotSleepMs, nextHotSleepMs, previousFpsCap,
+                                             desired)) {
+    WakeDecodePump();
   }
 }
 
@@ -706,6 +736,7 @@ void App::StartDecodePump() {
         std::lock_guard<std::mutex> lock(decodedTokenMu_);
         latestDecodedToken_ = token;
         hasLatestDecodedToken_ = true;
+        latestDecodedSequence_.store(token.sequence, std::memory_order_release);
         decodeIdleSleepMs = ComputeDecodePumpSleepMs(true, true, decodeIdleSleepMs);
         const int hotSleepMs = decodePumpHotSleepMs_.load();
         if (hotSleepMs > decodeIdleSleepMs) {
@@ -731,11 +762,18 @@ void App::StopDecodePump() {
 }
 
 void App::WakeDecodePump() {
+  bool shouldNotify = false;
   {
     std::lock_guard<std::mutex> lock(decodePumpWaitMu_);
-    decodePumpWakeRequested_ = true;
+    shouldNotify = ShouldNotifyDecodePumpWake(decodePumpWakeRequested_);
+    if (shouldNotify) {
+      decodePumpWakeRequested_ = true;
+    }
   }
-  decodePumpWaitCv_.notify_all();
+  if (!shouldNotify) {
+    return;
+  }
+  decodePumpWaitCv_.notify_one();
 }
 
 bool App::HandleTrayActions() {
@@ -1063,11 +1101,22 @@ void App::Tick() {
   }
 
   if (decodeOpened_.load() && !decodeRunning_.load()) {
-    const bool resumed = decodePipeline_->Start();
-    decodeRunning_.store(resumed);
-    if (resumed) {
-      decodeWarmupActive_.store(false);
-      WakeDecodePump();
+    constexpr std::chrono::milliseconds kStartupDecodeDeferWindow(2500);
+    const std::chrono::milliseconds deferredElapsed =
+        startupDecodeDeferred_ && startupDecodeDeferredAt_ != RenderScheduler::Clock::time_point{} &&
+                now >= startupDecodeDeferredAt_
+            ? std::chrono::duration_cast<std::chrono::milliseconds>(now - startupDecodeDeferredAt_)
+            : std::chrono::milliseconds(0);
+    if (ShouldStartDeferredDecodeNow(startupDecodeDeferred_, deferredElapsed,
+                                     kStartupDecodeDeferWindow)) {
+      const bool resumed = decodePipeline_->Start();
+      decodeRunning_.store(resumed);
+      if (resumed) {
+        decodeWarmupActive_.store(false);
+        startupDecodeDeferred_ = false;
+        startupDecodeDeferredAt_ = RenderScheduler::Clock::time_point{};
+        WakeDecodePump();
+      }
     }
   }
 
@@ -1078,13 +1127,19 @@ void App::Tick() {
 
   FrameToken frame{};
   bool hasNewDecodedToken = false;
-  {
+  const std::uint64_t latestDecodedSequence =
+      latestDecodedSequence_.load(std::memory_order_acquire);
+  if (ShouldAttemptDecodedTokenConsume(
+          hasLastPresentedFrame_, hasLastPresentedFrame_ ? lastPresentedFrame_.sequence : 0,
+          latestDecodedSequence)) {
     std::lock_guard<std::mutex> lock(decodedTokenMu_);
-    if (hasLatestDecodedToken_ &&
-        (!hasLastPresentedFrame_ ||
-         latestDecodedToken_.sequence != lastPresentedFrame_.sequence)) {
-      frame = latestDecodedToken_;
-      hasNewDecodedToken = true;
+    if (hasLatestDecodedToken_) {
+      const bool sequenceAdvanced =
+          !hasLastPresentedFrame_ || latestDecodedToken_.sequence != lastPresentedFrame_.sequence;
+      if (sequenceAdvanced) {
+        frame = latestDecodedToken_;
+        hasNewDecodedToken = true;
+      }
     }
   }
 

@@ -39,6 +39,7 @@ $sources = @(
   "tests/resource_arbiter_tests.cpp",
   "tests/source_frame_rate_policy_tests.cpp",
   "tests/runtime_trim_policy_tests.cpp",
+  "tests/single_instance_policy_tests.cpp",
   "tests/startup_policy_tests.cpp",
   "tests/video_path_matcher_tests.cpp",
   "src/config_store.cpp",

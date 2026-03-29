@@ -1,5 +1,6 @@
 #include "wallpaper/startup_policy.h"
 
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 
@@ -39,4 +40,33 @@ TEST_CASE(StartupPolicy_ShouldPresentAfterDecodedFrameArrives) {
 
 TEST_CASE(StartupPolicy_ShouldPresentWhenReusingLastFrame) {
   EXPECT_TRUE(wallpaper::ShouldPresentFrame(false, true));
+}
+
+TEST_CASE(StartupPolicy_DeferDecodeOnFirstRunWithVideo) {
+  EXPECT_TRUE(wallpaper::ShouldDeferVideoDecodeStart(false, true));
+}
+
+TEST_CASE(StartupPolicy_DoNotDeferDecodeWhenConfigExists) {
+  EXPECT_TRUE(!wallpaper::ShouldDeferVideoDecodeStart(true, true));
+}
+
+TEST_CASE(StartupPolicy_DoNotDeferDecodeWithoutVideo) {
+  EXPECT_TRUE(!wallpaper::ShouldDeferVideoDecodeStart(false, false));
+}
+
+TEST_CASE(StartupPolicy_DeferredDecodeWaitsBeforeStart) {
+  EXPECT_TRUE(!wallpaper::ShouldStartDeferredDecodeNow(
+      true, std::chrono::milliseconds(1200), std::chrono::milliseconds(2500)));
+}
+
+TEST_CASE(StartupPolicy_DeferredDecodeStartsAfterThreshold) {
+  EXPECT_TRUE(wallpaper::ShouldStartDeferredDecodeNow(
+      true, std::chrono::milliseconds(2500), std::chrono::milliseconds(2500)));
+  EXPECT_TRUE(wallpaper::ShouldStartDeferredDecodeNow(
+      true, std::chrono::milliseconds(3200), std::chrono::milliseconds(2500)));
+}
+
+TEST_CASE(StartupPolicy_NonDeferredDecodeStartsImmediately) {
+  EXPECT_TRUE(wallpaper::ShouldStartDeferredDecodeNow(
+      false, std::chrono::milliseconds(0), std::chrono::milliseconds(2500)));
 }

@@ -23,4 +23,18 @@ bool ShouldPresentFrame(const bool hasDecodedFrame, const bool hasLastPresentedF
   return hasDecodedFrame || hasLastPresentedFrame;
 }
 
+bool ShouldDeferVideoDecodeStart(const bool configExistedBeforeLoad,
+                                 const bool hasValidVideoPath) noexcept {
+  return !configExistedBeforeLoad && hasValidVideoPath;
+}
+
+bool ShouldStartDeferredDecodeNow(const bool startupDecodeDeferred,
+                                  const std::chrono::milliseconds deferredElapsed,
+                                  const std::chrono::milliseconds minimumDefer) noexcept {
+  if (!startupDecodeDeferred) {
+    return true;
+  }
+  return deferredElapsed >= minimumDefer;
+}
+
 }  // namespace wallpaper

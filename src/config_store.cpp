@@ -267,6 +267,11 @@ void ConfigStore::Save(const Config& config) const {
   out << "}\n";
 }
 
+bool ConfigStore::Exists() const {
+  std::error_code ec;
+  return std::filesystem::exists(path_, ec) && !ec;
+}
+
 std::future<Config> ConfigStore::LoadAsync() const {
   return std::async(std::launch::async, [this]() { return Load(); });
 }

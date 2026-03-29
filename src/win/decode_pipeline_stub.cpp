@@ -32,21 +32,6 @@ namespace {
 #ifdef _WIN32
 class DecodePipelineStub;
 
-struct Locked2DBufferHolder final {
-  IMFMediaBuffer* mediaBuffer = nullptr;
-  IMF2DBuffer* buffer2d = nullptr;
-
-  ~Locked2DBufferHolder() {
-    if (buffer2d != nullptr) {
-      buffer2d->Unlock2D();
-      buffer2d->Release();
-    }
-    if (mediaBuffer != nullptr) {
-      mediaBuffer->Release();
-    }
-  }
-};
-
 class AsyncSourceReaderCallback final : public IMFSourceReaderCallback {
  public:
   explicit AsyncSourceReaderCallback(DecodePipelineStub* owner) : owner_(owner) {}
@@ -507,7 +492,6 @@ class DecodePipelineStub final : public IDecodePipeline {
       asyncReadySample_ = nullptr;
     }
     asyncReadyRawTimestamp100ns_ = 0;
-    asyncReadyFlags_ = 0;
   }
 
   bool IssueAsyncReadLocked() {
@@ -570,7 +554,6 @@ class DecodePipelineStub final : public IDecodePipeline {
       sample->AddRef();
       asyncReadySample_ = sample;
       asyncReadyRawTimestamp100ns_ = rawTimestamp100ns;
-      asyncReadyFlags_ = streamFlags;
       MarkDecodeAsyncReadCompleted(true, false, &decodeAsyncReadState_);
       return;
     }
@@ -656,8 +639,14 @@ class DecodePipelineStub final : public IDecodePipeline {
                                   static_cast<std::size_t>(sampleTotalLength));
             if (layout.yPlaneBytes != 0 && layout.uvPlaneBytes != 0) {
               std::shared_ptr<void> bufferHolder(
-                  new Locked2DBufferHolder{indexedBuffer, buffer2d}, [](void* ptr) {
-                    delete static_cast<Locked2DBufferHolder*>(ptr);
+                  indexedBuffer, [buffer2d](void* ptr) {
+                    if (buffer2d != nullptr) {
+                      buffer2d->Unlock2D();
+                      buffer2d->Release();
+                    }
+                    if (ptr != nullptr) {
+                      static_cast<IMFMediaBuffer*>(ptr)->Release();
+                    }
                   });
               frame_bridge::PublishLatestNv12FrameView(
                   static_cast<int>(frameWidth_), static_cast<int>(frameHeight_),
@@ -776,9 +765,10 @@ class DecodePipelineStub final : public IDecodePipeline {
     asyncReadySample_ = nullptr;
     const LONGLONG rawTimestamp100ns = asyncReadyRawTimestamp100ns_;
     asyncReadyRawTimestamp100ns_ = 0;
-    asyncReadyFlags_ = 0;
     MarkDecodeAsyncReadSampleConsumed(&decodeAsyncReadState_);
-    PumpDecodeAsyncReadsLocked();
+    if (ShouldIssueReadImmediatelyAfterConsume()) {
+      PumpDecodeAsyncReadsLocked();
+    }
 
     if (mfLastRawTimestamp100ns_ >= 0 && rawTimestamp100ns < mfLastRawTimestamp100ns_) {
       // 文件循环或时间戳回绕时，增加基线偏移，保证对上层输出时间戳始终单调。
@@ -859,7 +849,6 @@ class DecodePipelineStub final : public IDecodePipeline {
   DecodeAsyncReadState decodeAsyncReadState_{};
   IMFSample* asyncReadySample_ = nullptr;
   std::int64_t asyncReadyRawTimestamp100ns_ = 0;
-  DWORD asyncReadyFlags_ = 0;
 #endif
 };
 

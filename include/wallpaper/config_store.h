@@ -13,6 +13,7 @@ class ConfigStore final {
 
   [[nodiscard]] Config Load() const;
   void Save(const Config& config) const;
+  [[nodiscard]] bool Exists() const;
 
   [[nodiscard]] std::future<Config> LoadAsync() const;
   [[nodiscard]] std::future<void> SaveAsync(Config config) const;

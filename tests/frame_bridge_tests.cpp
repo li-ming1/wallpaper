@@ -70,3 +70,41 @@ TEST_CASE(FrameBridge_PublishAndReadLatestNv12Frame) {
   EXPECT_EQ(latest.yPlaneBytes, static_cast<std::size_t>(8));
   EXPECT_EQ(latest.uvPlaneBytes, static_cast<std::size_t>(4));
 }
+
+TEST_CASE(FrameBridge_TryGetLatestFrameIfNewerSkipsSameSequence) {
+  wallpaper::frame_bridge::ClearLatestFrame();
+
+  auto pixels = std::make_shared<const std::vector<std::uint8_t>>(
+      std::vector<std::uint8_t>(16, static_cast<std::uint8_t>(5)));
+  wallpaper::frame_bridge::PublishLatestFrame(2, 2, 8, 2000, 11, pixels);
+
+  wallpaper::frame_bridge::LatestFrame latest;
+  EXPECT_TRUE(wallpaper::frame_bridge::TryGetLatestFrameIfNewer(10, &latest));
+  EXPECT_EQ(static_cast<int>(latest.sequence), 11);
+  EXPECT_TRUE(!wallpaper::frame_bridge::TryGetLatestFrameIfNewer(11, &latest));
+}
+
+TEST_CASE(FrameBridge_ReleaseConsumedKeepsNewerFrameIntact) {
+  wallpaper::frame_bridge::ClearLatestFrame();
+
+  auto pixels = std::make_shared<const std::vector<std::uint8_t>>(
+      std::vector<std::uint8_t>(16, static_cast<std::uint8_t>(3)));
+  wallpaper::frame_bridge::PublishLatestFrame(2, 2, 8, 2000, 21, pixels);
+  wallpaper::frame_bridge::ReleaseLatestFrameIfSequenceConsumed(20);
+
+  wallpaper::frame_bridge::LatestFrame latest;
+  EXPECT_TRUE(wallpaper::frame_bridge::TryGetLatestFrame(&latest));
+  EXPECT_EQ(static_cast<int>(latest.sequence), 21);
+}
+
+TEST_CASE(FrameBridge_ReleaseConsumedDropsMatchedFrame) {
+  wallpaper::frame_bridge::ClearLatestFrame();
+
+  auto pixels = std::make_shared<const std::vector<std::uint8_t>>(
+      std::vector<std::uint8_t>(16, static_cast<std::uint8_t>(4)));
+  wallpaper::frame_bridge::PublishLatestFrame(2, 2, 8, 2000, 31, pixels);
+  wallpaper::frame_bridge::ReleaseLatestFrameIfSequenceConsumed(31);
+
+  wallpaper::frame_bridge::LatestFrame latest;
+  EXPECT_TRUE(!wallpaper::frame_bridge::TryGetLatestFrame(&latest));
+}

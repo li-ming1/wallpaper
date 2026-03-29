@@ -1160,3 +1160,178 @@
   - task_plan.md
   - findings.md
   - progress.md
+
+### Phase 48: 渲染参数稳定态去唤醒优化
+- **Status:** complete
+- Actions taken:
+  - Red: 在 `tests/loop_sleep_policy_tests.cpp` 新增 `LoopSleepPolicy_DecodePumpWakeDependsOnRenderCapChange`，首次执行 `./scripts/run_tests.ps1` 编译失败（`ShouldWakeDecodePumpForRenderCapUpdate` 未定义）。
+  - Green: 在 `include/wallpaper/loop_sleep_policy.h` / `src/loop_sleep_policy.cpp` 新增 `ShouldWakeDecodePumpForRenderCapUpdate`。
+  - Green: 在 `src/app.cpp` 的 `ApplyRenderFpsCap` 中改为条件更新与条件唤醒，避免稳定态重复 `WakeDecodePump()`。
+- Verification:
+  - `./scripts/run_tests.ps1` -> 126/126 PASS
+  - `./scripts/build_app.ps1 -BuildDir build_tmp` -> build_tmp/wallpaper_app.exe 成功
+- Files modified:
+  - include/wallpaper/loop_sleep_policy.h
+  - src/loop_sleep_policy.cpp
+  - src/app.cpp
+  - tests/loop_sleep_policy_tests.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md
+
+### Phase 49: 互斥热点与退避节奏迭代优化
+- **Status:** complete
+- Actions taken:
+  - Red: 在 `tests/frame_bridge_tests.cpp` 新增 `FrameBridge_TryGetLatestFrameIfNewerSkipsSameSequence`，首次执行 `./scripts/run_tests.ps1` 编译失败（`TryGetLatestFrameIfNewer` 未定义）。
+  - Red: 调整 `tests/loop_sleep_policy_tests.cpp` 的 decode pump 无帧退避期望，锁定更激进降唤醒策略。
+  - Green: `include/wallpaper/frame_bridge.h` / `src/frame_bridge.cpp` 增加 `TryGetLatestFrameIfNewer`，并引入原子序列号快判。
+  - Green: `src/win/wallpaper_host_win.cpp` 改为 `TryGetLatestFrameIfNewer(lastVideoSequence_, ...)`。
+  - Green: `src/loop_sleep_policy.cpp` 将无帧退避改为 `2->4->8->(+4)`，上限 24ms。
+  - Green: `src/app.cpp` 对 `presentSamplesMs_` 预留容量并移除 `shrink_to_fit`。
+  - Green: `src/win/decode_pipeline_stub.cpp` 移除 `Locked2DBufferHolder` 的每帧 `new`，改为别名持有资源。
+- Verification:
+  - `./scripts/run_tests.ps1` -> 127/127 PASS
+  - `./scripts/build_app.ps1 -BuildDir build_tmp` -> build_tmp/wallpaper_app.exe 成功
+- Files modified:
+  - include/wallpaper/frame_bridge.h
+  - src/frame_bridge.cpp
+  - src/win/wallpaper_host_win.cpp
+  - src/loop_sleep_policy.cpp
+  - src/app.cpp
+  - src/win/decode_pipeline_stub.cpp
+  - tests/frame_bridge_tests.cpp
+  - tests/loop_sleep_policy_tests.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md
+
+### Phase 50: 唤醒去重与渲染系统调用收敛
+- **Status:** complete
+- Actions taken:
+  - Red: 在 `tests/loop_sleep_policy_tests.cpp` 新增 `LoopSleepPolicy_DecodePumpWakeNotificationUsesDedupe`，首次执行 `./scripts/run_tests.ps1` 编译失败（`ShouldNotifyDecodePumpWake` 未定义）。
+  - Green: 在 `include/wallpaper/loop_sleep_policy.h` / `src/loop_sleep_policy.cpp` 新增 `ShouldNotifyDecodePumpWake`。
+  - Green: `src/app.cpp` 的 `WakeDecodePump` 改为“去重标记 + notify_one”，避免重复广播唤醒。
+  - Green: `src/win/wallpaper_host_win.cpp` 增加 viewport 宽高缓存，初始化/resize 时更新，`DrawVideoResources` 移除每帧 `GetClientRect`。
+  - Green: `src/win/decode_pipeline_stub.cpp` 清理未使用字段 `asyncReadyFlags_` 与相关写入。
+- Verification:
+  - `./scripts/run_tests.ps1` -> 128/128 PASS
+  - `./scripts/build_app.ps1 -BuildDir build_tmp` -> build_tmp/wallpaper_app.exe 成功
+- Files modified:
+  - include/wallpaper/loop_sleep_policy.h
+  - src/loop_sleep_policy.cpp
+  - src/app.cpp
+  - src/win/wallpaper_host_win.cpp
+  - src/win/decode_pipeline_stub.cpp
+  - tests/loop_sleep_policy_tests.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md
+
+### Phase 51: 解码 token 消费前置门控
+- **Status:** complete
+- Actions taken:
+  - Red: 在 `tests/loop_sleep_policy_tests.cpp` 增加 `DecodeTokenGatePolicy_*` 用例，锁定“无新序列不消费”的门控行为。
+  - Green: 新增 `include/wallpaper/decode_token_gate_policy.h`，实现 `ShouldAttemptDecodedTokenConsume(...)`。
+  - Green: `include/wallpaper/app.h` 增加 `latestDecodedSequence_` 原子字段。
+  - Green: `src/app.cpp` 在 decode pump 写入 token 时同步更新原子序列；`Tick` 中先用序列门控，再决定是否进入 `decodedTokenMu_`。
+- Verification:
+  - `./scripts/run_tests.ps1` -> 132/132 PASS
+  - `./scripts/build_app.ps1 -BuildDir build_tmp` -> build_tmp/wallpaper_app.exe 成功
+- Files modified:
+  - include/wallpaper/decode_token_gate_policy.h
+  - include/wallpaper/app.h
+  - src/app.cpp
+  - tests/loop_sleep_policy_tests.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md
+
+### Phase 52: 首次运行峰值压降
+- **Status:** complete
+- Actions taken:
+  - Red: 在 `tests/startup_policy_tests.cpp` 增加 `ShouldDeferVideoDecodeStart` 相关测试；在 `tests/config_store_tests.cpp` 增加 `ConfigStore_ExistsReflectsConfigFileState`，首次执行 `./scripts/run_tests.ps1` 编译失败（缺失实现）。
+  - Green: `include/wallpaper/config_store.h` / `src/config_store.cpp` 新增 `ConfigStore::Exists()`。
+  - Green: `include/wallpaper/startup_policy.h` / `src/startup_policy.cpp` 新增 `ShouldDeferVideoDecodeStart(...)`。
+  - Green: `include/wallpaper/app.h` / `src/app.cpp` 为 `StartVideoPipelineForPath` 增加 `startDecodeImmediately` 参数，并在 `Initialize` 接入首启延迟启动策略。
+  - Green: `src/app.cpp` 将 `Run` 循环中 `hasActiveVideo` 判定收敛为 `decodeOpened && decodeRunning`。
+- Verification:
+  - `./scripts/run_tests.ps1` -> 136/136 PASS
+  - `./scripts/build_app.ps1 -BuildDir build_tmp` -> build_tmp/wallpaper_app.exe 成功
+- Files modified:
+  - include/wallpaper/config_store.h
+  - src/config_store.cpp
+  - include/wallpaper/startup_policy.h
+  - src/startup_policy.cpp
+  - include/wallpaper/app.h
+  - src/app.cpp
+  - tests/startup_policy_tests.cpp
+  - tests/config_store_tests.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md
+
+### Phase 53: 桌面常驻帧缓存释放
+- **Status:** complete
+- Actions taken:
+  - Red: 在 `tests/frame_bridge_tests.cpp` 新增 `FrameBridge_ReleaseConsumedKeepsNewerFrameIntact` 与 `FrameBridge_ReleaseConsumedDropsMatchedFrame`，首次执行 `./scripts/run_tests.ps1` 编译失败（缺失 `ReleaseLatestFrameIfSequenceConsumed`）。
+  - Green: `include/wallpaper/frame_bridge.h` / `src/frame_bridge.cpp` 新增 `ReleaseLatestFrameIfSequenceConsumed`，按序列匹配安全释放 bridge 当前帧资源。
+  - Green: `src/win/wallpaper_host_win.cpp` 在新帧成功上传/拷贝并绘制后，调用 `ReleaseLatestFrameIfSequenceConsumed(lastVideoSequence_)` 释放已消费帧持有。
+- Verification:
+  - `./scripts/run_tests.ps1` -> 138/138 PASS
+  - `./scripts/build_app.ps1 -BuildDir build_tmp` -> build_tmp/wallpaper_app.exe 成功
+- Files modified:
+  - include/wallpaper/frame_bridge.h
+  - src/frame_bridge.cpp
+  - src/win/wallpaper_host_win.cpp
+  - tests/frame_bridge_tests.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md
+
+### Phase 54: 首启窗口降载 + 单实例保护
+- **Status:** complete
+- Actions taken:
+  - Red: 在 `tests/startup_policy_tests.cpp` 新增 `StartupPolicy_DeferredDecodeWaitsBeforeStart` 等用例，在 `tests/decode_async_read_policy_tests.cpp` 新增 `DecodeAsyncReadPolicy_DoesNotPrefetchImmediatelyAfterConsume`，首次执行 `./scripts/run_tests.ps1` 编译失败（缺失策略函数）。
+  - Green: 新增 `ShouldStartDeferredDecodeNow(...)`，并在 `App::Tick` 对首启 deferred decode 增加 2.5s 最小等待窗口。
+  - Green: `App` 新增 `startupDecodeDeferred_` 与 `startupDecodeDeferredAt_`，首启 deferred 成功初始化后记录时间窗。
+  - Green: `decode_async_read_policy` 新增 `ShouldIssueReadImmediatelyAfterConsume()` 并返回 false；`decode_pipeline_stub` 消费样本后不再立即 prefetch 下一帧。
+  - Green: `main.cpp` 增加 `ScopedSingleInstanceMutex`，使用命名互斥锁限制仅一个实例运行。
+- Verification:
+  - `./scripts/run_tests.ps1` -> 142/142 PASS
+  - `./scripts/build_app.ps1 -BuildDir build_tmp` -> build_tmp/wallpaper_app.exe 成功
+- Files modified:
+  - include/wallpaper/startup_policy.h
+  - src/startup_policy.cpp
+  - include/wallpaper/app.h
+  - src/app.cpp
+  - include/wallpaper/decode_async_read_policy.h
+  - src/decode_async_read_policy.cpp
+  - src/win/decode_pipeline_stub.cpp
+  - src/main.cpp
+  - tests/startup_policy_tests.cpp
+  - tests/decode_async_read_policy_tests.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md
+
+### Phase 55: 单实例守卫漏洞修复
+- **Status:** complete
+- Actions taken:
+  - Red: 在 `tests/single_instance_policy_tests.cpp` 新增 `SingleInstancePolicy_FallbackToLocalMutexOnlyOnNonExistingErrors`，首次编译失败（缺少 `ShouldFallbackToLocalMutex`）。
+  - Green: 在 `include/wallpaper/single_instance_policy.h` 新增 `ShouldFallbackToLocalMutex(errorCode)`，并将“已有实例”错误码明确为不可回退条件。
+  - Green: `src/main.cpp` 的 `ScopedSingleInstanceMutex` 重构为：
+    - `Global` 失败后仅在策略允许时才尝试 `Local`；
+    - 显式区分 `mutex_acquired` / `lock_file_acquired`；
+    - 补齐 lock file 句柄释放，避免进程生命周期内句柄泄漏。
+  - Green: 移除 `CountProcessesWithSameExecutablePath` 进程枚举守卫，降低启动 CPU 干扰并避免权限差异导致的识别误判。
+  - Verification supplement: 使用 `build_tmp/wallpaper_app.exe` 连续启动两次，第二实例退出，进程计数保持 1。
+- Verification:
+  - `./scripts/run_tests.ps1` -> 146/146 PASS
+  - `./scripts/build_app.ps1 -BuildDir build_tmp` -> build_tmp/wallpaper_app.exe 成功
+- Files modified:
+  - include/wallpaper/single_instance_policy.h
+  - tests/single_instance_policy_tests.cpp
+  - src/main.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md

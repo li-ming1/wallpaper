@@ -72,4 +72,9 @@ void MarkDecodeAsyncReadSeekCompleted(DecodeAsyncReadState* state) {
   state->seekToStartPending = false;
 }
 
+bool ShouldIssueReadImmediatelyAfterConsume() noexcept {
+  // 保持 lazy read，可减少动态桌面常驻时“ready sample”占用的额外内存峰值。
+  return false;
+}
+
 }  // namespace wallpaper
