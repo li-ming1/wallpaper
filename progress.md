@@ -1411,3 +1411,85 @@
   - task_plan.md
   - findings.md
   - progress.md
+
+### Phase 59: C++26 标志统一 + 帧桥接无锁化 + 锁域收敛迭代
+- **Status:** complete
+- Actions taken:
+  - Green: `scripts/run_tests.ps1`、`scripts/build_app.ps1` 新增 `-UseCxx26` 参数，并实现 `-std=c++26` 优先、`-std=c++2c` 自动回退探测。
+  - Green: `src/frame_bridge.cpp` 改为原子 `shared_ptr` 发布/读取模型，移除全局 `mutex` 热点。
+  - Green: `src/win/decode_pipeline_stub.cpp` 引入 `ReadySampleSnapshot`，`TryAcquireLatestFrame` 改为媒体路径锁外发布，缩短 `mu_` 持锁时间。
+  - Green: `src/app.cpp` 解码泵等待改造，在 notifier 可用时扩大事件等待窗口（最小 90ms），降低无帧轮询调度。
+  - Green: 新增 `scripts/bench_perf.ps1`，支持三场景采样并输出 CSV/JSON 汇总。
+- Verification:
+  - `./scripts/run_tests.ps1` -> 153/153 PASS
+  - `./scripts/run_tests.ps1 -UseCxx26` -> 153/153 PASS
+  - `./scripts/build_app.ps1 -BuildDir build_tmp` -> 成功
+  - `./scripts/build_app.ps1 -BuildDir build_tmp -UseCxx26` -> 成功
+  - `./scripts/bench_perf.ps1 -ExePath build_tmp/wallpaper_app.exe -Scenario startup -DurationSec 5 -Tag smoke` -> 成功，输出 `build_tmp/bench/startup_*_smoke.{csv,json}`
+- Files modified:
+  - src/frame_bridge.cpp
+  - src/win/decode_pipeline_stub.cpp
+  - src/app.cpp
+  - scripts/run_tests.ps1
+  - scripts/build_app.ps1
+  - scripts/bench_perf.ps1
+  - task_plan.md
+  - findings.md
+  - progress.md
+
+### Phase 60: 退避与池化分配迭代
+- **Status:** complete
+- Actions taken:
+  - Green: `src/loop_sleep_policy.cpp` notifier 路径无帧退避上限由 40ms 提升到 64ms。
+  - Green: `src/app.cpp` notifier 事件等待窗口最小值提升到 140ms。
+  - Green: `src/frame_bridge.cpp` 引入 `std::pmr::synchronized_pool_resource`，`FramePayload` 改为 `allocate_shared` 池化分配。
+  - Green: `tests/loop_sleep_policy_tests.cpp` 同步更新 notifier 路径断言。
+  - Green: 运行 `bench_perf` 冒烟，确认 startup/desktop 场景输出 JSON/CSV。
+- Verification:
+  - `./scripts/run_tests.ps1` -> 153/153 PASS
+  - `./scripts/run_tests.ps1 -UseCxx26` -> 153/153 PASS
+  - `./scripts/build_app.ps1 -BuildDir build_tmp` -> 成功
+  - `./scripts/build_app.ps1 -BuildDir build_tmp -UseCxx26` -> 成功
+  - `./scripts/bench_perf.ps1 -Scenario startup -DurationSec 8 -Tag iter2` -> 成功
+  - `./scripts/bench_perf.ps1 -Scenario desktop -DurationSec 8 -WarmupSec 3 -Tag iter2_seq` -> 成功
+- Notes:
+  - 并行启动两个 `bench_perf` 会触发单实例保护，第二个实例采样为空；基准需顺序执行。
+- Files modified:
+  - src/frame_bridge.cpp
+  - src/loop_sleep_policy.cpp
+  - src/app.cpp
+  - tests/loop_sleep_policy_tests.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md
+
+### Phase 61: 主循环唤醒收敛 + 解码冗余原子清理
+- **Status:** complete
+- Actions taken:
+  - Red: 在 `tests/loop_sleep_policy_tests.cpp` 新增 `LoopSleepPolicy_MainLoopMessageAwareWaitOnlyForPauseOrIdle`，先锁定“仅 pause/idle 使用消息等待”的策略。
+  - Green: `include/wallpaper/loop_sleep_policy.h` / `src/loop_sleep_policy.cpp` 新增 `ShouldUseMainLoopMessageAwareWait`。
+  - Green: `src/app.cpp` 的 `WaitMainLoopInterval` 增加 `useMessageAwareWait` 开关；动态桌面路径改为 `Sleep`，pause/idle 路径消息等待改用 `QS_POSTMESSAGE|QS_SENDMESSAGE|QS_TIMER`。
+  - Green: `src/win/decode_pipeline_stub.cpp` 删除 `ConsumeFrameBufferCapacityHint` 与 `previousPublishedCpuBytes_/trimRequested_` 原子状态，移除每帧无收益原子读写。
+  - Green: `include/wallpaper/app.h` 修正方法声明缩进，保持头文件可读性一致。
+- Verification:
+  - `./scripts/run_tests.ps1 -BuildDir build_tmp/tests_phase61_cxx23` -> 154/154 PASS
+  - `./scripts/run_tests.ps1 -BuildDir build_tmp/tests_phase61_cxx26 -UseCxx26` -> 154/154 PASS
+  - `./scripts/build_app.ps1 -BuildDir build_tmp/phase61_cxx23` -> 成功
+  - `./scripts/build_app.ps1 -BuildDir build_tmp/phase61_cxx26 -UseCxx26` -> 成功
+  - `./scripts/build_app.ps1 -BuildDir build_tmp` -> 成功
+  - `./scripts/bench_perf.ps1 -ExePath build_tmp/wallpaper_app.exe -Scenario startup -DurationSec 12 -SampleMs 500 -Tag phase61_before_seq` -> 成功
+  - `./scripts/bench_perf.ps1 -ExePath build_tmp/wallpaper_app.exe -Scenario startup -DurationSec 12 -SampleMs 500 -Tag phase61_after_samepath` -> 成功
+  - `./scripts/bench_perf.ps1 -ExePath build_tmp/wallpaper_app.exe -Scenario desktop -DurationSec 12 -WarmupSec 6 -SampleMs 500 -Tag phase61_before` -> 成功
+  - `./scripts/bench_perf.ps1 -ExePath build_tmp/wallpaper_app.exe -Scenario desktop -DurationSec 12 -WarmupSec 6 -SampleMs 500 -Tag phase61_after_samepath` -> 成功
+- Notes:
+  - 单实例保护存在时，基准场景必须串行运行；并行会导致一个场景采样为空。
+- Files modified:
+  - include/wallpaper/loop_sleep_policy.h
+  - src/loop_sleep_policy.cpp
+  - tests/loop_sleep_policy_tests.cpp
+  - src/app.cpp
+  - src/win/decode_pipeline_stub.cpp
+  - include/wallpaper/app.h
+  - task_plan.md
+  - findings.md
+  - progress.md

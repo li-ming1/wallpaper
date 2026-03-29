@@ -25,6 +25,12 @@ TEST_CASE(LoopSleepPolicy_MainLoopActiveVideoUsesBoundedWait) {
   EXPECT_EQ(wallpaper::ComputeMainLoopSleepMs(false, true, 100ms), 40);
 }
 
+TEST_CASE(LoopSleepPolicy_MainLoopMessageAwareWaitOnlyForPauseOrIdle) {
+  EXPECT_TRUE(wallpaper::ShouldUseMainLoopMessageAwareWait(true, true));
+  EXPECT_TRUE(wallpaper::ShouldUseMainLoopMessageAwareWait(false, false));
+  EXPECT_TRUE(!wallpaper::ShouldUseMainLoopMessageAwareWait(false, true));
+}
+
 TEST_CASE(LoopSleepPolicy_DecodePumpNoDecodeReadySleepsLonger) {
   EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(false, false, 4, false), 70);
 }
@@ -45,7 +51,9 @@ TEST_CASE(LoopSleepPolicy_DecodePumpNoFrameUsesBackoff) {
 TEST_CASE(LoopSleepPolicy_DecodePumpNoFrameUsesLongerBackoffWithNotifier) {
   EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(true, false, 22, true), 26);
   EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(true, false, 36, true), 40);
-  EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(true, false, 40, true), 40);
+  EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(true, false, 40, true), 44);
+  EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(true, false, 62, true), 64);
+  EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(true, false, 64, true), 64);
 }
 
 TEST_CASE(LoopSleepPolicy_DecodePumpHotSleepTracksFpsCap) {

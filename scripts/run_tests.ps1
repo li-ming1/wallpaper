@@ -1,5 +1,6 @@
 param(
   [string]$BuildDir = "build",
+  [switch]$UseCxx26,
   [switch]$UseCxx2c
 )
 
@@ -12,6 +13,28 @@ if (-not $gxx) {
 
 if (-not (Test-Path $BuildDir)) {
   New-Item -ItemType Directory -Force -Path $BuildDir | Out-Null
+}
+
+function Resolve-Cxx26Flag {
+  param([string]$CompilerPath)
+
+  $probe = Join-Path $env:TEMP "wallpaper_cxx26_probe.cpp"
+  Set-Content -Path $probe -Value "int main(){return 0;}" -NoNewline
+  try {
+    & $CompilerPath "-std=c++26" "-x" "c++" $probe "-fsyntax-only" *> $null
+    if ($LASTEXITCODE -eq 0) {
+      return "-std=c++26"
+    }
+
+    & $CompilerPath "-std=c++2c" "-x" "c++" $probe "-fsyntax-only" *> $null
+    if ($LASTEXITCODE -eq 0) {
+      return "-std=c++2c"
+    }
+  } finally {
+    Remove-Item -Path $probe -ErrorAction SilentlyContinue
+  }
+
+  Write-Error "Current g++ does not support -std=c++26 or -std=c++2c."
 }
 
 $output = Join-Path $BuildDir "wallpaper_tests.exe"
@@ -73,7 +96,8 @@ $sources = @(
   "src/video_path_matcher.cpp"
 )
 
-$cppStdFlag = if ($UseCxx2c) { "-std=c++2c" } else { "-std=c++23" }
+$useExperimentalCxx = $UseCxx26 -or $UseCxx2c
+$cppStdFlag = if ($useExperimentalCxx) { Resolve-Cxx26Flag $gxx.Source } else { "-std=c++23" }
 
 $compileArgs = @(
   $cppStdFlag,

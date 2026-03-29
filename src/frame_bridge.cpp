@@ -1,15 +1,38 @@
 #include "wallpaper/frame_bridge.h"
 
 #include <atomic>
-#include <mutex>
+#include <memory>
+#include <memory_resource>
 
 namespace wallpaper::frame_bridge {
 namespace {
 
-std::mutex g_frameMutex;
-LatestFrame g_latestFrame;
-bool g_hasFrame = false;
+struct FramePayload final {
+  LatestFrame frame;
+};
+
+std::atomic<std::shared_ptr<const FramePayload>> g_latestPayload;
 std::atomic<std::uint64_t> g_latestSequence{0};
+std::pmr::synchronized_pool_resource g_payloadPool{};
+
+[[nodiscard]] std::shared_ptr<FramePayload> MakeFramePayloadBase(const int width, const int height,
+                                                                 const int strideBytes,
+                                                                 const std::int64_t timestamp100ns,
+                                                                 const std::uint64_t sequence) {
+  std::pmr::polymorphic_allocator<FramePayload> allocator{&g_payloadPool};
+  auto payload = std::allocate_shared<FramePayload>(allocator);
+  payload->frame.width = width;
+  payload->frame.height = height;
+  payload->frame.strideBytes = strideBytes;
+  payload->frame.timestamp100ns = timestamp100ns;
+  payload->frame.sequence = sequence;
+  return payload;
+}
+
+void PublishPayload(std::shared_ptr<const FramePayload> payload, const std::uint64_t sequence) {
+  g_latestPayload.store(std::move(payload), std::memory_order_release);
+  g_latestSequence.store(sequence, std::memory_order_release);
+}
 
 }  // namespace
 
@@ -20,36 +43,30 @@ void PublishLatestFrame(const int width, const int height, const int strideBytes
     return;
   }
 
-  std::lock_guard<std::mutex> lock(g_frameMutex);
-  g_latestFrame.width = width;
-  g_latestFrame.height = height;
-  g_latestFrame.strideBytes = strideBytes;
-  g_latestFrame.timestamp100ns = timestamp100ns;
-  g_latestFrame.sequence = sequence;
-  g_latestFrame.gpuBacked = false;
-  g_latestFrame.pixelFormat = PixelFormat::kRgba32;
-  g_latestFrame.gpuSubresourceIndex = 0;
-  g_latestFrame.dxgiFormat = 0;
-  g_latestFrame.gpuTexture = nullptr;
-  g_latestFrame.gpuTextureHolder.reset();
-  g_latestFrame.yPlaneData = nullptr;
-  g_latestFrame.yPlaneBytes = 0;
-  g_latestFrame.yPlaneStrideBytes = 0;
-  g_latestFrame.uvPlaneData = nullptr;
-  g_latestFrame.uvPlaneBytes = 0;
-  g_latestFrame.uvPlaneStrideBytes = 0;
-  g_latestFrame.rgbaData = nullptr;
-  g_latestFrame.rgbaDataBytes = 0;
-  g_latestFrame.rgbaDataHolder.reset();
+  auto payload = MakeFramePayloadBase(width, height, strideBytes, timestamp100ns, sequence);
+  payload->frame.gpuBacked = false;
+  payload->frame.pixelFormat = PixelFormat::kRgba32;
+  payload->frame.gpuSubresourceIndex = 0;
+  payload->frame.dxgiFormat = 0;
+  payload->frame.gpuTexture = nullptr;
+  payload->frame.gpuTextureHolder.reset();
+  payload->frame.yPlaneData = nullptr;
+  payload->frame.yPlaneBytes = 0;
+  payload->frame.yPlaneStrideBytes = 0;
+  payload->frame.uvPlaneData = nullptr;
+  payload->frame.uvPlaneBytes = 0;
+  payload->frame.uvPlaneStrideBytes = 0;
+  payload->frame.rgbaData = nullptr;
+  payload->frame.rgbaDataBytes = 0;
+  payload->frame.rgbaDataHolder.reset();
   if (rgbaPixels != nullptr && !rgbaPixels->empty()) {
-    g_latestFrame.rgbaData = rgbaPixels->data();
-    g_latestFrame.rgbaDataBytes = rgbaPixels->size();
-    g_latestFrame.rgbaDataHolder =
+    payload->frame.rgbaData = rgbaPixels->data();
+    payload->frame.rgbaDataBytes = rgbaPixels->size();
+    payload->frame.rgbaDataHolder =
         std::shared_ptr<void>(std::move(rgbaPixels),
-                              const_cast<std::uint8_t*>(g_latestFrame.rgbaData));
+                              const_cast<std::uint8_t*>(payload->frame.rgbaData));
   }
-  g_hasFrame = true;
-  g_latestSequence.store(sequence, std::memory_order_release);
+  PublishPayload(std::const_pointer_cast<const FramePayload>(std::move(payload)), sequence);
 }
 
 void PublishLatestFrameView(const int width, const int height, const int strideBytes,
@@ -61,29 +78,23 @@ void PublishLatestFrameView(const int width, const int height, const int strideB
     return;
   }
 
-  std::lock_guard<std::mutex> lock(g_frameMutex);
-  g_latestFrame.width = width;
-  g_latestFrame.height = height;
-  g_latestFrame.strideBytes = strideBytes;
-  g_latestFrame.timestamp100ns = timestamp100ns;
-  g_latestFrame.sequence = sequence;
-  g_latestFrame.gpuBacked = false;
-  g_latestFrame.pixelFormat = PixelFormat::kRgba32;
-  g_latestFrame.gpuSubresourceIndex = 0;
-  g_latestFrame.dxgiFormat = 0;
-  g_latestFrame.gpuTexture = nullptr;
-  g_latestFrame.gpuTextureHolder.reset();
-  g_latestFrame.yPlaneData = nullptr;
-  g_latestFrame.yPlaneBytes = 0;
-  g_latestFrame.yPlaneStrideBytes = 0;
-  g_latestFrame.uvPlaneData = nullptr;
-  g_latestFrame.uvPlaneBytes = 0;
-  g_latestFrame.uvPlaneStrideBytes = 0;
-  g_latestFrame.rgbaData = rgbaData;
-  g_latestFrame.rgbaDataBytes = rgbaDataBytes;
-  g_latestFrame.rgbaDataHolder = std::move(rgbaDataHolder);
-  g_hasFrame = true;
-  g_latestSequence.store(sequence, std::memory_order_release);
+  auto payload = MakeFramePayloadBase(width, height, strideBytes, timestamp100ns, sequence);
+  payload->frame.gpuBacked = false;
+  payload->frame.pixelFormat = PixelFormat::kRgba32;
+  payload->frame.gpuSubresourceIndex = 0;
+  payload->frame.dxgiFormat = 0;
+  payload->frame.gpuTexture = nullptr;
+  payload->frame.gpuTextureHolder.reset();
+  payload->frame.yPlaneData = nullptr;
+  payload->frame.yPlaneBytes = 0;
+  payload->frame.yPlaneStrideBytes = 0;
+  payload->frame.uvPlaneData = nullptr;
+  payload->frame.uvPlaneBytes = 0;
+  payload->frame.uvPlaneStrideBytes = 0;
+  payload->frame.rgbaData = rgbaData;
+  payload->frame.rgbaDataBytes = rgbaDataBytes;
+  payload->frame.rgbaDataHolder = std::move(rgbaDataHolder);
+  PublishPayload(std::const_pointer_cast<const FramePayload>(std::move(payload)), sequence);
 }
 
 void PublishLatestNv12FrameView(const int width, const int height, const int yPlaneStrideBytes,
@@ -101,29 +112,24 @@ void PublishLatestNv12FrameView(const int width, const int height, const int yPl
     return;
   }
 
-  std::lock_guard<std::mutex> lock(g_frameMutex);
-  g_latestFrame.width = width;
-  g_latestFrame.height = height;
-  g_latestFrame.strideBytes = yPlaneStrideBytes;
-  g_latestFrame.timestamp100ns = timestamp100ns;
-  g_latestFrame.sequence = sequence;
-  g_latestFrame.gpuBacked = false;
-  g_latestFrame.pixelFormat = PixelFormat::kNv12;
-  g_latestFrame.gpuSubresourceIndex = 0;
-  g_latestFrame.dxgiFormat = 0;
-  g_latestFrame.gpuTexture = nullptr;
-  g_latestFrame.gpuTextureHolder.reset();
-  g_latestFrame.rgbaData = nullptr;
-  g_latestFrame.rgbaDataBytes = 0;
-  g_latestFrame.rgbaDataHolder = std::move(planeDataHolder);
-  g_latestFrame.yPlaneData = yPlaneData;
-  g_latestFrame.yPlaneBytes = yPlaneBytes;
-  g_latestFrame.yPlaneStrideBytes = yPlaneStrideBytes;
-  g_latestFrame.uvPlaneData = uvPlaneData;
-  g_latestFrame.uvPlaneBytes = uvPlaneBytes;
-  g_latestFrame.uvPlaneStrideBytes = uvPlaneStrideBytes;
-  g_hasFrame = true;
-  g_latestSequence.store(sequence, std::memory_order_release);
+  auto payload =
+      MakeFramePayloadBase(width, height, yPlaneStrideBytes, timestamp100ns, sequence);
+  payload->frame.gpuBacked = false;
+  payload->frame.pixelFormat = PixelFormat::kNv12;
+  payload->frame.gpuSubresourceIndex = 0;
+  payload->frame.dxgiFormat = 0;
+  payload->frame.gpuTexture = nullptr;
+  payload->frame.gpuTextureHolder.reset();
+  payload->frame.rgbaData = nullptr;
+  payload->frame.rgbaDataBytes = 0;
+  payload->frame.rgbaDataHolder = std::move(planeDataHolder);
+  payload->frame.yPlaneData = yPlaneData;
+  payload->frame.yPlaneBytes = yPlaneBytes;
+  payload->frame.yPlaneStrideBytes = yPlaneStrideBytes;
+  payload->frame.uvPlaneData = uvPlaneData;
+  payload->frame.uvPlaneBytes = uvPlaneBytes;
+  payload->frame.uvPlaneStrideBytes = uvPlaneStrideBytes;
+  PublishPayload(std::const_pointer_cast<const FramePayload>(std::move(payload)), sequence);
 }
 
 void PublishLatestGpuFrame(const int width, const int height, const std::int64_t timestamp100ns,
@@ -134,33 +140,27 @@ void PublishLatestGpuFrame(const int width, const int height, const std::int64_t
     return;
   }
 
-  std::lock_guard<std::mutex> lock(g_frameMutex);
-  g_latestFrame.width = width;
-  g_latestFrame.height = height;
-  g_latestFrame.strideBytes = 0;
-  g_latestFrame.timestamp100ns = timestamp100ns;
-  g_latestFrame.sequence = sequence;
-  g_latestFrame.gpuBacked = true;
-  g_latestFrame.pixelFormat = PixelFormat::kRgba32;
-  g_latestFrame.gpuSubresourceIndex = subresourceIndex;
-  g_latestFrame.dxgiFormat = dxgiFormat;
+  auto payload = MakeFramePayloadBase(width, height, 0, timestamp100ns, sequence);
+  payload->frame.gpuBacked = true;
+  payload->frame.pixelFormat = PixelFormat::kRgba32;
+  payload->frame.gpuSubresourceIndex = subresourceIndex;
+  payload->frame.dxgiFormat = dxgiFormat;
 #ifdef _WIN32
-  g_latestFrame.gpuTexture = static_cast<ID3D11Texture2D*>(gpuTextureHolder.get());
+  payload->frame.gpuTexture = static_cast<ID3D11Texture2D*>(gpuTextureHolder.get());
 #else
-  g_latestFrame.gpuTexture = gpuTextureHolder.get();
+  payload->frame.gpuTexture = gpuTextureHolder.get();
 #endif
-  g_latestFrame.gpuTextureHolder = std::move(gpuTextureHolder);
-  g_latestFrame.rgbaData = nullptr;
-  g_latestFrame.rgbaDataBytes = 0;
-  g_latestFrame.rgbaDataHolder.reset();
-  g_latestFrame.yPlaneData = nullptr;
-  g_latestFrame.yPlaneBytes = 0;
-  g_latestFrame.yPlaneStrideBytes = 0;
-  g_latestFrame.uvPlaneData = nullptr;
-  g_latestFrame.uvPlaneBytes = 0;
-  g_latestFrame.uvPlaneStrideBytes = 0;
-  g_hasFrame = true;
-  g_latestSequence.store(sequence, std::memory_order_release);
+  payload->frame.gpuTextureHolder = std::move(gpuTextureHolder);
+  payload->frame.rgbaData = nullptr;
+  payload->frame.rgbaDataBytes = 0;
+  payload->frame.rgbaDataHolder.reset();
+  payload->frame.yPlaneData = nullptr;
+  payload->frame.yPlaneBytes = 0;
+  payload->frame.yPlaneStrideBytes = 0;
+  payload->frame.uvPlaneData = nullptr;
+  payload->frame.uvPlaneBytes = 0;
+  payload->frame.uvPlaneStrideBytes = 0;
+  PublishPayload(std::const_pointer_cast<const FramePayload>(std::move(payload)), sequence);
 }
 
 bool TryGetLatestFrame(LatestFrame* outFrame) {
@@ -168,17 +168,17 @@ bool TryGetLatestFrame(LatestFrame* outFrame) {
     return false;
   }
 
-  std::lock_guard<std::mutex> lock(g_frameMutex);
-  if (!g_hasFrame) {
+  const auto payload = g_latestPayload.load(std::memory_order_acquire);
+  if (payload == nullptr) {
     return false;
   }
-  if (!g_latestFrame.gpuBacked && g_latestFrame.rgbaDataHolder == nullptr) {
+  if (!payload->frame.gpuBacked && payload->frame.rgbaDataHolder == nullptr) {
     return false;
   }
-  if (g_latestFrame.gpuBacked && g_latestFrame.gpuTextureHolder == nullptr) {
+  if (payload->frame.gpuBacked && payload->frame.gpuTextureHolder == nullptr) {
     return false;
   }
-  *outFrame = g_latestFrame;
+  *outFrame = payload->frame;
   return true;
 }
 
@@ -190,17 +190,17 @@ bool TryGetLatestFrameIfNewer(const std::uint64_t lastSeenSequence, LatestFrame*
     return false;
   }
 
-  std::lock_guard<std::mutex> lock(g_frameMutex);
-  if (!g_hasFrame || g_latestFrame.sequence <= lastSeenSequence) {
+  const auto payload = g_latestPayload.load(std::memory_order_acquire);
+  if (payload == nullptr || payload->frame.sequence <= lastSeenSequence) {
     return false;
   }
-  if (!g_latestFrame.gpuBacked && g_latestFrame.rgbaDataHolder == nullptr) {
+  if (!payload->frame.gpuBacked && payload->frame.rgbaDataHolder == nullptr) {
     return false;
   }
-  if (g_latestFrame.gpuBacked && g_latestFrame.gpuTextureHolder == nullptr) {
+  if (payload->frame.gpuBacked && payload->frame.gpuTextureHolder == nullptr) {
     return false;
   }
-  *outFrame = g_latestFrame;
+  *outFrame = payload->frame;
   return true;
 }
 
@@ -209,19 +209,24 @@ void ReleaseLatestFrameIfSequenceConsumed(const std::uint64_t consumedSequence) 
     return;
   }
 
-  std::lock_guard<std::mutex> lock(g_frameMutex);
-  if (!g_hasFrame || g_latestFrame.sequence != consumedSequence) {
+  auto expected = g_latestPayload.load(std::memory_order_acquire);
+  if (expected == nullptr || expected->frame.sequence != consumedSequence) {
     return;
   }
-  g_latestFrame = LatestFrame{};
-  g_hasFrame = false;
-  g_latestSequence.store(0, std::memory_order_release);
+
+  const std::shared_ptr<const FramePayload> cleared{};
+  if (!g_latestPayload.compare_exchange_strong(expected, cleared, std::memory_order_acq_rel,
+                                               std::memory_order_acquire)) {
+    return;
+  }
+
+  std::uint64_t expectedSequence = consumedSequence;
+  (void)g_latestSequence.compare_exchange_strong(expectedSequence, 0, std::memory_order_release,
+                                                 std::memory_order_relaxed);
 }
 
 void ClearLatestFrame() {
-  std::lock_guard<std::mutex> lock(g_frameMutex);
-  g_latestFrame = LatestFrame{};
-  g_hasFrame = false;
+  g_latestPayload.store(std::shared_ptr<const FramePayload>{}, std::memory_order_release);
   g_latestSequence.store(0, std::memory_order_release);
 }
 

@@ -296,6 +296,25 @@ void PumpThreadWindowMessages() {
 #endif
 }
 
+void WaitMainLoopInterval(const int sleepMs, const bool useMessageAwareWait) {
+  if (sleepMs <= 0) {
+    return;
+  }
+#ifdef _WIN32
+  const DWORD waitMs = static_cast<DWORD>(std::clamp(sleepMs, 1, 500));
+  if (useMessageAwareWait) {
+    // 仅在长睡眠路径等待主线程消息，且忽略高频输入类消息，减少提前唤醒抖动。
+    constexpr DWORD kMainLoopMessageMask = QS_POSTMESSAGE | QS_SENDMESSAGE | QS_TIMER;
+    (void)MsgWaitForMultipleObjectsEx(0, nullptr, waitMs, kMainLoopMessageMask,
+                                      MWMO_INPUTAVAILABLE);
+    return;
+  }
+  Sleep(waitMs);
+#else
+  std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
+#endif
+}
+
 double TakeP95Ms(std::vector<double>* values) {
   if (values == nullptr || values->empty()) {
     return 0.0;
@@ -421,9 +440,10 @@ int App::Run() {
     timerResolution.SetEnabled(useHighResolutionTimer);
     const auto untilNextRender = std::chrono::duration_cast<std::chrono::milliseconds>(
         scheduler_.TimeUntilNextRender(RenderScheduler::Clock::now()));
-    const int sleepMs =
-        ComputeMainLoopSleepMs(shouldPause, hasActiveVideo, untilNextRender);
-    std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
+    const int sleepMs = ComputeMainLoopSleepMs(shouldPause, hasActiveVideo, untilNextRender);
+    const bool useMessageAwareWait =
+        ShouldUseMainLoopMessageAwareWait(shouldPause, hasActiveVideo);
+    WaitMainLoopInterval(sleepMs, useMessageAwareWait);
   }
 
   StopDecodePump();
@@ -660,12 +680,17 @@ void App::StartDecodePump() {
   }
 
   decodePumpThread_ = std::thread([this]() {
-    const auto sleepInterruptible = [this](const int sleepMs) {
+    const auto sleepInterruptible = [this](const int sleepMs,
+                                           const bool preferEventDrivenWait) {
       if (sleepMs <= 0) {
         return;
       }
+      const int boundedSleepMs = std::clamp(sleepMs, 1, 500);
+      // SourceReader 回调可唤醒时，优先放大等待窗口以减少无帧轮询唤醒。
+      const int waitMs =
+          preferEventDrivenWait ? std::max(boundedSleepMs, 140) : boundedSleepMs;
       std::unique_lock<std::mutex> lock(decodePumpWaitMu_);
-      decodePumpWaitCv_.wait_for(lock, std::chrono::milliseconds(sleepMs),
+      decodePumpWaitCv_.wait_for(lock, std::chrono::milliseconds(waitMs),
                                  [this]() { return !decodePumpRunning_.load() || decodePumpWakeRequested_; });
       decodePumpWakeRequested_ = false;
     };
@@ -724,7 +749,7 @@ void App::StartDecodePump() {
       if (!decodeReady) {
         decodeIdleSleepMs = ComputeDecodePumpSleepMs(false, false, decodeIdleSleepMs,
                                                      decodeFrameReadyNotifierAvailable_);
-        sleepInterruptible(decodeIdleSleepMs);
+        sleepInterruptible(decodeIdleSleepMs, false);
         continue;
       }
       if (decodeIdleSleepMs > 2) {
@@ -743,11 +768,11 @@ void App::StartDecodePump() {
         if (hotSleepMs > decodeIdleSleepMs) {
           decodeIdleSleepMs = hotSleepMs;
         }
-        sleepInterruptible(decodeIdleSleepMs);
+        sleepInterruptible(decodeIdleSleepMs, false);
       } else {
         decodeIdleSleepMs = ComputeDecodePumpSleepMs(true, false, decodeIdleSleepMs,
                                                      decodeFrameReadyNotifierAvailable_);
-        sleepInterruptible(decodeIdleSleepMs);
+        sleepInterruptible(decodeIdleSleepMs, decodeFrameReadyNotifierAvailable_);
       }
     }
   });

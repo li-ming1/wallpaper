@@ -42,9 +42,9 @@ class App final {
                                  bool resetLongRunState = true,
                                  bool startDecodeImmediately = true);
   void ApplyRenderFpsCap(int governorFps);
- void StartDecodePump();
- void StopDecodePump();
- void WakeDecodePump();
+  void StartDecodePump();
+  void StopDecodePump();
+  void WakeDecodePump();
   void OnDecodeFrameReady();
   static void OnDecodeFrameReadyThunk(void* context);
   void SyncTrayMenuState() const;

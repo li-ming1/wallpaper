@@ -10,6 +10,10 @@ namespace wallpaper {
 [[nodiscard]] int ComputeMainLoopSleepMs(bool shouldPause, bool hasActiveVideo,
                                          std::chrono::milliseconds untilNextRender) noexcept;
 
+// 动态桌面渲染期间优先固定睡眠，避免输入消息导致的额外提前唤醒。
+[[nodiscard]] bool ShouldUseMainLoopMessageAwareWait(bool shouldPause,
+                                                     bool hasActiveVideo) noexcept;
+
 // 解码泵退避策略：无帧时逐步拉长等待，有帧时立即恢复低延迟采样。
 [[nodiscard]] int ComputeDecodePumpSleepMs(bool decodeReady, bool frameAcquired,
                                            int previousSleepMs,

@@ -4,7 +4,7 @@
 Implement a Windows 10/11 dynamic wallpaper app from an empty repo with strict performance-first architecture (WorkerW + MF + D3D11), plus tests for core logic.
 
 ## Current Phase
-Phase 54
+Phase 61
 
 ## Phases
 ### Phase 1: Requirements & Discovery
@@ -484,4 +484,30 @@ Phase 54
 - [x] Green: Windows 解码管线在 `OnReadSample` 命中新样本后通知上层，触发解码泵唤醒
 - [x] Green: 解码泵退避策略支持 notifier-aware 上限（24ms -> 40ms），减少无帧空转唤醒
 - [x] Verification: 单测通过（153/153） + 构建通过
+- **Status:** complete
+
+### Phase 59: C++26 标志统一 + 帧桥接无锁化 + 解码发布锁域收敛（Completed）
+- [x] Green: `run_tests/build_app` 脚本新增 `-UseCxx26`，优先 `-std=c++26`，不支持时自动回退 `-std=c++2c`
+- [x] Green: `frame_bridge` 从全局互斥改为原子 `shared_ptr` 发布/读取，降低热路径锁竞争
+- [x] Green: `decode_pipeline_stub` 媒体路径改为“锁内取样本快照 + 锁外发布”，缩短 `mu_` 临界区
+- [x] Green: `app` 解码泵在 notifier 可用场景扩大事件等待窗口，降低无帧轮询唤醒
+- [x] Green: 新增 `scripts/bench_perf.ps1` 基准脚本（startup/desktop/fullscreen 三场景采样）
+- [x] Verification: 单测通过（153/153）+ C++26 链路通过 + 构建通过 + 基准脚本 smoke 通过
+- **Status:** complete
+
+### Phase 60: 退避策略与分配器碎片优化（Completed）
+- [x] Green: notifier 可用场景下 decode pump 无帧退避上限由 40ms 提升到 64ms，进一步降低无帧唤醒
+- [x] Green: 解码泵事件等待窗口最小值从 90ms 提升到 140ms（仅 notifier 路径）
+- [x] Green: `frame_bridge` payload 分配切换为 `std::pmr::synchronized_pool_resource`，降低高频 payload 分配碎片
+- [x] Verification: C++23/C++26 双链路单测与构建全部通过
+- [x] Verification: 基准脚本在单实例约束下可稳定输出 startup/desktop 指标
+- **Status:** complete
+
+### Phase 61: 主循环唤醒收敛 + 解码冗余原子清理（Completed）
+- [x] Red: 新增 `LoopSleepPolicy_MainLoopMessageAwareWaitOnlyForPauseOrIdle` 测试并先锁定策略
+- [x] Green: 主循环新增 `ShouldUseMainLoopMessageAwareWait`，动态桌面路径改为固定睡眠，避免输入消息触发提前唤醒
+- [x] Green: Win32 消息等待掩码从 `QS_ALLINPUT` 收敛为 `QS_POSTMESSAGE|QS_SENDMESSAGE|QS_TIMER`（仅 pause/idle 路径）
+- [x] Green: `decode_pipeline_stub` 删除失效容量提示路径（`ConsumeFrameBufferCapacityHint` 与相关原子字段）
+- [x] Verification: C++23/C++26 双链路单测通过（154/154）+ 双链路构建通过
+- [x] Verification: `bench_perf` 同路径对比（startup/desktop）显示 CPU 均值下降
 - **Status:** complete

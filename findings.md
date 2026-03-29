@@ -368,3 +368,21 @@
   - `./scripts/run_tests.ps1` -> 153/153 PASS
   - `./scripts/build_app.ps1 -BuildDir build_tmp` -> 成功
   - `./scripts/run_tests.ps1 -UseCxx2c` -> 153/153 PASS
+- 2026-03-29 Phase 59 新增结论：
+  - `C++26` 与 `C++2c` 在当前 `g++ 15.2.0` 均可用，构建脚本改为优先 `-std=c++26` 自动回退 `-std=c++2c`，避免命名歧义。
+  - `frame_bridge` 全局锁已替换为原子 `shared_ptr` 发布模型，`TryGetLatestFrame*` 不再进入互斥区，减少渲染线程与解码线程锁竞争。
+  - `decode_pipeline_stub` 媒体发布链路完成锁域拆分：样本快照在锁内提取，`PublishSampleToBridge` 重操作在锁外执行，降低临界区占用。
+  - 解码泵在 frame-ready notifier 可用时改为事件优先等待（最小 90ms 窗口），进一步压降“无新帧”状态的轮询唤醒。
+  - 新增 `scripts/bench_perf.ps1`，统一输出 CPU/PrivateBytes/WorkingSet 采样 CSV+JSON，支持 startup/desktop/fullscreen 场景，便于做前后版本量化对比。
+- 2026-03-29 Phase 60 新增结论：
+  - `ComputeDecodePumpSleepMs` 在 notifier 路径上限扩展到 64ms，配合 `app` 最小 140ms 等待窗口，进一步压降无帧轮询 CPU。
+  - `frame_bridge` payload 分配改为 PMR 同步池，针对每帧发布的 `shared_ptr` 对象分配减少堆碎片风险。
+  - 基准脚本在并行运行时会受单实例互斥影响导致第二个场景采样为空；后续基准需顺序执行场景。
+- 2026-03-29 Phase 61 新增结论：
+  - 新增 `ShouldUseMainLoopMessageAwareWait`：主循环仅在 `pause/idle` 场景启用消息等待，动态桌面路径改为固定 sleep，避免输入消息导致的提前唤醒。
+  - Win32 消息等待掩码从 `QS_ALLINPUT` 收敛到 `QS_POSTMESSAGE|QS_SENDMESSAGE|QS_TIMER`，减少高频输入噪声对调度的干扰。
+  - `decode_pipeline_stub` 删除 `ConsumeFrameBufferCapacityHint` 及相关原子状态（`previousPublishedCpuBytes_/trimRequested_`），移除每帧无收益原子操作。
+  - 验证：`run_tests` 与 `run_tests -UseCxx26` 均为 `154/154 PASS`，`build_app` 双链路成功。
+  - 同路径基准对比（`build_tmp/wallpaper_app.exe`）：
+    - `startup` CPU avg `0.1437% -> 0.1259%`（约 `-12.4%`），CPU p95 `0.3832% -> 0.1918%`（约 `-50.0%`）。
+    - `desktop` CPU avg `0.0320% -> 0.0237%`（约 `-25.9%`），private bytes max 维持同量级（约 `98.2MB`）。
