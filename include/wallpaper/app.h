@@ -66,7 +66,7 @@ class App final {
   std::unique_ptr<ITrayController> trayController_;
   std::thread decodePumpThread_;
   std::atomic<bool> decodePumpRunning_{false};
-  bool decodeFrameReadyNotifierAvailable_ = false;
+  std::atomic<bool> decodeFrameReadyNotifierAvailable_{false};
   std::atomic<int> decodePumpHotSleepMs_{4};
   std::atomic<int> decodePumpDynamicBoostMs_{0};
   std::atomic<int> decodeThreadQos_{static_cast<int>(RuntimeThreadQos::kNormal)};
@@ -111,6 +111,8 @@ class App final {
   bool resumeWarmupOpened_ = false;
   bool resumeWarmupStarted_ = false;
   RenderScheduler::Clock::time_point nextWarmupAttemptAt_{};
+  int warmResumeRetryFailures_ = 0;
+  int resumePipelineRetryFailures_ = 0;
   bool startupDecodeDeferred_ = false;
   RenderScheduler::Clock::time_point startupDecodeDeferredAt_{};
   RenderScheduler::Clock::time_point pauseEnteredAt_{};

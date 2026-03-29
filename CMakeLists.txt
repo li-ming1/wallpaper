@@ -102,6 +102,7 @@ add_executable(wallpaper_tests
   tests/runtime_trim_policy_tests.cpp
   tests/single_instance_policy_tests.cpp
   tests/startup_policy_tests.cpp
+  tests/tray_thread_stop_policy_tests.cpp
   tests/video_path_matcher_tests.cpp
   src/config_store.cpp
   src/decode_async_read_policy.cpp

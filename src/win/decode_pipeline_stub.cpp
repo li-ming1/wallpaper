@@ -7,6 +7,7 @@
 #include "wallpaper/frame_bridge.h"
 
 #include <chrono>
+#include <atomic>
 #include <cstring>
 #include <filesystem>
 #include <memory>
@@ -43,18 +44,29 @@ class AsyncSourceReaderCallback final : public IMFSourceReaderCallback {
   STDMETHODIMP OnFlush(DWORD) override { return S_OK; }
   STDMETHODIMP OnEvent(DWORD, IMFMediaEvent*) override { return S_OK; }
 
-  void Detach() { owner_ = nullptr; }
+  void Detach() { owner_.store(nullptr, std::memory_order_release); }
 
  private:
   ~AsyncSourceReaderCallback() = default;
 
   volatile long refCount_ = 1;
-  DecodePipelineStub* owner_ = nullptr;
+  std::atomic<DecodePipelineStub*> owner_{nullptr};
 };
 #endif
 
 class DecodePipelineStub final : public IDecodePipeline {
  public:
+  ~DecodePipelineStub() override {
+    std::lock_guard<std::mutex> lock(mu_);
+    ResetStateLocked();
+#ifdef _WIN32
+    if (mfStarted_) {
+      MFShutdown();
+      mfStarted_ = false;
+    }
+#endif
+  }
+
   bool Open(const std::string& path, const DecodeOpenProfile& profile) override {
     std::lock_guard<std::mutex> lock(mu_);
 
@@ -945,7 +957,7 @@ STDMETHODIMP AsyncSourceReaderCallback::OnReadSample(HRESULT status, DWORD strea
                                                      DWORD streamFlags, LONGLONG timestamp100ns,
                                                      IMFSample* sample) {
   (void)streamIndex;
-  DecodePipelineStub* owner = owner_;
+  DecodePipelineStub* owner = owner_.load(std::memory_order_acquire);
   if (owner == nullptr) {
     return S_OK;
   }

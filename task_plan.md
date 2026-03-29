@@ -511,3 +511,22 @@ Phase 61
 - [x] Verification: C++23/C++26 双链路单测通过（154/154）+ 双链路构建通过
 - [x] Verification: `bench_perf` 同路径对比（startup/desktop）显示 CPU 均值下降
 - **Status:** complete
+
+### Phase 62: 并发与资源生命周期高危修复（Completed）
+- [x] Red: 新增托盘线程停止策略测试（join 决策）
+- [x] Green: 修复托盘线程 StopMessageLoop 提前返回导致 join 漏掉的崩溃路径
+- [x] Green: 修复 SourceReader 回调 owner 指针并发读写数据竞争（atomic owner）
+- [x] Green: 为 DecodePipeline 增加析构清理（Reset + MFShutdown 兜底）
+- [x] Green: 修复 D3D 初始化失败路径资源释放缺失与 ResizeBuffers 失败后 RTV 回退重建
+- [x] Green: App 跨线程标志 decodeFrameReadyNotifierAvailable 原子化
+- [x] Green: 引入 consteval 顶点表 + span/subspan 行拷贝辅助
+- [x] Verification: `run_tests` 全绿（157/157），`build_app` 在 C++23/C++26 构建通过
+- **Status:** complete
+
+### Phase 63: 长暂停后恢复过慢修复（Completed）
+- [x] Red: 新增恢复重试退避策略测试（warm resume / pipeline resume）
+- [x] Green: 将 warm resume 失败重试从固定 500ms 改为快速退避（120/220/360/500ms）
+- [x] Green: 将 resume pipeline 重试从固定 1s 改为快速退避（160/260/420/700/1000ms）
+- [x] Green: 接入失败计数与成功清零，避免长时间恢复链路秒级卡顿
+- [x] Verification: 单测通过（159/159）+ C++23/C++26 构建通过
+- **Status:** complete

@@ -12,8 +12,10 @@
 #include <dxgi1_3.h>
 
 #include <cstdint>
+#include <array>
 #include <cstring>
 #include <iterator>
+#include <span>
 #include <vector>
 #endif
 
@@ -51,6 +53,30 @@ struct VideoVertex final {
   float u;
   float v;
 };
+
+consteval std::array<VideoVertex, 4> BuildFullscreenQuadVertices() {
+  return {{{-1.0f, -1.0f, 0.0f, 1.0f},
+           {-1.0f, 1.0f, 0.0f, 0.0f},
+           {1.0f, -1.0f, 1.0f, 1.0f},
+           {1.0f, 1.0f, 1.0f, 0.0f}}};
+}
+
+constexpr std::array<VideoVertex, 4> kFullscreenQuadVertices = BuildFullscreenQuadVertices();
+
+void CopyLinearRows(const std::span<const std::uint8_t> srcBytes, const UINT srcRowPitch,
+                    std::span<std::uint8_t> dstBytes, const UINT dstRowPitch, const int rowCount,
+                    const UINT rowCopyBytes) {
+  if (rowCount <= 0 || srcRowPitch == 0 || dstRowPitch == 0 || rowCopyBytes == 0) {
+    return;
+  }
+  for (int row = 0; row < rowCount; ++row) {
+    const std::size_t srcOffset = static_cast<std::size_t>(row) * srcRowPitch;
+    const std::size_t dstOffset = static_cast<std::size_t>(row) * dstRowPitch;
+    const auto srcRow = srcBytes.subspan(srcOffset, rowCopyBytes);
+    auto dstRow = dstBytes.subspan(dstOffset, rowCopyBytes);
+    std::memcpy(dstRow.data(), srcRow.data(), rowCopyBytes);
+  }
+}
 
 constexpr char kVideoVsSource[] = R"(
 struct VSIn {
@@ -373,6 +399,7 @@ class WallpaperHostWin final : public IWallpaperHost {
     }
 
     if (!InitializeD3D()) {
+      ReleaseD3D();
       DestroyWindow(renderWindow_);
       renderWindow_ = nullptr;
       return false;
@@ -751,20 +778,13 @@ class WallpaperHostWin final : public IWallpaperHost {
       return false;
     }
 
-    const VideoVertex vertices[] = {
-        {-1.0f, -1.0f, 0.0f, 1.0f},
-        {-1.0f, 1.0f, 0.0f, 0.0f},
-        {1.0f, -1.0f, 1.0f, 1.0f},
-        {1.0f, 1.0f, 1.0f, 0.0f},
-    };
-
     D3D11_BUFFER_DESC vbDesc{};
-    vbDesc.ByteWidth = static_cast<UINT>(sizeof(vertices));
+    vbDesc.ByteWidth = static_cast<UINT>(sizeof(kFullscreenQuadVertices));
     vbDesc.Usage = D3D11_USAGE_IMMUTABLE;
     vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
 
     D3D11_SUBRESOURCE_DATA vbData{};
-    vbData.pSysMem = vertices;
+    vbData.pSysMem = kFullscreenQuadVertices.data();
 
     hr = device_->CreateBuffer(&vbDesc, &vbData, &videoVertexBuffer_);
     if (FAILED(hr)) {
@@ -1032,10 +1052,13 @@ class WallpaperHostWin final : public IWallpaperHost {
     auto* dst = static_cast<std::uint8_t*>(mapped.pData);
     const UINT srcRowPitch = static_cast<UINT>(frame.strideBytes);
     const UINT copyBytes = srcRowPitch < mapped.RowPitch ? srcRowPitch : mapped.RowPitch;
-    for (int row = 0; row < frame.height; ++row) {
-      std::memcpy(dst + static_cast<std::size_t>(row) * mapped.RowPitch,
-                  src + static_cast<std::size_t>(row) * srcRowPitch, copyBytes);
-    }
+    const std::size_t srcBytesTotal = static_cast<std::size_t>(srcRowPitch) *
+                                      static_cast<std::size_t>(frame.height);
+    const std::size_t dstBytesTotal = static_cast<std::size_t>(mapped.RowPitch) *
+                                      static_cast<std::size_t>(frame.height);
+    CopyLinearRows(std::span<const std::uint8_t>(src, srcBytesTotal), srcRowPitch,
+                   std::span<std::uint8_t>(dst, dstBytesTotal), mapped.RowPitch, frame.height,
+                   copyBytes);
     context_->Unmap(videoTexture_, 0);
     return true;
   }
@@ -1073,10 +1096,13 @@ class WallpaperHostWin final : public IWallpaperHost {
     auto* yDst = static_cast<std::uint8_t*>(yMapped.pData);
     const UINT ySrcRowPitch = static_cast<UINT>(frame.yPlaneStrideBytes);
     const UINT yCopyBytes = ySrcRowPitch < yMapped.RowPitch ? ySrcRowPitch : yMapped.RowPitch;
-    for (int row = 0; row < frame.height; ++row) {
-      std::memcpy(yDst + static_cast<std::size_t>(row) * yMapped.RowPitch,
-                  ySrc + static_cast<std::size_t>(row) * ySrcRowPitch, yCopyBytes);
-    }
+    const std::size_t ySrcBytesTotal = static_cast<std::size_t>(ySrcRowPitch) *
+                                       static_cast<std::size_t>(frame.height);
+    const std::size_t yDstBytesTotal = static_cast<std::size_t>(yMapped.RowPitch) *
+                                       static_cast<std::size_t>(frame.height);
+    CopyLinearRows(std::span<const std::uint8_t>(ySrc, ySrcBytesTotal), ySrcRowPitch,
+                   std::span<std::uint8_t>(yDst, yDstBytesTotal), yMapped.RowPitch, frame.height,
+                   yCopyBytes);
     context_->Unmap(videoNv12YTexture_, 0);
 
     D3D11_MAPPED_SUBRESOURCE uvMapped{};
@@ -1091,10 +1117,13 @@ class WallpaperHostWin final : public IWallpaperHost {
     auto* uvDst = static_cast<std::uint8_t*>(uvMapped.pData);
     const UINT uvSrcRowPitch = static_cast<UINT>(frame.uvPlaneStrideBytes);
     const UINT uvCopyBytes = uvSrcRowPitch < uvMapped.RowPitch ? uvSrcRowPitch : uvMapped.RowPitch;
-    for (int row = 0; row < uvRows; ++row) {
-      std::memcpy(uvDst + static_cast<std::size_t>(row) * uvMapped.RowPitch,
-                  uvSrc + static_cast<std::size_t>(row) * uvSrcRowPitch, uvCopyBytes);
-    }
+    const std::size_t uvSrcBytesTotal =
+        static_cast<std::size_t>(uvSrcRowPitch) * static_cast<std::size_t>(uvRows);
+    const std::size_t uvDstBytesTotal =
+        static_cast<std::size_t>(uvMapped.RowPitch) * static_cast<std::size_t>(uvRows);
+    CopyLinearRows(std::span<const std::uint8_t>(uvSrc, uvSrcBytesTotal), uvSrcRowPitch,
+                   std::span<std::uint8_t>(uvDst, uvDstBytesTotal), uvMapped.RowPitch, uvRows,
+                   uvCopyBytes);
     context_->Unmap(videoNv12UvTexture_, 0);
     return true;
   }
@@ -1168,7 +1197,10 @@ class WallpaperHostWin final : public IWallpaperHost {
     if (SUCCEEDED(swapChain_->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0))) {
       UpdateRenderViewportCache(width, height);
       CreateRenderTargetView();
+      return;
     }
+    // 回退：ResizeBuffers 失败时尝试重建 RTV，避免渲染链路永久失效。
+    CreateRenderTargetView();
   }
 
   void ReleaseD3D() {

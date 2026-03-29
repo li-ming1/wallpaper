@@ -1,4 +1,5 @@
 #include "wallpaper/interfaces.h"
+#include "wallpaper/tray_thread_stop_policy.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -70,15 +71,15 @@ class TrayControllerWin final : public ITrayController {
   }
 
   void StopMessageLoop() override {
-    if (!running_.exchange(false)) {
-      return;
-    }
-
+    const bool wasRunning = running_.exchange(false);
     const DWORD threadId = workerThreadId_.load();
-    if (threadId != 0) {
+    const TrayThreadStopDecision decision =
+        ComputeTrayThreadStopDecision(wasRunning, threadId != 0, worker_.joinable());
+
+    if (decision.shouldPostQuit) {
       PostThreadMessageW(threadId, WM_QUIT, 0, 0);
     }
-    if (worker_.joinable()) {
+    if (decision.shouldJoinWorker) {
       worker_.join();
     }
     workerThreadId_.store(0);

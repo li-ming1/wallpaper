@@ -5,6 +5,7 @@
 #include "wallpaper/long_run_load_policy.h"
 #include "wallpaper/loop_sleep_policy.h"
 #include "wallpaper/metrics_log_line.h"
+#include "wallpaper/pause_suspend_policy.h"
 #include "wallpaper/pause_transition_policy.h"
 #include "wallpaper/probe_cadence_policy.h"
 #include "wallpaper/runtime_trim_policy.h"
@@ -535,6 +536,8 @@ void App::ResetPlaybackState(const bool resetLongRunState) {
   resumeWarmupOpened_ = false;
   resumeWarmupStarted_ = false;
   nextWarmupAttemptAt_ = RenderScheduler::Clock::time_point{};
+  warmResumeRetryFailures_ = 0;
+  resumePipelineRetryFailures_ = 0;
   startupDecodeDeferred_ = false;
   startupDecodeDeferredAt_ = RenderScheduler::Clock::time_point{};
   pauseEnteredAt_ = RenderScheduler::Clock::time_point{};
@@ -1008,6 +1011,8 @@ void App::Tick() {
       resumeWarmupStarted_ = false;
       decodeWarmupActive_.store(false);
       nextWarmupAttemptAt_ = RenderScheduler::Clock::time_point{};
+      warmResumeRetryFailures_ = 0;
+      resumePipelineRetryFailures_ = 0;
       pauseEnteredAt_ = now;
       scheduler_.Reset();
       // 保留最后一帧并仅停止解码，让切换到“静态壁纸”时更自然。
@@ -1053,15 +1058,18 @@ void App::Tick() {
           resumeWarmupOpened_ = true;
           resumeWarmupStarted_ = false;
           decodeWarmupActive_.store(true);
+          warmResumeRetryFailures_ = 0;
           nextWarmupAttemptAt_ = RenderScheduler::Clock::time_point{};
         } else {
-          nextWarmupAttemptAt_ = now + std::chrono::milliseconds(500);
+          ++warmResumeRetryFailures_;
+          nextWarmupAttemptAt_ = now + ComputeWarmResumeRetryDelay(warmResumeRetryFailures_);
         }
       } else if (shouldWarmResume && resumeWarmupOpened_ && !resumeWarmupStarted_) {
         if (decodePipeline_->Start()) {
           decodeRunning_.store(true);
           resumeWarmupStarted_ = true;
           decodeWarmupActive_.store(true);
+          warmResumeRetryFailures_ = 0;
           WakeDecodePump();
         } else {
           decodePipeline_->Stop();
@@ -1070,7 +1078,8 @@ void App::Tick() {
           resumeWarmupOpened_ = false;
           resumeWarmupStarted_ = false;
           decodeWarmupActive_.store(false);
-          nextWarmupAttemptAt_ = now + std::chrono::milliseconds(500);
+          ++warmResumeRetryFailures_;
+          nextWarmupAttemptAt_ = now + ComputeWarmResumeRetryDelay(warmResumeRetryFailures_);
         }
       } else if (!shouldWarmResume && resumeWarmupOpened_) {
         // 预热后又回到暂停态时回收预热资源，避免频繁切换导致内存反复抬升。
@@ -1080,7 +1089,8 @@ void App::Tick() {
         resumeWarmupOpened_ = false;
         resumeWarmupStarted_ = false;
         decodeWarmupActive_.store(false);
-        nextWarmupAttemptAt_ = now + std::chrono::milliseconds(500);
+        warmResumeRetryFailures_ = 0;
+        nextWarmupAttemptAt_ = now + ComputeWarmResumeRetryDelay(1);
       }
     }
     MaybeSampleAndLogMetrics(false, false, 0.0);
@@ -1097,14 +1107,17 @@ void App::Tick() {
           decodeOpened_.store(false);
           decodeRunning_.store(false);
           resumePipelinePending_ = ShouldActivateVideoPipeline(config_.videoPath);
+          ++resumePipelineRetryFailures_;
           nextResumeAttemptAt_ = now;
         } else {
           decodeRunning_.store(true);
           resumeWarmupStarted_ = true;
           decodeWarmupActive_.store(true);
+          resumePipelineRetryFailures_ = 0;
         }
       } else {
         resumePipelinePending_ = ShouldActivateVideoPipeline(config_.videoPath);
+        resumePipelineRetryFailures_ = 0;
         nextResumeAttemptAt_ = now;
       }
     } else if (decodeOpened_.load() && !decodeRunning_.load()) {
@@ -1130,9 +1143,12 @@ void App::Tick() {
     if (ShouldActivateVideoPipeline(config_.videoPath) &&
         StartVideoPipelineForPath(config_.videoPath, decodeOpenLongRunLevel_, false)) {
       resumePipelinePending_ = false;
+      resumePipelineRetryFailures_ = 0;
       nextResumeAttemptAt_ = RenderScheduler::Clock::time_point{};
     } else {
-      nextResumeAttemptAt_ = now + std::chrono::seconds(1);
+      ++resumePipelineRetryFailures_;
+      nextResumeAttemptAt_ =
+          now + ComputeResumePipelineRetryDelay(resumePipelineRetryFailures_);
     }
   }
 

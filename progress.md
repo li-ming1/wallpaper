@@ -1493,3 +1493,48 @@
   - task_plan.md
   - findings.md
   - progress.md
+
+### Phase 62: 并发/生命周期高危修复 + C++26 条件增强
+- **Status:** complete
+- Actions taken:
+  - Added `tray_thread_stop_policy` + tests to lock down stop/join behavior.
+  - Fixed tray worker shutdown path to always join joinable thread.
+  - Hardened MF async callback ownership with atomic owner pointer.
+  - Added decode pipeline destructor cleanup (state reset + MF shutdown fallback).
+  - Fixed D3D init failure cleanup and swapchain resize RTV fallback recreation.
+  - Promoted `decodeFrameReadyNotifierAvailable_` to atomic for cross-thread correctness.
+  - Added compile-time full-screen quad via `consteval` and span-based row copy helper in upload paths.
+  - Updated CMake and test script source lists for new tests.
+- Files created/modified:
+  - include/wallpaper/tray_thread_stop_policy.h
+  - tests/tray_thread_stop_policy_tests.cpp
+  - src/win/tray_controller_win.cpp
+  - src/win/decode_pipeline_stub.cpp
+  - src/win/wallpaper_host_win.cpp
+  - include/wallpaper/app.h
+  - CMakeLists.txt
+  - scripts/run_tests.ps1
+- Verification:
+  - `scripts/run_tests.ps1` -> pass (157/157)
+  - `scripts/run_tests.ps1 -UseCxx26` -> pass (157/157)
+  - `scripts/build_app.ps1 -BuildDir build_tmp/phase62_cxx23` -> pass
+  - `scripts/build_app.ps1 -BuildDir build_tmp/phase62_cxx26 -UseCxx26` -> pass
+  - `g++ --version` -> 15.2.0; `-fexperimental-library` not recognized in this toolchain
+
+### Phase 63: 恢复慢修复（重试退避）
+- **Status:** complete
+- Actions taken:
+  - Added retry-delay policy APIs in `pause_suspend_policy`.
+  - Added tests for warm-resume and resume-pipeline retry delay escalation and caps.
+  - Wired retry failure counters into `App` pause->resume flow.
+  - Replaced fixed warmup retry `500ms` and resume retry `1s` with fast-to-capped backoff.
+- Files created/modified:
+  - include/wallpaper/pause_suspend_policy.h
+  - src/pause_suspend_policy.cpp
+  - tests/pause_suspend_policy_tests.cpp
+  - include/wallpaper/app.h
+  - src/app.cpp
+- Verification:
+  - `scripts/run_tests.ps1` -> pass (159/159)
+  - `scripts/build_app.ps1 -BuildDir build_tmp/phase63_resume_fix_cxx23` -> pass
+  - `scripts/build_app.ps1 -BuildDir build_tmp/phase63_resume_fix_cxx26 -UseCxx26` -> pass

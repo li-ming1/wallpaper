@@ -12,5 +12,7 @@ namespace wallpaper {
     bool allowAggressiveSuspend, std::chrono::milliseconds aggressiveThreshold,
     std::chrono::milliseconds conservativeThreshold) noexcept;
 [[nodiscard]] bool ShouldWarmResumeDuringPause(bool rawPause, bool hardSuspended) noexcept;
+[[nodiscard]] std::chrono::milliseconds ComputeWarmResumeRetryDelay(int failureCount) noexcept;
+[[nodiscard]] std::chrono::milliseconds ComputeResumePipelineRetryDelay(int failureCount) noexcept;
 
 }  // namespace wallpaper

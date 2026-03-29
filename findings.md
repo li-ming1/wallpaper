@@ -386,3 +386,23 @@
   - 同路径基准对比（`build_tmp/wallpaper_app.exe`）：
     - `startup` CPU avg `0.1437% -> 0.1259%`（约 `-12.4%`），CPU p95 `0.3832% -> 0.1918%`（约 `-50.0%`）。
     - `desktop` CPU avg `0.0320% -> 0.0237%`（约 `-25.9%`），private bytes max 维持同量级（约 `98.2MB`）。
+
+## 2026-03-29 高危修复补充
+- 修复托盘线程停止崩溃路径：`running_` 已被置 false 时，`StopMessageLoop()` 仍会 join `worker_`，避免 `std::thread` 析构触发 `std::terminate`。
+- 修复 MF 异步回调竞态：`AsyncSourceReaderCallback::owner_` 改为原子指针，`Detach/OnReadSample` 使用 release/acquire，消除跨线程数据竞争。
+- 解码管线新增析构清理：析构时执行 `ResetStateLocked()`，并在 `mfStarted_` 时调用 `MFShutdown()` 兜底，避免进程退出阶段资源残留。
+- 修复 D3D 失败泄漏：`AttachToDesktop()` 在 `InitializeD3D()` 失败后补 `ReleaseD3D()`，防止失败重试累计泄漏。
+- 修复 resize 失效：`ResizeBuffers` 失败后仍尝试 `CreateRenderTargetView()` 回退，避免渲染链路永久黑屏。
+- 跨线程标志修复：`decodeFrameReadyNotifierAvailable_` 从普通 `bool` 改为 `std::atomic<bool>`，消除 decode pump 与主线程的 UB。
+- C++23/26 强化：`wallpaper_host_win.cpp` 引入 `consteval` 全屏四边形顶点生成与 `std::span/subspan` 行拷贝，减少热路径重复模板化代码并保持零额外分配。
+- 验证：`scripts/run_tests.ps1`（157/157），`scripts/run_tests.ps1 -UseCxx26`（157/157），`scripts/build_app.ps1`（C++23）与 `scripts/build_app.ps1 -UseCxx26` 均通过。
+- 工具链观察（2026-03-29）：当前 MSYS2 `g++ 15.2.0` 不识别 `-fexperimental-library`，应改用 `-std=c++26` 直编。
+
+## 2026-03-29 长暂停恢复慢问题修复
+- 问题定位：硬挂起后恢复链路中存在固定重试等待（warmup 500ms、pipeline 1s），在桌面上下文/WorkerW 切换抖动或首次恢复失败时，用户体感会出现“恢复很久”。
+- 修复策略：引入恢复重试退避策略，前几次快速重试，后续再平滑退避到上限，兼顾恢复速度与失败风暴抑制。
+- warm resume 重试：`120ms -> 220ms -> 360ms -> 500ms(cap)`。
+- pipeline resume 重试：`160ms -> 260ms -> 420ms -> 700ms -> 1000ms(cap)`。
+- App 接入：新增 `warmResumeRetryFailures_` 与 `resumePipelineRetryFailures_`，在成功路径清零，失败路径按策略推进下一次尝试。
+- 预期收益：长暂停后首次恢复失败场景的“恢复到动态”平均等待从秒级下降到亚秒级起步（首轮约 160ms/120ms）。
+- 验证：`run_tests` 全绿（159/159），`build_app` C++23/C++26 均通过。
