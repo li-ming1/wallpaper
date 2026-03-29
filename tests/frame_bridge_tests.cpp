@@ -19,7 +19,9 @@ TEST_CASE(FrameBridge_PublishAndReadLatestFrame) {
   EXPECT_EQ(latest.height, 2);
   EXPECT_EQ(latest.strideBytes, 8);
   EXPECT_EQ(static_cast<int>(latest.sequence), 1);
-  EXPECT_TRUE(latest.rgbaPixels != nullptr);
+  EXPECT_TRUE(latest.rgbaDataHolder != nullptr);
+  EXPECT_TRUE(latest.rgbaData != nullptr);
+  EXPECT_EQ(latest.rgbaDataBytes, static_cast<std::size_t>(16));
 }
 
 TEST_CASE(FrameBridge_ClearRemovesFrame) {
@@ -46,7 +48,8 @@ TEST_CASE(FrameBridge_PublishAndReadLatestGpuFrame) {
   EXPECT_TRUE(latest.gpuBacked);
   EXPECT_TRUE(latest.gpuTexture != nullptr);
   EXPECT_EQ(static_cast<int>(latest.sequence), 7);
-  EXPECT_TRUE(latest.rgbaPixels == nullptr);
+  EXPECT_TRUE(latest.rgbaData == nullptr);
+  EXPECT_TRUE(latest.rgbaDataHolder == nullptr);
 }
 
 TEST_CASE(FrameBridge_PublishAndReadLatestNv12Frame) {

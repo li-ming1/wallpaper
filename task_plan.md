@@ -470,3 +470,10 @@ Phase 54
 - [x] Green: 新增 `cpp26_feature_support.h`，统一门控 `consteval/if consteval/deducing this/expected/mdspan/反射/模式匹配`
 - [x] Verification: `run_tests` 通过（152/152）+ `build_app` 通过（C++23 与 `-UseCxx2c` 双链路）
 - **Status:** complete
+
+### Phase 57: FrameBridge 热路径拷贝瘦身（Completed）
+- [x] Red: 调整 `frame_bridge_tests` 断言，移除对 `rgbaPixels` 字段依赖
+- [x] Green: `LatestFrame` 删除冗余 `rgbaPixels` 成员，统一使用 `rgbaData + rgbaDataHolder` 持有语义
+- [x] Green: `PublishLatestFrame` 改为直接构建别名 holder，避免额外成员赋值与每帧结构拷贝负担
+- [x] Verification: 单测通过（152/152） + 构建通过
+- **Status:** complete

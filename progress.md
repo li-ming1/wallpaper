@@ -1369,3 +1369,20 @@
   - task_plan.md
   - findings.md
   - progress.md
+
+### Phase 57: FrameBridge 热路径拷贝瘦身
+- **Status:** complete
+- Actions taken:
+  - Red: 更新 `tests/frame_bridge_tests.cpp`，将断言从 `rgbaPixels` 切换到 `rgbaDataHolder/rgbaDataBytes`，先锁定新的持有语义。
+  - Green: `include/wallpaper/frame_bridge.h` 删除 `LatestFrame::rgbaPixels` 字段。
+  - Green: `src/frame_bridge.cpp` 的 `PublishLatestFrame` 改为直接从传入 `shared_ptr<vector<uint8_t>>` 构建 alias holder；其余发布路径移除对 `rgbaPixels` 的 reset 操作。
+- Verification:
+  - `./scripts/run_tests.ps1` -> 152/152 PASS
+  - `./scripts/build_app.ps1 -BuildDir build_tmp` -> build_tmp/wallpaper_app.exe 成功
+- Files modified:
+  - include/wallpaper/frame_bridge.h
+  - src/frame_bridge.cpp
+  - tests/frame_bridge_tests.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md

@@ -36,7 +36,6 @@ struct LatestFrame final {
   const std::uint8_t* rgbaData = nullptr;
   std::size_t rgbaDataBytes = 0;
   std::shared_ptr<void> rgbaDataHolder;
-  std::shared_ptr<const std::vector<std::uint8_t>> rgbaPixels;
   const std::uint8_t* yPlaneData = nullptr;
   std::size_t yPlaneBytes = 0;
   int yPlaneStrideBytes = 0;

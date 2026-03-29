@@ -41,13 +41,12 @@ void PublishLatestFrame(const int width, const int height, const int strideBytes
   g_latestFrame.rgbaData = nullptr;
   g_latestFrame.rgbaDataBytes = 0;
   g_latestFrame.rgbaDataHolder.reset();
-  g_latestFrame.rgbaPixels = std::move(rgbaPixels);
-  if (g_latestFrame.rgbaPixels != nullptr && !g_latestFrame.rgbaPixels->empty()) {
-    g_latestFrame.rgbaData = g_latestFrame.rgbaPixels->data();
-    g_latestFrame.rgbaDataBytes = g_latestFrame.rgbaPixels->size();
+  if (rgbaPixels != nullptr && !rgbaPixels->empty()) {
+    g_latestFrame.rgbaData = rgbaPixels->data();
+    g_latestFrame.rgbaDataBytes = rgbaPixels->size();
     g_latestFrame.rgbaDataHolder =
-        std::shared_ptr<void>(g_latestFrame.rgbaPixels,
-                              const_cast<std::uint8_t*>(g_latestFrame.rgbaPixels->data()));
+        std::shared_ptr<void>(std::move(rgbaPixels),
+                              const_cast<std::uint8_t*>(g_latestFrame.rgbaData));
   }
   g_hasFrame = true;
   g_latestSequence.store(sequence, std::memory_order_release);
@@ -80,7 +79,6 @@ void PublishLatestFrameView(const int width, const int height, const int strideB
   g_latestFrame.uvPlaneData = nullptr;
   g_latestFrame.uvPlaneBytes = 0;
   g_latestFrame.uvPlaneStrideBytes = 0;
-  g_latestFrame.rgbaPixels.reset();
   g_latestFrame.rgbaData = rgbaData;
   g_latestFrame.rgbaDataBytes = rgbaDataBytes;
   g_latestFrame.rgbaDataHolder = std::move(rgbaDataHolder);
@@ -115,7 +113,6 @@ void PublishLatestNv12FrameView(const int width, const int height, const int yPl
   g_latestFrame.dxgiFormat = 0;
   g_latestFrame.gpuTexture = nullptr;
   g_latestFrame.gpuTextureHolder.reset();
-  g_latestFrame.rgbaPixels.reset();
   g_latestFrame.rgbaData = nullptr;
   g_latestFrame.rgbaDataBytes = 0;
   g_latestFrame.rgbaDataHolder = std::move(planeDataHolder);
@@ -156,7 +153,6 @@ void PublishLatestGpuFrame(const int width, const int height, const std::int64_t
   g_latestFrame.rgbaData = nullptr;
   g_latestFrame.rgbaDataBytes = 0;
   g_latestFrame.rgbaDataHolder.reset();
-  g_latestFrame.rgbaPixels.reset();
   g_latestFrame.yPlaneData = nullptr;
   g_latestFrame.yPlaneBytes = 0;
   g_latestFrame.yPlaneStrideBytes = 0;

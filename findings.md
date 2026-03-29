@@ -352,3 +352,10 @@
   - `./scripts/build_app.ps1 -BuildDir build_tmp` -> 成功
   - `./scripts/run_tests.ps1 -UseCxx2c` -> 152/152 PASS
   - `./scripts/build_app.ps1 -BuildDir build_tmp -UseCxx2c` -> 成功
+- 2026-03-29 继续迭代发现：`frame_bridge::LatestFrame` 持有 `rgbaPixels` 与 `rgbaDataHolder` 双通道，其中前者在运行态基本不使用，但会参与每帧结构复制。
+- 2026-03-29 新增决策：
+  - 删除 `LatestFrame::rgbaPixels`，统一依赖 `rgbaData + rgbaDataHolder` 表达数据视图与所有权。
+  - `PublishLatestFrame` 直接对入参构建 alias holder，减少成员赋值与每帧复制体积。
+- 验证：
+  - `./scripts/run_tests.ps1` -> 152/152 PASS
+  - `./scripts/build_app.ps1 -BuildDir build_tmp` -> 成功
