@@ -3,7 +3,6 @@
 #include <atomic>
 #include <condition_variable>
 #include <filesystem>
-#include <future>
 #include <mutex>
 #include <memory>
 #include <string>
@@ -81,7 +80,6 @@ class App final {
   std::atomic<bool> decodeOpened_{false};
   std::atomic<bool> decodeRunning_{false};
   bool wallpaperAttached_ = false;
-  std::future<void> pendingSave_;
   RenderScheduler::Clock::time_point lastMetricsAt_{};
   std::vector<double> presentSamplesMs_;
   DecodeMode lastDecodeMode_ = DecodeMode::kUnknown;

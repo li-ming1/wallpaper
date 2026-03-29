@@ -1,6 +1,5 @@
 #pragma once
 
-#include <chrono>
 #include <cstddef>
 #include <vector>
 
@@ -36,12 +35,21 @@ class MetricsSampler final {
   explicit MetricsSampler(std::size_t maxSamples);
 
   void PushSample(RuntimeMetrics sample);
+#if defined(__cpp_explicit_this_parameter) && __cpp_explicit_this_parameter >= 202110L
+  [[nodiscard]] auto Capacity(this const MetricsSampler& self) noexcept -> std::size_t {
+    return self.maxSamples_;
+  }
+#else
+  [[nodiscard]] std::size_t Capacity() const noexcept { return maxSamples_; }
+#endif
   [[nodiscard]] RuntimeMetrics Latest() const;
   [[nodiscard]] std::vector<RuntimeMetrics> Snapshot() const;
 
  private:
   std::size_t maxSamples_;
   std::vector<RuntimeMetrics> samples_;
+  std::size_t head_ = 0;
+  std::size_t size_ = 0;
 };
 
 }  // namespace wallpaper

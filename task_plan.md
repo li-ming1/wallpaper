@@ -460,3 +460,13 @@ Phase 54
 - [x] Green: 移除启动时进程枚举守卫，降低首启 CPU 干扰；补齐 lock file 句柄释放避免句柄泄漏
 - [x] Verification: 单测通过（146/146） + 构建通过 + 本机双开验证第二实例退出
 - **Status:** complete
+
+### Phase 56: C++23 基线升级 + C++26 门控落地（Completed）
+- [x] Red: 新增 `ConfigStore_LoadExpected*`、`MetricsSampler_*`、`Cpp26FeatureSupport_*` 测试并先触发编译失败
+- [x] Green: `ConfigStore` 新增 `std::expected` 接口（`LoadExpected/SaveExpected`），`App` 去除 `std::async` 配置读写路径
+- [x] Green: `MetricsSampler` 由 `erase(begin)` 改为固定环形缓冲（O(1) push），快照按时间顺序输出
+- [x] Green: 新增 `compiler_assume.h` 并在 `wallpaper_host_win` 热路径接入 `WP_ASSUME`
+- [x] Green: 标准基线切换到 C++23，构建脚本新增 `-UseCxx2c` 开关（默认 C++23，可选 c++2c）
+- [x] Green: 新增 `cpp26_feature_support.h`，统一门控 `consteval/if consteval/deducing this/expected/mdspan/反射/模式匹配`
+- [x] Verification: `run_tests` 通过（152/152）+ `build_app` 通过（C++23 与 `-UseCxx2c` 双链路）
+- **Status:** complete

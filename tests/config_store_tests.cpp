@@ -97,3 +97,43 @@ TEST_CASE(ConfigStore_ExistsReflectsConfigFileState) {
 
   std::filesystem::remove(path);
 }
+
+TEST_CASE(ConfigStore_LoadExpectedFailsWhenFileMissing) {
+  const auto path =
+      std::filesystem::temp_directory_path() / "wallpaper_expected_missing_config.json";
+  std::filesystem::remove(path);
+
+  wallpaper::ConfigStore store(path);
+  const auto loaded = store.LoadExpected();
+  EXPECT_TRUE(!loaded.has_value());
+}
+
+TEST_CASE(ConfigStore_SaveExpectedRoundTripSucceeds) {
+  const auto path =
+      std::filesystem::temp_directory_path() / "wallpaper_expected_roundtrip_config.json";
+  std::filesystem::remove(path);
+
+  wallpaper::ConfigStore store(path);
+  wallpaper::Config expected;
+  expected.videoPath = "D:/videos/expected_demo.mp4";
+  expected.fpsCap = 60;
+  expected.autoStart = true;
+  expected.pauseWhenNotDesktopContext = false;
+  expected.adaptiveQuality = false;
+  expected.codecPolicy = wallpaper::CodecPolicy::kH264PlusHevc;
+
+  const auto saveResult = store.SaveExpected(expected);
+  EXPECT_TRUE(saveResult.has_value());
+
+  const auto loadResult = store.LoadExpected();
+  EXPECT_TRUE(loadResult.has_value());
+  const auto actual = *loadResult;
+  EXPECT_EQ(actual.videoPath, expected.videoPath);
+  EXPECT_EQ(actual.fpsCap, expected.fpsCap);
+  EXPECT_EQ(actual.autoStart, expected.autoStart);
+  EXPECT_EQ(actual.pauseWhenNotDesktopContext, expected.pauseWhenNotDesktopContext);
+  EXPECT_EQ(actual.adaptiveQuality, expected.adaptiveQuality);
+  EXPECT_EQ(static_cast<int>(actual.codecPolicy), static_cast<int>(expected.codecPolicy));
+
+  std::filesystem::remove(path);
+}

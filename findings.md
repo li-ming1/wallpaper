@@ -336,3 +336,19 @@
   - `run_tests` 全绿（146/146）
   - `build_app -BuildDir build_tmp` 成功
   - 本机双开验证：第二实例立即退出，仅保留 1 个进程
+- 2026-03-29 新增需求：按 C++26（可用即启用，不可用回退）进行系统级性能/内存优化，并要求可在 MSYS2/GCC 编译落地。
+- 2026-03-29 环境核查结论：
+  - 当前工具链：MSYS2 `g++ 15.2.0`。
+  - 可用：`if consteval`、`consteval`、`std::expected`、`[[assume]]`（可门控）。
+  - 不可直接用（当前标准库/编译器组合）：标准化静态反射、标准模式匹配、标准 P2300 sender/receiver、`std::mdspan` 宏未稳定暴露。
+- 2026-03-29 新增决策（C++23->C++26 门控）：
+  - 项目基线从 C++20 升级到 C++23；脚本支持 `-UseCxx2c` 开关，满足“可用即启用”的 C++26 实验切换。
+  - 增加 `cpp26_feature_support` 统一门控，避免“特性名可写但本地不可编译”的伪优化。
+  - `ConfigStore` 新增 `LoadExpected/SaveExpected`，`App` 去除 `std::async` 配置读写路径，降低首启线程抖动。
+  - `MetricsSampler` 从 `erase(begin)` 改为环形缓冲 O(1) 推入，消除线性搬移。
+  - 新增 `WP_ASSUME` 并用于 D3D 上传热路径不变量，减少编译器保守分支。
+- 验证：
+  - `./scripts/run_tests.ps1` -> 152/152 PASS
+  - `./scripts/build_app.ps1 -BuildDir build_tmp` -> 成功
+  - `./scripts/run_tests.ps1 -UseCxx2c` -> 152/152 PASS
+  - `./scripts/build_app.ps1 -BuildDir build_tmp -UseCxx2c` -> 成功

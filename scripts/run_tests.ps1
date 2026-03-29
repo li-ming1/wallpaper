@@ -1,5 +1,6 @@
 param(
-  [string]$BuildDir = "build"
+  [string]$BuildDir = "build",
+  [switch]$UseCxx2c
 )
 
 $ErrorActionPreference = "Stop"
@@ -17,6 +18,7 @@ $output = Join-Path $BuildDir "wallpaper_tests.exe"
 $sources = @(
   "tests/test_main.cpp",
   "tests/config_store_tests.cpp",
+  "tests/cpp26_feature_support_tests.cpp",
   "tests/decode_async_read_policy_tests.cpp",
   "tests/desktop_context_policy_tests.cpp",
   "tests/desktop_attach_policy_tests.cpp",
@@ -27,6 +29,7 @@ $sources = @(
   "tests/foreground_policy_tests.cpp",
   "tests/loop_sleep_policy_tests.cpp",
   "tests/long_run_load_policy_tests.cpp",
+  "tests/metrics_sampler_tests.cpp",
   "tests/metrics_log_line_tests.cpp",
   "tests/metrics_log_file_tests.cpp",
   "tests/nv12_layout_policy_tests.cpp",
@@ -53,6 +56,7 @@ $sources = @(
   "src/foreground_policy.cpp",
   "src/loop_sleep_policy.cpp",
   "src/long_run_load_policy.cpp",
+  "src/metrics_sampler.cpp",
   "src/metrics_log_line.cpp",
   "src/metrics_log_file.cpp",
   "src/nv12_layout_policy.cpp",
@@ -69,8 +73,10 @@ $sources = @(
   "src/video_path_matcher.cpp"
 )
 
+$cppStdFlag = if ($UseCxx2c) { "-std=c++2c" } else { "-std=c++23" }
+
 $compileArgs = @(
-  "-std=c++20",
+  $cppStdFlag,
   "-Wall",
   "-Wextra",
   "-Wpedantic",

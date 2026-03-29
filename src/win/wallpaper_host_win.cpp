@@ -1,4 +1,5 @@
 #include "wallpaper/interfaces.h"
+#include "wallpaper/compiler_assume.h"
 #include "wallpaper/d3d11_interop_device.h"
 #include "wallpaper/frame_bridge.h"
 #include "wallpaper/desktop_attach_policy.h"
@@ -1024,6 +1025,8 @@ class WallpaperHostWin final : public IWallpaperHost {
         mapped.pData == nullptr || mapped.RowPitch == 0) {
       return false;
     }
+    WP_ASSUME(mapped.RowPitch > 0);
+    WP_ASSUME(frame.height > 0);
 
     const auto* src = frame.rgbaData;
     auto* dst = static_cast<std::uint8_t*>(mapped.pData);
@@ -1063,6 +1066,8 @@ class WallpaperHostWin final : public IWallpaperHost {
         yMapped.pData == nullptr || yMapped.RowPitch == 0) {
       return false;
     }
+    WP_ASSUME(yMapped.RowPitch > 0);
+    WP_ASSUME(frame.height > 0);
 
     const auto* ySrc = frame.yPlaneData;
     auto* yDst = static_cast<std::uint8_t*>(yMapped.pData);
@@ -1079,6 +1084,8 @@ class WallpaperHostWin final : public IWallpaperHost {
         uvMapped.pData == nullptr || uvMapped.RowPitch == 0) {
       return false;
     }
+    WP_ASSUME(uvMapped.RowPitch > 0);
+    WP_ASSUME(uvRows >= 0);
 
     const auto* uvSrc = frame.uvPlaneData;
     auto* uvDst = static_cast<std::uint8_t*>(uvMapped.pData);

@@ -1,5 +1,6 @@
 param(
-  [string]$BuildDir = "build"
+  [string]$BuildDir = "build",
+  [switch]$UseCxx2c
 )
 
 $ErrorActionPreference = "Stop"
@@ -63,8 +64,10 @@ if ($LASTEXITCODE -ne 0) {
   exit $LASTEXITCODE
 }
 
+$cppStdFlag = if ($UseCxx2c) { "-std=c++2c" } else { "-std=c++23" }
+
 $compileArgs = @(
-  "-std=c++20",
+  $cppStdFlag,
   "-O2",
   "-Wall",
   "-Wextra",

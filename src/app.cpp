@@ -344,14 +344,15 @@ App::App(std::filesystem::path configPath)
 App::~App() {
   RequestStop();
   StopDecodePump();
-  if (pendingSave_.valid()) {
-    pendingSave_.wait();
-  }
 }
 
 bool App::Initialize() {
   const bool configExistedBeforeLoad = configStore_.Exists();
-  config_ = configStore_.LoadAsync().get();
+  if (const auto loaded = configStore_.LoadExpected(); loaded.has_value()) {
+    config_ = *loaded;
+  } else {
+    config_ = {};
+  }
   qualityGovernor_.SetTargetFps(config_.fpsCap);
   qualityGovernor_.SetEnabled(config_.adaptiveQuality);
   ApplyRenderFpsCap(qualityGovernor_.CurrentFps());
@@ -433,9 +434,6 @@ int App::Run() {
   if (trayController_) {
     trayController_->StopMessageLoop();
   }
-  if (pendingSave_.valid()) {
-    pendingSave_.wait();
-  }
   return 0;
 }
 
@@ -454,11 +452,7 @@ void App::SyncTrayMenuState() const {
 }
 
 void App::ScheduleConfigSave() {
-  if (pendingSave_.valid() &&
-      pendingSave_.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) {
-    return;
-  }
-  pendingSave_ = configStore_.SaveAsync(config_);
+  (void)configStore_.SaveExpected(config_);
 }
 
 bool App::EnsureWallpaperAttached() {

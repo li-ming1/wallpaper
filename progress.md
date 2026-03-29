@@ -1335,3 +1335,37 @@
   - task_plan.md
   - findings.md
   - progress.md
+
+### Phase 56: C++23 基线升级 + C++26 门控落地
+- **Status:** complete
+- Actions taken:
+  - Red: 在 `tests/config_store_tests.cpp` 新增 `LoadExpected/SaveExpected` 测试、在 `tests/metrics_sampler_tests.cpp` 新增环形缓冲行为测试、在 `tests/cpp26_feature_support_tests.cpp` 新增特性门控测试，先触发编译失败。
+  - Green: `include/wallpaper/config_store.h` / `src/config_store.cpp` 引入 `std::expected` 接口，并保留 `Load/Save` 包装；`src/app.cpp` 去除 `LoadAsync().get()` 与 `SaveAsync`，改为同步 `LoadExpected/SaveExpected`。
+  - Green: `include/wallpaper/metrics_sampler.h` / `src/metrics_sampler.cpp` 改为固定容量环形缓冲，`PushSample` O(1)。
+  - Green: 新增 `include/wallpaper/compiler_assume.h`，并在 `src/win/wallpaper_host_win.cpp` 上传热路径加入 `WP_ASSUME`。
+  - Green: 新增 `include/wallpaper/cpp26_feature_support.h` 与测试，统一 C++26 能力门控。
+  - Green: `CMakeLists.txt` 与 `scripts/build_app.ps1`、`scripts/run_tests.ps1` 升级到 C++23，脚本新增 `-UseCxx2c` 开关。
+- Verification:
+  - `./scripts/run_tests.ps1` -> 152/152 PASS
+  - `./scripts/build_app.ps1 -BuildDir build_tmp` -> build_tmp/wallpaper_app.exe 成功
+  - `./scripts/run_tests.ps1 -UseCxx2c` -> 152/152 PASS
+  - `./scripts/build_app.ps1 -BuildDir build_tmp -UseCxx2c` -> build_tmp/wallpaper_app.exe 成功
+- Files modified:
+  - include/wallpaper/config_store.h
+  - src/config_store.cpp
+  - include/wallpaper/app.h
+  - src/app.cpp
+  - include/wallpaper/metrics_sampler.h
+  - src/metrics_sampler.cpp
+  - include/wallpaper/compiler_assume.h
+  - include/wallpaper/cpp26_feature_support.h
+  - src/win/wallpaper_host_win.cpp
+  - tests/config_store_tests.cpp
+  - tests/metrics_sampler_tests.cpp
+  - tests/cpp26_feature_support_tests.cpp
+  - CMakeLists.txt
+  - scripts/run_tests.ps1
+  - scripts/build_app.ps1
+  - task_plan.md
+  - findings.md
+  - progress.md

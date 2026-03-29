@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cctype>
 #include <fstream>
-#include <future>
 #include <sstream>
 #include <string>
 
@@ -190,11 +189,15 @@ bool ContainsKey(const std::string& json, const std::string& key) {
 
 ConfigStore::ConfigStore(std::filesystem::path path) : path_(std::move(path)) {}
 
-Config ConfigStore::Load() const {
+std::expected<Config, ConfigStoreError> ConfigStore::LoadExpected() const {
+  if (!Exists()) {
+    return std::unexpected(ConfigStoreError::kFileMissing);
+  }
+
   Config config;
   const std::string json = ReadAll(path_);
   if (json.empty()) {
-    return config;
+    return std::unexpected(ConfigStoreError::kFileOpenFailed);
   }
   bool requiresRewrite = false;
 
@@ -241,17 +244,20 @@ Config ConfigStore::Load() const {
   }
 
   if (requiresRewrite) {
-    Save(config);
+    const auto saved = SaveExpected(config);
+    if (!saved.has_value()) {
+      return std::unexpected(saved.error());
+    }
   }
 
   return config;
 }
 
-void ConfigStore::Save(const Config& config) const {
+std::expected<void, ConfigStoreError> ConfigStore::SaveExpected(const Config& config) const {
   EnsureParentDirectory(path_);
   std::ofstream out(path_, std::ios::binary | std::ios::trunc);
   if (!out.is_open()) {
-    return;
+    return std::unexpected(ConfigStoreError::kWriteFailed);
   }
 
   out << "{\n";
@@ -265,21 +271,27 @@ void ConfigStore::Save(const Config& config) const {
       << (config.codecPolicy == CodecPolicy::kH264PlusHevc ? "h264+hevc" : "h264")
       << "\"\n";
   out << "}\n";
+  if (!static_cast<bool>(out)) {
+    return std::unexpected(ConfigStoreError::kWriteFailed);
+  }
+  return {};
+}
+
+Config ConfigStore::Load() const {
+  const auto loaded = LoadExpected();
+  if (loaded.has_value()) {
+    return *loaded;
+  }
+  return {};
+}
+
+void ConfigStore::Save(const Config& config) const {
+  (void)SaveExpected(config);
 }
 
 bool ConfigStore::Exists() const {
   std::error_code ec;
   return std::filesystem::exists(path_, ec) && !ec;
-}
-
-std::future<Config> ConfigStore::LoadAsync() const {
-  return std::async(std::launch::async, [this]() { return Load(); });
-}
-
-std::future<void> ConfigStore::SaveAsync(Config config) const {
-  return std::async(std::launch::async, [this, config = std::move(config)]() {
-    Save(config);
-  });
 }
 
 }  // namespace wallpaper

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 project(wallpaper LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -76,6 +76,7 @@ enable_testing()
 add_executable(wallpaper_tests
   tests/test_main.cpp
   tests/config_store_tests.cpp
+  tests/cpp26_feature_support_tests.cpp
   tests/decode_async_read_policy_tests.cpp
   tests/desktop_context_policy_tests.cpp
   tests/desktop_attach_policy_tests.cpp
@@ -86,6 +87,7 @@ add_executable(wallpaper_tests
   tests/foreground_policy_tests.cpp
   tests/loop_sleep_policy_tests.cpp
   tests/long_run_load_policy_tests.cpp
+  tests/metrics_sampler_tests.cpp
   tests/metrics_log_line_tests.cpp
   tests/metrics_log_file_tests.cpp
   tests/nv12_layout_policy_tests.cpp
@@ -112,6 +114,7 @@ add_executable(wallpaper_tests
   src/foreground_policy.cpp
   src/loop_sleep_policy.cpp
   src/long_run_load_policy.cpp
+  src/metrics_sampler.cpp
   src/metrics_log_line.cpp
   src/metrics_log_file.cpp
   src/nv12_layout_policy.cpp
