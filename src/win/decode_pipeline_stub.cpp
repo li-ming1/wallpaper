@@ -164,6 +164,18 @@ class DecodePipelineStub final : public IDecodePipeline {
     return TryAcquireFallbackFrameLocked(frame);
   }
 
+  void SetFrameReadyNotifier(const DecodeFrameReadyNotifyFn notifyFn,
+                             void* const context) override {
+    std::lock_guard<std::mutex> lock(mu_);
+    frameReadyNotifyFn_ = notifyFn;
+    frameReadyNotifyContext_ = context;
+  }
+
+  [[nodiscard]] bool SupportsFrameReadyNotifier() const override {
+    std::lock_guard<std::mutex> lock(mu_);
+    return mode_ == Mode::kMediaFoundation;
+  }
+
  private:
   friend class AsyncSourceReaderCallback;
 
@@ -532,34 +544,44 @@ class DecodePipelineStub final : public IDecodePipeline {
 
   void HandleAsyncReadSample(HRESULT status, DWORD streamFlags, LONGLONG rawTimestamp100ns,
                              IMFSample* sample) {
-    std::lock_guard<std::mutex> lock(mu_);
-    if (mode_ != Mode::kMediaFoundation || sourceReader_ == nullptr) {
-      return;
+    DecodeFrameReadyNotifyFn notifyFn = nullptr;
+    void* notifyContext = nullptr;
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      if (mode_ != Mode::kMediaFoundation || sourceReader_ == nullptr) {
+        return;
+      }
+
+      if (FAILED(status)) {
+        MarkDecodeAsyncReadCompleted(false, false, &decodeAsyncReadState_);
+        return;
+      }
+
+      if ((streamFlags & MF_SOURCE_READERF_ENDOFSTREAM) != 0) {
+        ClearAsyncReadySampleLocked();
+        MarkDecodeAsyncReadCompleted(false, true, &decodeAsyncReadState_);
+        PumpDecodeAsyncReadsLocked();
+        return;
+      }
+
+      if (sample != nullptr && (streamFlags & MF_SOURCE_READERF_STREAMTICK) == 0) {
+        ClearAsyncReadySampleLocked();
+        sample->AddRef();
+        asyncReadySample_ = sample;
+        asyncReadyRawTimestamp100ns_ = rawTimestamp100ns;
+        MarkDecodeAsyncReadCompleted(true, false, &decodeAsyncReadState_);
+        notifyFn = frameReadyNotifyFn_;
+        notifyContext = frameReadyNotifyContext_;
+      } else {
+        MarkDecodeAsyncReadCompleted(false, false, &decodeAsyncReadState_);
+        PumpDecodeAsyncReadsLocked();
+      }
     }
 
-    if (FAILED(status)) {
-      MarkDecodeAsyncReadCompleted(false, false, &decodeAsyncReadState_);
-      return;
+    // 回调到上层仅用于触发解码泵唤醒，避免无帧状态下的周期性忙轮询。
+    if (notifyFn != nullptr) {
+      notifyFn(notifyContext);
     }
-
-    if ((streamFlags & MF_SOURCE_READERF_ENDOFSTREAM) != 0) {
-      ClearAsyncReadySampleLocked();
-      MarkDecodeAsyncReadCompleted(false, true, &decodeAsyncReadState_);
-      PumpDecodeAsyncReadsLocked();
-      return;
-    }
-
-    if (sample != nullptr && (streamFlags & MF_SOURCE_READERF_STREAMTICK) == 0) {
-      ClearAsyncReadySampleLocked();
-      sample->AddRef();
-      asyncReadySample_ = sample;
-      asyncReadyRawTimestamp100ns_ = rawTimestamp100ns;
-      MarkDecodeAsyncReadCompleted(true, false, &decodeAsyncReadState_);
-      return;
-    }
-
-    MarkDecodeAsyncReadCompleted(false, false, &decodeAsyncReadState_);
-    PumpDecodeAsyncReadsLocked();
   }
 
   [[nodiscard]] bool IsSelectedOutputNv12Locked() const {
@@ -819,7 +841,7 @@ class DecodePipelineStub final : public IDecodePipeline {
 #endif
   }
 
-  std::mutex mu_;
+  mutable std::mutex mu_;
   bool opened_ = false;
   bool running_ = false;
   std::string path_;
@@ -830,6 +852,8 @@ class DecodePipelineStub final : public IDecodePipeline {
   std::size_t previousPublishedCpuBytes_ = 0;
   bool trimRequested_ = false;
   DecodeOpenProfile openProfile_{};
+  DecodeFrameReadyNotifyFn frameReadyNotifyFn_ = nullptr;
+  void* frameReadyNotifyContext_ = nullptr;
 
 #ifdef _WIN32
   IMFSourceReader* sourceReader_ = nullptr;

@@ -1386,3 +1386,28 @@
   - task_plan.md
   - findings.md
   - progress.md
+
+### Phase 58: 解码帧就绪通知驱动退避
+- **Status:** complete
+- Actions taken:
+  - Red: `include/wallpaper/loop_sleep_policy.h` 改签名增加 `frameReadyNotifierAvailable` 后，先更新 `tests/loop_sleep_policy_tests.cpp` 新增 `LoopSleepPolicy_DecodePumpNoFrameUsesLongerBackoffWithNotifier` 并触发编译失败。
+  - Green: `include/wallpaper/interfaces.h` 为 `IDecodePipeline` 增加 `SetFrameReadyNotifier(...)` 与 `SupportsFrameReadyNotifier()`，并同步更新 `src/platform_stubs.cpp`。
+  - Green: `src/win/decode_pipeline_stub.cpp` 在异步 `OnReadSample` 收到有效样本后通知上层，支持事件驱动唤醒解码泵。
+  - Green: `src/app.cpp` 在初始化时注入 notifier，按当前管线能力选择 notifier-aware 退避策略。
+  - Green: `src/loop_sleep_policy.cpp` 对通知可用路径放宽无帧退避上限（24ms->40ms），减少空轮询。
+- Verification:
+  - `./scripts/run_tests.ps1` -> 153/153 PASS
+  - `./scripts/build_app.ps1 -BuildDir build_tmp` -> build_tmp/wallpaper_app.exe 成功
+  - `./scripts/run_tests.ps1 -UseCxx2c` -> 153/153 PASS
+- Files modified:
+  - include/wallpaper/interfaces.h
+  - src/platform_stubs.cpp
+  - include/wallpaper/loop_sleep_policy.h
+  - src/loop_sleep_policy.cpp
+  - include/wallpaper/app.h
+  - src/app.cpp
+  - src/win/decode_pipeline_stub.cpp
+  - tests/loop_sleep_policy_tests.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md

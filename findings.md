@@ -359,3 +359,12 @@
 - 验证：
   - `./scripts/run_tests.ps1` -> 152/152 PASS
   - `./scripts/build_app.ps1 -BuildDir build_tmp` -> 成功
+- 2026-03-29 继续迭代发现：解码泵在“已打开但暂时无新帧”时仍依赖短周期退避轮询；即使有异步 SourceReader 回调，也未直接驱动唤醒，存在额外 CPU 调度。
+- 2026-03-29 新增决策：
+  - `IDecodePipeline` 增加帧就绪通知接口，统一为上层提供“有新样本”事件。
+  - `decode_pipeline_stub` 在 `OnReadSample` 缓存新样本后触发通知，上层 `App` 直接 `WakeDecodePump()` 去重唤醒。
+  - `ComputeDecodePumpSleepMs` 新增 `frameReadyNotifierAvailable` 维度，在通知可用场景把无帧退避上限从 `24ms` 拉高到 `40ms`，降低空转唤醒密度。
+- 验证：
+  - `./scripts/run_tests.ps1` -> 153/153 PASS
+  - `./scripts/build_app.ps1 -BuildDir build_tmp` -> 成功
+  - `./scripts/run_tests.ps1 -UseCxx2c` -> 153/153 PASS

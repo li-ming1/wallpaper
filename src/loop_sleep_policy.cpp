@@ -18,7 +18,8 @@ int ComputeMainLoopSleepMs(const bool shouldPause, const bool hasActiveVideo,
 }
 
 int ComputeDecodePumpSleepMs(const bool decodeReady, const bool frameAcquired,
-                             const int previousSleepMs) noexcept {
+                             const int previousSleepMs,
+                             const bool frameReadyNotifierAvailable) noexcept {
   if (!decodeReady) {
     return 70;
   }
@@ -28,11 +29,12 @@ int ComputeDecodePumpSleepMs(const bool decodeReady, const bool frameAcquired,
   if (previousSleepMs < 2) {
     return 2;
   }
-  const int boundedPreviousSleepMs = std::clamp(previousSleepMs, 2, 24);
+  const int maxBackoffMs = frameReadyNotifierAvailable ? 40 : 24;
+  const int boundedPreviousSleepMs = std::clamp(previousSleepMs, 2, maxBackoffMs);
   if (boundedPreviousSleepMs <= 4) {
-    return std::clamp(boundedPreviousSleepMs * 2, 2, 24);
+    return std::clamp(boundedPreviousSleepMs * 2, 2, maxBackoffMs);
   }
-  return std::clamp(boundedPreviousSleepMs + 4, 2, 24);
+  return std::clamp(boundedPreviousSleepMs + 4, 2, maxBackoffMs);
 }
 
 int ComputeDecodePumpHotSleepMs(const int renderFpsCap, const int sourceFps) noexcept {

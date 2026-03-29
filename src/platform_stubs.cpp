@@ -21,6 +21,8 @@ class DecodePipelineStub final : public IDecodePipeline {
   void Stop() override {}
   void TrimMemory() override {}
   bool TryAcquireLatestFrame(FrameToken*) override { return false; }
+  void SetFrameReadyNotifier(DecodeFrameReadyNotifyFn, void*) override {}
+  [[nodiscard]] bool SupportsFrameReadyNotifier() const override { return false; }
 };
 
 class TrayControllerStub final : public ITrayController {

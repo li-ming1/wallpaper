@@ -62,6 +62,8 @@ struct DecodeOpenProfile final {
   bool requireHardwareTransforms = false;
 };
 
+using DecodeFrameReadyNotifyFn = void (*)(void* context);
+
 class IDecodePipeline {
  public:
   virtual ~IDecodePipeline() = default;
@@ -72,6 +74,8 @@ class IDecodePipeline {
   virtual void Stop() = 0;
   virtual void TrimMemory() = 0;
   virtual bool TryAcquireLatestFrame(FrameToken* frame) = 0;
+  virtual void SetFrameReadyNotifier(DecodeFrameReadyNotifyFn notifyFn, void* context) = 0;
+  [[nodiscard]] virtual bool SupportsFrameReadyNotifier() const = 0;
 };
 
 enum class TrayActionType {

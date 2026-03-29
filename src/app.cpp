@@ -364,6 +364,8 @@ bool App::Initialize() {
   if (!wallpaperHost_ || !decodePipeline_ || !trayController_) {
     return false;
   }
+  decodePipeline_->SetFrameReadyNotifier(&App::OnDecodeFrameReadyThunk, this);
+  decodeFrameReadyNotifierAvailable_ = decodePipeline_->SupportsFrameReadyNotifier();
 
   const bool hasValidVideoPath = ShouldActivateVideoPipeline(config_.videoPath);
   const bool deferDecodeAtStartup =
@@ -549,8 +551,10 @@ bool App::StartVideoPipelineForPath(const std::string& path, const int longRunLo
   if (!decodePipeline_->Open(path, openProfile)) {
     decodeOpened_.store(false);
     decodeRunning_.store(false);
+    decodeFrameReadyNotifierAvailable_ = false;
     return false;
   }
+  decodeFrameReadyNotifierAvailable_ = decodePipeline_->SupportsFrameReadyNotifier();
   decodeOpened_.store(true);
   if (startDecodeImmediately) {
     if (!decodePipeline_->Start()) {
@@ -626,6 +630,7 @@ bool App::ApplyVideoPath(const std::string& newPath) {
     decodePipeline_->Stop();
     decodeOpened_.store(false);
     decodeRunning_.store(false);
+    decodeFrameReadyNotifierAvailable_ = false;
     ResetPlaybackState();
     config_.videoPath.clear();
     DetachWallpaper();
@@ -717,7 +722,8 @@ void App::StartDecodePump() {
                                                            : RuntimeThreadQos::kEco));
 #endif
       if (!decodeReady) {
-        decodeIdleSleepMs = ComputeDecodePumpSleepMs(false, false, decodeIdleSleepMs);
+        decodeIdleSleepMs = ComputeDecodePumpSleepMs(false, false, decodeIdleSleepMs,
+                                                     decodeFrameReadyNotifierAvailable_);
         sleepInterruptible(decodeIdleSleepMs);
         continue;
       }
@@ -731,14 +737,16 @@ void App::StartDecodePump() {
         latestDecodedToken_ = token;
         hasLatestDecodedToken_ = true;
         latestDecodedSequence_.store(token.sequence, std::memory_order_release);
-        decodeIdleSleepMs = ComputeDecodePumpSleepMs(true, true, decodeIdleSleepMs);
+        decodeIdleSleepMs = ComputeDecodePumpSleepMs(true, true, decodeIdleSleepMs,
+                                                     decodeFrameReadyNotifierAvailable_);
         const int hotSleepMs = decodePumpHotSleepMs_.load();
         if (hotSleepMs > decodeIdleSleepMs) {
           decodeIdleSleepMs = hotSleepMs;
         }
         sleepInterruptible(decodeIdleSleepMs);
       } else {
-        decodeIdleSleepMs = ComputeDecodePumpSleepMs(true, false, decodeIdleSleepMs);
+        decodeIdleSleepMs = ComputeDecodePumpSleepMs(true, false, decodeIdleSleepMs,
+                                                     decodeFrameReadyNotifierAvailable_);
         sleepInterruptible(decodeIdleSleepMs);
       }
     }
@@ -768,6 +776,15 @@ void App::WakeDecodePump() {
     return;
   }
   decodePumpWaitCv_.notify_one();
+}
+
+void App::OnDecodeFrameReady() { WakeDecodePump(); }
+
+void App::OnDecodeFrameReadyThunk(void* const context) {
+  if (context == nullptr) {
+    return;
+  }
+  static_cast<App*>(context)->OnDecodeFrameReady();
 }
 
 bool App::HandleTrayActions() {

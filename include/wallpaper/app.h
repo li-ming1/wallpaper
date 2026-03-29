@@ -42,9 +42,11 @@ class App final {
                                  bool resetLongRunState = true,
                                  bool startDecodeImmediately = true);
   void ApplyRenderFpsCap(int governorFps);
-  void StartDecodePump();
-  void StopDecodePump();
-  void WakeDecodePump();
+ void StartDecodePump();
+ void StopDecodePump();
+ void WakeDecodePump();
+  void OnDecodeFrameReady();
+  static void OnDecodeFrameReadyThunk(void* context);
   void SyncTrayMenuState() const;
   void ScheduleConfigSave();
   void Tick();
@@ -64,6 +66,7 @@ class App final {
   std::unique_ptr<ITrayController> trayController_;
   std::thread decodePumpThread_;
   std::atomic<bool> decodePumpRunning_{false};
+  bool decodeFrameReadyNotifierAvailable_ = false;
   std::atomic<int> decodePumpHotSleepMs_{4};
   std::atomic<int> decodePumpDynamicBoostMs_{0};
   std::atomic<int> decodeThreadQos_{static_cast<int>(RuntimeThreadQos::kNormal)};

@@ -477,3 +477,11 @@ Phase 54
 - [x] Green: `PublishLatestFrame` 改为直接构建别名 holder，避免额外成员赋值与每帧结构拷贝负担
 - [x] Verification: 单测通过（152/152） + 构建通过
 - **Status:** complete
+
+### Phase 58: 解码帧就绪通知驱动退避（Completed）
+- [x] Red: `loop_sleep_policy` 增加“通知可用时更长退避”测试并先触发编译失败
+- [x] Green: `IDecodePipeline` 增加 `SetFrameReadyNotifier` / `SupportsFrameReadyNotifier`
+- [x] Green: Windows 解码管线在 `OnReadSample` 命中新样本后通知上层，触发解码泵唤醒
+- [x] Green: 解码泵退避策略支持 notifier-aware 上限（24ms -> 40ms），减少无帧空转唤醒
+- [x] Verification: 单测通过（153/153） + 构建通过
+- **Status:** complete

@@ -26,20 +26,26 @@ TEST_CASE(LoopSleepPolicy_MainLoopActiveVideoUsesBoundedWait) {
 }
 
 TEST_CASE(LoopSleepPolicy_DecodePumpNoDecodeReadySleepsLonger) {
-  EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(false, false, 4), 70);
+  EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(false, false, 4, false), 70);
 }
 
 TEST_CASE(LoopSleepPolicy_DecodePumpFrameReadyRunsHot) {
-  EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(true, true, 6), 2);
+  EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(true, true, 6, false), 2);
 }
 
 TEST_CASE(LoopSleepPolicy_DecodePumpNoFrameUsesBackoff) {
-  EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(true, false, 1), 2);
-  EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(true, false, 2), 4);
-  EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(true, false, 4), 8);
-  EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(true, false, 8), 12);
-  EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(true, false, 22), 24);
-  EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(true, false, 24), 24);
+  EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(true, false, 1, false), 2);
+  EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(true, false, 2, false), 4);
+  EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(true, false, 4, false), 8);
+  EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(true, false, 8, false), 12);
+  EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(true, false, 22, false), 24);
+  EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(true, false, 24, false), 24);
+}
+
+TEST_CASE(LoopSleepPolicy_DecodePumpNoFrameUsesLongerBackoffWithNotifier) {
+  EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(true, false, 22, true), 26);
+  EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(true, false, 36, true), 40);
+  EXPECT_EQ(wallpaper::ComputeDecodePumpSleepMs(true, false, 40, true), 40);
 }
 
 TEST_CASE(LoopSleepPolicy_DecodePumpHotSleepTracksFpsCap) {
