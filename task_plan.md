@@ -530,3 +530,11 @@ Phase 61
 - [x] Green: 接入失败计数与成功清零，避免长时间恢复链路秒级卡顿
 - [x] Verification: 单测通过（159/159）+ C++23/C++26 构建通过
 - **Status:** complete
+
+### Phase 64: 恢复热路径 I/O 探测缓存优化（Completed）
+- [x] Red: 新增 `video_path_probe_policy` 测试（缓存命中/过期/路径变化/TTL 选择）
+- [x] Green: 新增路径探测缓存策略模块并接入 App
+- [x] Green: 恢复重试链路启用短 TTL 缓存，避免高频 `filesystem` I/O 探测
+- [x] Green: 非恢复路径保持实时探测，确保换源/首次启动行为不漂移
+- [x] Verification: 单测通过（163/163）+ C++23/C++26 构建通过
+- **Status:** complete

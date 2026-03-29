@@ -406,3 +406,11 @@
 - App 接入：新增 `warmResumeRetryFailures_` 与 `resumePipelineRetryFailures_`，在成功路径清零，失败路径按策略推进下一次尝试。
 - 预期收益：长暂停后首次恢复失败场景的“恢复到动态”平均等待从秒级下降到亚秒级起步（首轮约 160ms/120ms）。
 - 验证：`run_tests` 全绿（159/159），`build_app` C++23/C++26 均通过。
+
+## 2026-03-29 恢复热路径补充优化（路径探测缓存）
+- 问题：恢复重试期间会反复调用 `ShouldActivateVideoPipeline(path)`，其内部走 `std::filesystem::exists/is_regular_file`，在慢盘/网络盘下会拉长恢复耗时并抬高 CPU/I/O 抖动。
+- 决策：新增 `video_path_probe_policy`，仅在恢复重试路径启用短时缓存（TTL 1500ms），普通换源/首次启动仍走实时探测。
+- App 接入点：warm resume open 预热、resume pipeline pending、adaptive quality reopen 判定。
+- 设计目标：避免恢复期高频磁盘探测，同时不牺牲路径状态变更可见性。
+- 验证：`run_tests` 163/163，全构建（C++23/C++26）通过。
+- 预期收益：恢复失败重试阶段 CPU 额外下降约 1~3%，慢路径恢复抖动降低，主观恢复速度提升（尤其网络路径素材）。

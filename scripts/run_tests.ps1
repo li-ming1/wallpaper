@@ -68,6 +68,7 @@ $sources = @(
   "tests/single_instance_policy_tests.cpp",
   "tests/startup_policy_tests.cpp",
   "tests/tray_thread_stop_policy_tests.cpp",
+  "tests/video_path_probe_policy_tests.cpp",
   "tests/video_path_matcher_tests.cpp",
   "src/config_store.cpp",
   "src/decode_async_read_policy.cpp",
@@ -94,6 +95,7 @@ $sources = @(
   "src/source_frame_rate_policy.cpp",
   "src/runtime_trim_policy.cpp",
   "src/startup_policy.cpp",
+  "src/video_path_probe_policy.cpp",
   "src/video_path_matcher.cpp"
 )
 

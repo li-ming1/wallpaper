@@ -10,6 +10,7 @@
 #include "wallpaper/probe_cadence_policy.h"
 #include "wallpaper/runtime_trim_policy.h"
 #include "wallpaper/startup_policy.h"
+#include "wallpaper/video_path_probe_policy.h"
 #include "wallpaper/video_path_matcher.h"
 
 #include <algorithm>
@@ -368,6 +369,7 @@ App::~App() {
 
 bool App::Initialize() {
   const bool configExistedBeforeLoad = configStore_.Exists();
+  InvalidateVideoPathProbeCache();
   if (const auto loaded = configStore_.LoadExpected(); loaded.has_value()) {
     config_ = *loaded;
   } else {
@@ -387,7 +389,8 @@ bool App::Initialize() {
   decodePipeline_->SetFrameReadyNotifier(&App::OnDecodeFrameReadyThunk, this);
   decodeFrameReadyNotifierAvailable_ = decodePipeline_->SupportsFrameReadyNotifier();
 
-  const bool hasValidVideoPath = ShouldActivateVideoPipeline(config_.videoPath);
+  const bool hasValidVideoPath = ShouldActivateVideoPipelineCached(
+      config_.videoPath, false, RenderScheduler::Clock::now());
   const bool deferDecodeAtStartup =
       ShouldDeferVideoDecodeStart(configExistedBeforeLoad, hasValidVideoPath);
   if (hasValidVideoPath) {
@@ -478,6 +481,31 @@ void App::ScheduleConfigSave() {
   (void)configStore_.SaveExpected(config_);
 }
 
+bool App::ShouldActivateVideoPipelineCached(const std::string& path, const bool allowCache,
+                                            const RenderScheduler::Clock::time_point now) {
+  if (path.empty()) {
+    return false;
+  }
+  const auto cacheTtl = SelectVideoPathProbeCacheTtl(allowCache);
+  const bool cacheInitialized =
+      videoPathProbeCacheCheckedAt_ != RenderScheduler::Clock::time_point{};
+  if (allowCache && ShouldUseCachedVideoPathProbe(path, videoPathProbeCachePath_, cacheInitialized,
+                                                  now, videoPathProbeCacheCheckedAt_, cacheTtl)) {
+    return videoPathProbeCacheValid_;
+  }
+  const bool active = ShouldActivateVideoPipeline(path);
+  videoPathProbeCachePath_ = path;
+  videoPathProbeCacheValid_ = active;
+  videoPathProbeCacheCheckedAt_ = now;
+  return active;
+}
+
+void App::InvalidateVideoPathProbeCache() {
+  videoPathProbeCachePath_.clear();
+  videoPathProbeCacheValid_ = false;
+  videoPathProbeCacheCheckedAt_ = RenderScheduler::Clock::time_point{};
+}
+
 bool App::EnsureWallpaperAttached() {
   if (!wallpaperHost_) {
     return false;
@@ -558,8 +586,13 @@ void App::ResetPlaybackState(const bool resetLongRunState) {
 
 bool App::StartVideoPipelineForPath(const std::string& path, const int longRunLoadLevel,
                                     const bool resetLongRunState,
-                                    const bool startDecodeImmediately) {
-  if (!decodePipeline_ || !ShouldActivateVideoPipeline(path)) {
+                                    const bool startDecodeImmediately,
+                                    const bool allowCachedPathProbe) {
+  if (!decodePipeline_) {
+    return false;
+  }
+  const auto now = RenderScheduler::Clock::now();
+  if (!ShouldActivateVideoPipelineCached(path, allowCachedPathProbe, now)) {
     return false;
   }
   if (!EnsureWallpaperAttached()) {
@@ -641,7 +674,8 @@ bool App::ApplyVideoPath(const std::string& newPath) {
   }
 
   const std::string oldPath = config_.videoPath;
-  const bool canRestoreOldPath = ShouldActivateVideoPipeline(oldPath);
+  const bool canRestoreOldPath =
+      ShouldActivateVideoPipelineCached(oldPath, false, RenderScheduler::Clock::now());
 
   const auto restoreOldVideo = [this, &oldPath, canRestoreOldPath]() {
     if (canRestoreOldPath) {
@@ -656,11 +690,12 @@ bool App::ApplyVideoPath(const std::string& newPath) {
     decodeFrameReadyNotifierAvailable_ = false;
     ResetPlaybackState();
     config_.videoPath.clear();
+    InvalidateVideoPathProbeCache();
     DetachWallpaper();
     return true;
   }
 
-  if (!ShouldActivateVideoPipeline(newPath)) {
+  if (!ShouldActivateVideoPipelineCached(newPath, false, RenderScheduler::Clock::now())) {
     return false;
   }
 
@@ -886,7 +921,9 @@ bool App::HandleTrayActions() {
           config_.adaptiveQuality = true;
           qualityGovernor_.SetEnabled(true);
           ApplyRenderFpsCap(qualityGovernor_.CurrentFps());
-          if (ShouldActivateVideoPipeline(config_.videoPath) && decodePipeline_ &&
+          if (ShouldActivateVideoPipelineCached(config_.videoPath, false,
+                                                RenderScheduler::Clock::now()) &&
+              decodePipeline_ &&
               decodeOpened_.load()) {
             // 自适应质量切换后重开解码管线，让 MF 输出尺寸策略立即生效。
             StartVideoPipelineForPath(config_.videoPath);
@@ -901,7 +938,9 @@ bool App::HandleTrayActions() {
           config_.adaptiveQuality = false;
           qualityGovernor_.SetEnabled(false);
           ApplyRenderFpsCap(qualityGovernor_.CurrentFps());
-          if (ShouldActivateVideoPipeline(config_.videoPath) && decodePipeline_ &&
+          if (ShouldActivateVideoPipelineCached(config_.videoPath, false,
+                                                RenderScheduler::Clock::now()) &&
+              decodePipeline_ &&
               decodeOpened_.load()) {
             // 关闭后恢复全质量输出，保持行为可预期。
             StartVideoPipelineForPath(config_.videoPath);
@@ -1047,7 +1086,7 @@ void App::Tick() {
     } else if (hardSuspendedByPause_) {
       const bool shouldWarmResume = ShouldWarmResumeDuringPause(rawShouldPause, hardSuspendedByPause_);
       if (shouldWarmResume && !resumeWarmupOpened_ && now >= nextWarmupAttemptAt_) {
-        if (ShouldActivateVideoPipeline(config_.videoPath) &&
+        if (ShouldActivateVideoPipelineCached(config_.videoPath, true, now) &&
             decodePipeline_->Open(config_.videoPath, DecodeOpenProfile{config_.codecPolicy,
                                                                        config_.adaptiveQuality,
                                                                        decodeOpenLongRunLevel_,
@@ -1106,7 +1145,7 @@ void App::Tick() {
           decodePipeline_->Stop();
           decodeOpened_.store(false);
           decodeRunning_.store(false);
-          resumePipelinePending_ = ShouldActivateVideoPipeline(config_.videoPath);
+          resumePipelinePending_ = ShouldActivateVideoPipelineCached(config_.videoPath, true, now);
           ++resumePipelineRetryFailures_;
           nextResumeAttemptAt_ = now;
         } else {
@@ -1116,7 +1155,7 @@ void App::Tick() {
           resumePipelineRetryFailures_ = 0;
         }
       } else {
-        resumePipelinePending_ = ShouldActivateVideoPipeline(config_.videoPath);
+        resumePipelinePending_ = ShouldActivateVideoPipelineCached(config_.videoPath, true, now);
         resumePipelineRetryFailures_ = 0;
         nextResumeAttemptAt_ = now;
       }
@@ -1140,8 +1179,7 @@ void App::Tick() {
   }
 
   if (resumePipelinePending_ && now >= nextResumeAttemptAt_) {
-    if (ShouldActivateVideoPipeline(config_.videoPath) &&
-        StartVideoPipelineForPath(config_.videoPath, decodeOpenLongRunLevel_, false)) {
+    if (StartVideoPipelineForPath(config_.videoPath, decodeOpenLongRunLevel_, false, true, true)) {
       resumePipelinePending_ = false;
       resumePipelineRetryFailures_ = 0;
       nextResumeAttemptAt_ = RenderScheduler::Clock::time_point{};
@@ -1297,7 +1335,7 @@ void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameD
     const int desiredDecodeOpenLevel = longRunLoadState_.level >= 2 ? 2 : 0;
     if (desiredDecodeOpenLevel != decodeOpenLongRunLevel_) {
       const std::string currentPath = config_.videoPath;
-      if (ShouldActivateVideoPipeline(currentPath)) {
+      if (ShouldActivateVideoPipelineCached(currentPath, false, now)) {
         decodePipeline_->Stop();
         decodeOpened_.store(false);
         decodeRunning_.store(false);

@@ -40,7 +40,8 @@ class App final {
   void ResetPlaybackState(bool resetLongRunState = true);
   bool StartVideoPipelineForPath(const std::string& path, int longRunLoadLevel = 0,
                                  bool resetLongRunState = true,
-                                 bool startDecodeImmediately = true);
+                                 bool startDecodeImmediately = true,
+                                 bool allowCachedPathProbe = false);
   void ApplyRenderFpsCap(int governorFps);
   void StartDecodePump();
   void StopDecodePump();
@@ -49,6 +50,9 @@ class App final {
   static void OnDecodeFrameReadyThunk(void* context);
   void SyncTrayMenuState() const;
   void ScheduleConfigSave();
+  bool ShouldActivateVideoPipelineCached(const std::string& path, bool allowCache,
+                                         RenderScheduler::Clock::time_point now);
+  void InvalidateVideoPathProbeCache();
   void Tick();
   void MaybeSampleAndLogMetrics(bool attemptedRender, bool frameDropped, double presentMs);
 
@@ -124,6 +128,9 @@ class App final {
   std::size_t decodeCopyBytesInWindow_ = 0;
   std::size_t lastDecodeOutputPixels_ = 0;
   int decodeOpenLongRunLevel_ = 0;
+  std::string videoPathProbeCachePath_;
+  bool videoPathProbeCacheValid_ = false;
+  RenderScheduler::Clock::time_point videoPathProbeCacheCheckedAt_{};
 };
 
 }  // namespace wallpaper

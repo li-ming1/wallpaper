@@ -1538,3 +1538,25 @@
   - `scripts/run_tests.ps1` -> pass (159/159)
   - `scripts/build_app.ps1 -BuildDir build_tmp/phase63_resume_fix_cxx23` -> pass
   - `scripts/build_app.ps1 -BuildDir build_tmp/phase63_resume_fix_cxx26 -UseCxx26` -> pass
+
+### Phase 64: Video Path Probe Cache for Resume Hot Path
+- **Status:** complete
+- Actions taken:
+  - Added `video_path_probe_policy` module with cache-reuse guard and TTL selector.
+  - Added unit tests for cache-hit/miss and TTL behavior.
+  - Integrated cache into `App` resume hot paths and added cache invalidation hook.
+  - Extended `StartVideoPipelineForPath` with optional cached probe mode.
+  - Updated CMake/tests/build script source lists.
+- Files created/modified:
+  - include/wallpaper/video_path_probe_policy.h
+  - src/video_path_probe_policy.cpp
+  - tests/video_path_probe_policy_tests.cpp
+  - include/wallpaper/app.h
+  - src/app.cpp
+  - CMakeLists.txt
+  - scripts/run_tests.ps1
+  - scripts/build_app.ps1
+- Verification:
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/phase64_tests` -> pass (163/163)
+  - `scripts/build_app.ps1 -BuildDir build_tmp/phase64_probe_cache_cxx23` -> pass
+  - `scripts/build_app.ps1 -BuildDir build_tmp/phase64_probe_cache_cxx26 -UseCxx26` -> pass
