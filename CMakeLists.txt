@@ -27,12 +27,14 @@ add_library(wallpaper_core STATIC
   src/video_path_matcher.cpp
   src/render_scheduler.cpp
   src/resource_arbiter.cpp
+  src/source_frame_rate_policy.cpp
   src/metrics_sampler.cpp
   src/frame_bridge.cpp
   src/frame_buffer_policy.cpp
   src/frame_latency_policy.cpp
   src/long_run_load_policy.cpp
   src/probe_cadence_policy.cpp
+  src/nv12_layout_policy.cpp
   src/runtime_trim_policy.cpp
   src/startup_policy.cpp
 )
@@ -74,6 +76,7 @@ enable_testing()
 add_executable(wallpaper_tests
   tests/test_main.cpp
   tests/config_store_tests.cpp
+  tests/decode_async_read_policy_tests.cpp
   tests/desktop_context_policy_tests.cpp
   tests/desktop_attach_policy_tests.cpp
   tests/decode_output_policy_tests.cpp
@@ -85,6 +88,7 @@ add_executable(wallpaper_tests
   tests/long_run_load_policy_tests.cpp
   tests/metrics_log_line_tests.cpp
   tests/metrics_log_file_tests.cpp
+  tests/nv12_layout_policy_tests.cpp
   tests/pause_resource_policy_tests.cpp
   tests/pause_suspend_policy_tests.cpp
   tests/pause_transition_policy_tests.cpp
@@ -92,10 +96,12 @@ add_executable(wallpaper_tests
   tests/probe_cadence_policy_tests.cpp
   tests/render_scheduler_tests.cpp
   tests/resource_arbiter_tests.cpp
+  tests/source_frame_rate_policy_tests.cpp
   tests/runtime_trim_policy_tests.cpp
   tests/startup_policy_tests.cpp
   tests/video_path_matcher_tests.cpp
   src/config_store.cpp
+  src/decode_async_read_policy.cpp
   src/desktop_context_policy.cpp
   src/desktop_attach_policy.cpp
   src/decode_output_policy.cpp
@@ -107,6 +113,7 @@ add_executable(wallpaper_tests
   src/long_run_load_policy.cpp
   src/metrics_log_line.cpp
   src/metrics_log_file.cpp
+  src/nv12_layout_policy.cpp
   src/pause_suspend_policy.cpp
   src/pause_transition_policy.cpp
   src/pause_resource_policy.cpp
@@ -114,6 +121,7 @@ add_executable(wallpaper_tests
   src/probe_cadence_policy.cpp
   src/render_scheduler.cpp
   src/resource_arbiter.cpp
+  src/source_frame_rate_policy.cpp
   src/runtime_trim_policy.cpp
   src/startup_policy.cpp
   src/video_path_matcher.cpp

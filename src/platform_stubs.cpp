@@ -10,11 +10,12 @@ class WallpaperHostStub final : public IWallpaperHost {
   void DetachFromDesktop() override {}
   void ResizeForDisplays() override {}
   void Present(const FrameToken&) override {}
+  [[nodiscard]] bool IsOccluded() const override { return false; }
 };
 
 class DecodePipelineStub final : public IDecodePipeline {
  public:
-  bool Open(const std::string&, CodecPolicy, bool) override { return true; }
+  bool Open(const std::string&, const DecodeOpenProfile&) override { return true; }
   bool Start() override { return true; }
   void Pause() override {}
   void Stop() override {}

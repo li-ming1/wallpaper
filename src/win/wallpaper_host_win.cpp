@@ -85,6 +85,32 @@ float4 main(PSIn input) : SV_TARGET {
 }
 )";
 
+constexpr char kVideoNv12PsSource[] = R"(
+Texture2D lumaTex : register(t0);
+Texture2D chromaTex : register(t1);
+SamplerState videoSamp : register(s0);
+
+struct PSIn {
+  float4 pos : SV_POSITION;
+  float2 uv  : TEXCOORD0;
+};
+
+float4 main(PSIn input) : SV_TARGET {
+  const float ySample = lumaTex.Sample(videoSamp, input.uv).r;
+  const float2 uvSample = chromaTex.Sample(videoSamp, input.uv).rg;
+
+  const float y = max(0.0, 1.16438356 * (ySample - 0.06274510));
+  const float u = uvSample.x - 0.5;
+  const float v = uvSample.y - 0.5;
+
+  float3 rgb;
+  rgb.r = saturate(y + 1.79274107 * v);
+  rgb.g = saturate(y - 0.21324861 * u - 0.53290933 * v);
+  rgb.b = saturate(y + 2.11240179 * u);
+  return float4(rgb, 1.0);
+}
+)";
+
 bool CompileShader(const char* source, const char* entryPoint, const char* profile,
                    ID3DBlob** outBlob) {
   if (source == nullptr || entryPoint == nullptr || profile == nullptr || outBlob == nullptr) {
@@ -430,14 +456,14 @@ class WallpaperHostWin final : public IWallpaperHost {
       }
     }
 
-    if (frame.decodeMode != DecodeMode::kMediaFoundation && videoTexture_ != nullptr) {
+    if (frame.decodeMode != DecodeMode::kMediaFoundation && HasAnyVideoTexture()) {
       // 非视频解码模式下清理旧视频纹理，避免切换源后显示冻结旧帧。
       ReleaseVideoTexture();
       lastVideoSequence_ = 0;
     }
 
     bool drewVideo = false;
-    bool hasVideoTexture = videoSrv_ != nullptr && videoTexture_ != nullptr;
+    bool hasVideoTexture = HasAnyVideoTexture();
     frame_bridge::LatestFrame latestFrame;
     if (frame_bridge::TryGetLatestFrame(&latestFrame) && latestFrame.sequence != lastVideoSequence_) {
       if (latestFrame.gpuBacked && latestFrame.gpuTexture != nullptr &&
@@ -445,6 +471,14 @@ class WallpaperHostWin final : public IWallpaperHost {
                                    static_cast<UINT>(latestFrame.height),
                                    static_cast<DXGI_FORMAT>(latestFrame.dxgiFormat)) &&
           CopyGpuVideoFrame(latestFrame) && DrawVideoTexture()) {
+        lastVideoSequence_ = latestFrame.sequence;
+        hasVideoTexture = true;
+        drewVideo = true;
+      } else if (latestFrame.pixelFormat == frame_bridge::PixelFormat::kNv12 &&
+                 latestFrame.yPlaneData != nullptr && latestFrame.uvPlaneData != nullptr &&
+                 EnsureVideoTextureForNv12(static_cast<UINT>(latestFrame.width),
+                                           static_cast<UINT>(latestFrame.height)) &&
+                 UploadVideoFrameNv12(latestFrame) && DrawVideoNv12Texture()) {
         lastVideoSequence_ = latestFrame.sequence;
         hasVideoTexture = true;
         drewVideo = true;
@@ -458,7 +492,7 @@ class WallpaperHostWin final : public IWallpaperHost {
       }
     }
 
-    if (!drewVideo && hasVideoTexture && DrawVideoTexture()) {
+    if (!drewVideo && hasVideoTexture && DrawCachedVideoTexture()) {
       drewVideo = true;
     }
 
@@ -486,6 +520,8 @@ class WallpaperHostWin final : public IWallpaperHost {
       frameLatencyGateArmed_ = true;
     }
   }
+
+  [[nodiscard]] bool IsOccluded() const override { return swapChainOccluded_; }
 
  private:
   bool InitializeD3D() {
@@ -624,10 +660,13 @@ class WallpaperHostWin final : public IWallpaperHost {
 
     ID3DBlob* vsBlob = nullptr;
     ID3DBlob* psBlob = nullptr;
+    ID3DBlob* nv12PsBlob = nullptr;
     if (!CompileShader(kVideoVsSource, "main", "vs_4_0", &vsBlob) ||
-        !CompileShader(kVideoPsSource, "main", "ps_4_0", &psBlob)) {
+        !CompileShader(kVideoPsSource, "main", "ps_4_0", &psBlob) ||
+        !CompileShader(kVideoNv12PsSource, "main", "ps_4_0", &nv12PsBlob)) {
       SafeRelease(&vsBlob);
       SafeRelease(&psBlob);
+      SafeRelease(&nv12PsBlob);
       return false;
     }
 
@@ -636,6 +675,7 @@ class WallpaperHostWin final : public IWallpaperHost {
     if (FAILED(hr)) {
       SafeRelease(&vsBlob);
       SafeRelease(&psBlob);
+      SafeRelease(&nv12PsBlob);
       return false;
     }
 
@@ -644,6 +684,16 @@ class WallpaperHostWin final : public IWallpaperHost {
     if (FAILED(hr)) {
       SafeRelease(&vsBlob);
       SafeRelease(&psBlob);
+      SafeRelease(&nv12PsBlob);
+      return false;
+    }
+
+    hr = device_->CreatePixelShader(nv12PsBlob->GetBufferPointer(), nv12PsBlob->GetBufferSize(),
+                                    nullptr, &videoNv12PixelShader_);
+    if (FAILED(hr)) {
+      SafeRelease(&vsBlob);
+      SafeRelease(&psBlob);
+      SafeRelease(&nv12PsBlob);
       return false;
     }
 
@@ -656,6 +706,7 @@ class WallpaperHostWin final : public IWallpaperHost {
                                     &videoInputLayout_);
     SafeRelease(&vsBlob);
     SafeRelease(&psBlob);
+    SafeRelease(&nv12PsBlob);
     if (FAILED(hr)) {
       return false;
     }
@@ -700,8 +751,22 @@ class WallpaperHostWin final : public IWallpaperHost {
     SafeRelease(&videoSampler_);
     SafeRelease(&videoVertexBuffer_);
     SafeRelease(&videoInputLayout_);
+    SafeRelease(&videoNv12PixelShader_);
     SafeRelease(&videoPixelShader_);
     SafeRelease(&videoVertexShader_);
+  }
+
+  [[nodiscard]] bool HasRgbaVideoTexture() const {
+    return videoTexture_ != nullptr && videoSrv_ != nullptr;
+  }
+
+  [[nodiscard]] bool HasNv12VideoTexture() const {
+    return videoNv12YTexture_ != nullptr && videoNv12UvTexture_ != nullptr &&
+           videoNv12YSrv_ != nullptr && videoNv12UvSrv_ != nullptr;
+  }
+
+  [[nodiscard]] bool HasAnyVideoTexture() const {
+    return HasRgbaVideoTexture() || HasNv12VideoTexture();
   }
 
   void ReleaseVideoTexture() {
@@ -711,6 +776,12 @@ class WallpaperHostWin final : public IWallpaperHost {
     videoTexHeight_ = 0;
     videoTexFormat_ = DXGI_FORMAT_UNKNOWN;
     videoTextureCpuWritable_ = false;
+    SafeRelease(&videoNv12YSrv_);
+    SafeRelease(&videoNv12UvSrv_);
+    SafeRelease(&videoNv12YTexture_);
+    SafeRelease(&videoNv12UvTexture_);
+    videoNv12Width_ = 0;
+    videoNv12Height_ = 0;
   }
 
   bool EnsureVideoTextureForCpu(const UINT width, const UINT height) {
@@ -808,6 +879,75 @@ class WallpaperHostWin final : public IWallpaperHost {
     return true;
   }
 
+  bool EnsureVideoTextureForNv12(const UINT width, const UINT height) {
+    if (!videoPipelineReady_ || device_ == nullptr || width == 0 || height == 0) {
+      return false;
+    }
+
+    if (HasNv12VideoTexture() && videoNv12Width_ == width && videoNv12Height_ == height) {
+      return true;
+    }
+
+    ReleaseVideoTexture();
+
+    D3D11_TEXTURE2D_DESC yDesc{};
+    yDesc.Width = width;
+    yDesc.Height = height;
+    yDesc.MipLevels = 1;
+    yDesc.ArraySize = 1;
+    yDesc.Format = DXGI_FORMAT_R8_UNORM;
+    yDesc.SampleDesc.Count = 1;
+    yDesc.Usage = D3D11_USAGE_DYNAMIC;
+    yDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    yDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+
+    HRESULT hr = device_->CreateTexture2D(&yDesc, nullptr, &videoNv12YTexture_);
+    if (FAILED(hr)) {
+      return false;
+    }
+
+    D3D11_SHADER_RESOURCE_VIEW_DESC ySrvDesc{};
+    ySrvDesc.Format = yDesc.Format;
+    ySrvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+    ySrvDesc.Texture2D.MipLevels = 1;
+    hr = device_->CreateShaderResourceView(videoNv12YTexture_, &ySrvDesc, &videoNv12YSrv_);
+    if (FAILED(hr)) {
+      ReleaseVideoTexture();
+      return false;
+    }
+
+    D3D11_TEXTURE2D_DESC uvDesc{};
+    uvDesc.Width = width / 2;
+    uvDesc.Height = height / 2;
+    uvDesc.MipLevels = 1;
+    uvDesc.ArraySize = 1;
+    uvDesc.Format = DXGI_FORMAT_R8G8_UNORM;
+    uvDesc.SampleDesc.Count = 1;
+    uvDesc.Usage = D3D11_USAGE_DYNAMIC;
+    uvDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    uvDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+
+    hr = device_->CreateTexture2D(&uvDesc, nullptr, &videoNv12UvTexture_);
+    if (FAILED(hr)) {
+      ReleaseVideoTexture();
+      return false;
+    }
+
+    D3D11_SHADER_RESOURCE_VIEW_DESC uvSrvDesc{};
+    uvSrvDesc.Format = uvDesc.Format;
+    uvSrvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+    uvSrvDesc.Texture2D.MipLevels = 1;
+    hr = device_->CreateShaderResourceView(videoNv12UvTexture_, &uvSrvDesc, &videoNv12UvSrv_);
+    if (FAILED(hr)) {
+      ReleaseVideoTexture();
+      return false;
+    }
+
+    videoNv12Width_ = width;
+    videoNv12Height_ = height;
+    return true;
+  }
+
   bool CopyGpuVideoFrame(const frame_bridge::LatestFrame& frame) {
     if (context_ == nullptr || videoTexture_ == nullptr || frame.gpuTexture == nullptr) {
       return false;
@@ -858,11 +998,67 @@ class WallpaperHostWin final : public IWallpaperHost {
     return true;
   }
 
-  bool DrawVideoTexture() {
+  bool UploadVideoFrameNv12(const frame_bridge::LatestFrame& frame) {
+    if (context_ == nullptr || videoNv12YTexture_ == nullptr || videoNv12UvTexture_ == nullptr ||
+        frame.pixelFormat != frame_bridge::PixelFormat::kNv12 ||
+        frame.yPlaneData == nullptr || frame.uvPlaneData == nullptr) {
+      return false;
+    }
+
+    if (frame.width <= 0 || frame.height <= 0 || frame.yPlaneStrideBytes <= 0 ||
+        frame.uvPlaneStrideBytes <= 0) {
+      return false;
+    }
+
+    const int uvRows = frame.height / 2;
+    const std::size_t minYBytes = static_cast<std::size_t>(frame.yPlaneStrideBytes) *
+                                  static_cast<std::size_t>(frame.height);
+    const std::size_t minUvBytes = static_cast<std::size_t>(frame.uvPlaneStrideBytes) *
+                                   static_cast<std::size_t>(uvRows);
+    if (frame.yPlaneBytes < minYBytes || frame.uvPlaneBytes < minUvBytes) {
+      return false;
+    }
+
+    D3D11_MAPPED_SUBRESOURCE yMapped{};
+    if (FAILED(context_->Map(videoNv12YTexture_, 0, D3D11_MAP_WRITE_DISCARD, 0, &yMapped)) ||
+        yMapped.pData == nullptr || yMapped.RowPitch == 0) {
+      return false;
+    }
+
+    const auto* ySrc = frame.yPlaneData;
+    auto* yDst = static_cast<std::uint8_t*>(yMapped.pData);
+    const UINT ySrcRowPitch = static_cast<UINT>(frame.yPlaneStrideBytes);
+    const UINT yCopyBytes = ySrcRowPitch < yMapped.RowPitch ? ySrcRowPitch : yMapped.RowPitch;
+    for (int row = 0; row < frame.height; ++row) {
+      std::memcpy(yDst + static_cast<std::size_t>(row) * yMapped.RowPitch,
+                  ySrc + static_cast<std::size_t>(row) * ySrcRowPitch, yCopyBytes);
+    }
+    context_->Unmap(videoNv12YTexture_, 0);
+
+    D3D11_MAPPED_SUBRESOURCE uvMapped{};
+    if (FAILED(context_->Map(videoNv12UvTexture_, 0, D3D11_MAP_WRITE_DISCARD, 0, &uvMapped)) ||
+        uvMapped.pData == nullptr || uvMapped.RowPitch == 0) {
+      return false;
+    }
+
+    const auto* uvSrc = frame.uvPlaneData;
+    auto* uvDst = static_cast<std::uint8_t*>(uvMapped.pData);
+    const UINT uvSrcRowPitch = static_cast<UINT>(frame.uvPlaneStrideBytes);
+    const UINT uvCopyBytes = uvSrcRowPitch < uvMapped.RowPitch ? uvSrcRowPitch : uvMapped.RowPitch;
+    for (int row = 0; row < uvRows; ++row) {
+      std::memcpy(uvDst + static_cast<std::size_t>(row) * uvMapped.RowPitch,
+                  uvSrc + static_cast<std::size_t>(row) * uvSrcRowPitch, uvCopyBytes);
+    }
+    context_->Unmap(videoNv12UvTexture_, 0);
+    return true;
+  }
+
+  bool DrawVideoResources(ID3D11PixelShader* pixelShader, ID3D11ShaderResourceView* const* srvs,
+                          const UINT srvCount) {
     if (!videoPipelineReady_ || context_ == nullptr || renderTargetView_ == nullptr ||
-        videoSrv_ == nullptr || videoSampler_ == nullptr || videoInputLayout_ == nullptr ||
-        videoVertexBuffer_ == nullptr || videoVertexShader_ == nullptr ||
-        videoPixelShader_ == nullptr) {
+        pixelShader == nullptr || srvs == nullptr || srvCount == 0 || videoSampler_ == nullptr ||
+        videoInputLayout_ == nullptr || videoVertexBuffer_ == nullptr ||
+        videoVertexShader_ == nullptr) {
       return false;
     }
 
@@ -884,14 +1080,33 @@ class WallpaperHostWin final : public IWallpaperHost {
     context_->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
 
     context_->VSSetShader(videoVertexShader_, nullptr, 0);
-    context_->PSSetShader(videoPixelShader_, nullptr, 0);
+    context_->PSSetShader(pixelShader, nullptr, 0);
     context_->PSSetSamplers(0, 1, &videoSampler_);
-    context_->PSSetShaderResources(0, 1, &videoSrv_);
+    context_->PSSetShaderResources(0, srvCount, srvs);
     context_->Draw(4, 0);
 
-    ID3D11ShaderResourceView* nullSrv = nullptr;
-    context_->PSSetShaderResources(0, 1, &nullSrv);
+    ID3D11ShaderResourceView* nullSrvs[2] = {nullptr, nullptr};
+    context_->PSSetShaderResources(0, srvCount, nullSrvs);
     return true;
+  }
+
+  bool DrawVideoTexture() {
+    return DrawVideoResources(videoPixelShader_, &videoSrv_, 1);
+  }
+
+  bool DrawVideoNv12Texture() {
+    ID3D11ShaderResourceView* nv12Srvs[] = {videoNv12YSrv_, videoNv12UvSrv_};
+    return DrawVideoResources(videoNv12PixelShader_, nv12Srvs, 2);
+  }
+
+  bool DrawCachedVideoTexture() {
+    if (HasNv12VideoTexture()) {
+      return DrawVideoNv12Texture();
+    }
+    if (HasRgbaVideoTexture()) {
+      return DrawVideoTexture();
+    }
+    return false;
   }
 
   void DrawFallback(const FrameToken& frame) {
@@ -960,6 +1175,7 @@ class WallpaperHostWin final : public IWallpaperHost {
   bool videoPipelineReady_ = false;
   ID3D11VertexShader* videoVertexShader_ = nullptr;
   ID3D11PixelShader* videoPixelShader_ = nullptr;
+  ID3D11PixelShader* videoNv12PixelShader_ = nullptr;
   ID3D11InputLayout* videoInputLayout_ = nullptr;
   ID3D11Buffer* videoVertexBuffer_ = nullptr;
   ID3D11SamplerState* videoSampler_ = nullptr;
@@ -969,6 +1185,12 @@ class WallpaperHostWin final : public IWallpaperHost {
   UINT videoTexHeight_ = 0;
   DXGI_FORMAT videoTexFormat_ = DXGI_FORMAT_UNKNOWN;
   bool videoTextureCpuWritable_ = false;
+  ID3D11Texture2D* videoNv12YTexture_ = nullptr;
+  ID3D11Texture2D* videoNv12UvTexture_ = nullptr;
+  ID3D11ShaderResourceView* videoNv12YSrv_ = nullptr;
+  ID3D11ShaderResourceView* videoNv12UvSrv_ = nullptr;
+  UINT videoNv12Width_ = 0;
+  UINT videoNv12Height_ = 0;
   std::uint64_t lastVideoSequence_ = 0;
 };
 

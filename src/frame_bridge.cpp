@@ -25,10 +25,17 @@ void PublishLatestFrame(const int width, const int height, const int strideBytes
   g_latestFrame.timestamp100ns = timestamp100ns;
   g_latestFrame.sequence = sequence;
   g_latestFrame.gpuBacked = false;
+  g_latestFrame.pixelFormat = PixelFormat::kRgba32;
   g_latestFrame.gpuSubresourceIndex = 0;
   g_latestFrame.dxgiFormat = 0;
   g_latestFrame.gpuTexture = nullptr;
   g_latestFrame.gpuTextureHolder.reset();
+  g_latestFrame.yPlaneData = nullptr;
+  g_latestFrame.yPlaneBytes = 0;
+  g_latestFrame.yPlaneStrideBytes = 0;
+  g_latestFrame.uvPlaneData = nullptr;
+  g_latestFrame.uvPlaneBytes = 0;
+  g_latestFrame.uvPlaneStrideBytes = 0;
   g_latestFrame.rgbaData = nullptr;
   g_latestFrame.rgbaDataBytes = 0;
   g_latestFrame.rgbaDataHolder.reset();
@@ -59,14 +66,61 @@ void PublishLatestFrameView(const int width, const int height, const int strideB
   g_latestFrame.timestamp100ns = timestamp100ns;
   g_latestFrame.sequence = sequence;
   g_latestFrame.gpuBacked = false;
+  g_latestFrame.pixelFormat = PixelFormat::kRgba32;
+  g_latestFrame.gpuSubresourceIndex = 0;
+  g_latestFrame.dxgiFormat = 0;
+  g_latestFrame.gpuTexture = nullptr;
+  g_latestFrame.gpuTextureHolder.reset();
+  g_latestFrame.yPlaneData = nullptr;
+  g_latestFrame.yPlaneBytes = 0;
+  g_latestFrame.yPlaneStrideBytes = 0;
+  g_latestFrame.uvPlaneData = nullptr;
+  g_latestFrame.uvPlaneBytes = 0;
+  g_latestFrame.uvPlaneStrideBytes = 0;
+  g_latestFrame.rgbaPixels.reset();
+  g_latestFrame.rgbaData = rgbaData;
+  g_latestFrame.rgbaDataBytes = rgbaDataBytes;
+  g_latestFrame.rgbaDataHolder = std::move(rgbaDataHolder);
+  g_hasFrame = true;
+}
+
+void PublishLatestNv12FrameView(const int width, const int height, const int yPlaneStrideBytes,
+                                const int uvPlaneStrideBytes,
+                                const std::int64_t timestamp100ns,
+                                const std::uint64_t sequence,
+                                const std::uint8_t* yPlaneData,
+                                const std::size_t yPlaneBytes,
+                                const std::uint8_t* uvPlaneData,
+                                const std::size_t uvPlaneBytes,
+                                std::shared_ptr<void> planeDataHolder) {
+  if (width <= 0 || height <= 0 || yPlaneStrideBytes <= 0 || uvPlaneStrideBytes <= 0 ||
+      yPlaneData == nullptr || uvPlaneData == nullptr || yPlaneBytes == 0 || uvPlaneBytes == 0 ||
+      planeDataHolder == nullptr) {
+    return;
+  }
+
+  std::lock_guard<std::mutex> lock(g_frameMutex);
+  g_latestFrame.width = width;
+  g_latestFrame.height = height;
+  g_latestFrame.strideBytes = yPlaneStrideBytes;
+  g_latestFrame.timestamp100ns = timestamp100ns;
+  g_latestFrame.sequence = sequence;
+  g_latestFrame.gpuBacked = false;
+  g_latestFrame.pixelFormat = PixelFormat::kNv12;
   g_latestFrame.gpuSubresourceIndex = 0;
   g_latestFrame.dxgiFormat = 0;
   g_latestFrame.gpuTexture = nullptr;
   g_latestFrame.gpuTextureHolder.reset();
   g_latestFrame.rgbaPixels.reset();
-  g_latestFrame.rgbaData = rgbaData;
-  g_latestFrame.rgbaDataBytes = rgbaDataBytes;
-  g_latestFrame.rgbaDataHolder = std::move(rgbaDataHolder);
+  g_latestFrame.rgbaData = nullptr;
+  g_latestFrame.rgbaDataBytes = 0;
+  g_latestFrame.rgbaDataHolder = std::move(planeDataHolder);
+  g_latestFrame.yPlaneData = yPlaneData;
+  g_latestFrame.yPlaneBytes = yPlaneBytes;
+  g_latestFrame.yPlaneStrideBytes = yPlaneStrideBytes;
+  g_latestFrame.uvPlaneData = uvPlaneData;
+  g_latestFrame.uvPlaneBytes = uvPlaneBytes;
+  g_latestFrame.uvPlaneStrideBytes = uvPlaneStrideBytes;
   g_hasFrame = true;
 }
 
@@ -85,6 +139,7 @@ void PublishLatestGpuFrame(const int width, const int height, const std::int64_t
   g_latestFrame.timestamp100ns = timestamp100ns;
   g_latestFrame.sequence = sequence;
   g_latestFrame.gpuBacked = true;
+  g_latestFrame.pixelFormat = PixelFormat::kRgba32;
   g_latestFrame.gpuSubresourceIndex = subresourceIndex;
   g_latestFrame.dxgiFormat = dxgiFormat;
 #ifdef _WIN32
@@ -97,6 +152,12 @@ void PublishLatestGpuFrame(const int width, const int height, const std::int64_t
   g_latestFrame.rgbaDataBytes = 0;
   g_latestFrame.rgbaDataHolder.reset();
   g_latestFrame.rgbaPixels.reset();
+  g_latestFrame.yPlaneData = nullptr;
+  g_latestFrame.yPlaneBytes = 0;
+  g_latestFrame.yPlaneStrideBytes = 0;
+  g_latestFrame.uvPlaneData = nullptr;
+  g_latestFrame.uvPlaneBytes = 0;
+  g_latestFrame.uvPlaneStrideBytes = 0;
   g_hasFrame = true;
 }
 

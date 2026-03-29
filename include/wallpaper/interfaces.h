@@ -19,12 +19,20 @@ enum class DecodePath {
   kUnknown = 0,
   kDxvaZeroCopy = 1,
   kCpuRgb32Fallback = 2,
-  kFallbackTicker = 3,
+  kCpuNv12Fallback = 3,
+  kFallbackTicker = 4,
 };
+
+[[nodiscard]] inline bool IsCpuFallbackDecodePath(const DecodePath decodePath) noexcept {
+  return decodePath == DecodePath::kCpuRgb32Fallback ||
+         decodePath == DecodePath::kCpuNv12Fallback;
+}
 
 struct FrameToken final {
   std::uint64_t sequence = 0;
   std::int64_t timestamp100ns = 0;
+  int width = 0;
+  int height = 0;
   DecodeMode decodeMode = DecodeMode::kUnknown;
   DecodePath decodePath = DecodePath::kUnknown;
   bool gpuBacked = false;
@@ -43,14 +51,22 @@ class IWallpaperHost {
   virtual void DetachFromDesktop() = 0;
   virtual void ResizeForDisplays() = 0;
   virtual void Present(const FrameToken& frame) = 0;
+  [[nodiscard]] virtual bool IsOccluded() const = 0;
+};
+
+struct DecodeOpenProfile final {
+  CodecPolicy codecPolicy = CodecPolicy::kH264;
+  bool adaptiveQualityEnabled = true;
+  int longRunLoadLevel = 0;
+  bool preferHardwareTransforms = true;
+  bool requireHardwareTransforms = false;
 };
 
 class IDecodePipeline {
  public:
   virtual ~IDecodePipeline() = default;
 
-  virtual bool Open(const std::string& path, CodecPolicy codecPolicy,
-                    bool adaptiveQuality) = 0;
+  virtual bool Open(const std::string& path, const DecodeOpenProfile& profile) = 0;
   virtual bool Start() = 0;
   virtual void Pause() = 0;
   virtual void Stop() = 0;

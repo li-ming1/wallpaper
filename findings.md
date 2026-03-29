@@ -231,3 +231,45 @@
 - 2026-03-28 追加发现：CPU-only 场景下，单靠帧率降档（30fps）仍会受“高分辨率 RGB32 解码 + 每帧上传”限制，CPU 基线难继续下探。
 - 2026-03-28 追加决策：把“自适应视频质量”升级为联合策略；在 MF CPU 回退路径对输出像素总量做上限控制（默认上限约 1280x720），从源头减少解码与内存带宽压力。
 - 2026-03-28 追加决策：解码泵线程按运行态切换线程优先级（`THREAD_PRIORITY_BELOW_NORMAL/IDLE`），用 Windows 原生调度降低后台竞争与长期占用。
+- 2026-03-29 新增发现：现有 CPU 回退链路即使有 720p 限幅，长时压力下仍会受 RGB32 上传和后台调度竞争影响，单纯调 sleep 的边际收益已经很低。
+- 2026-03-29 新增决策：
+  - `DecodeOpenProfile` 取代 `Open(path, codecPolicy, adaptiveQuality)`，把长期负载档位与硬件变换偏好显式传入解码层。
+  - `decode_output_policy` 升级为双档：CPU 回退常态上限 720p，高压长时上限 540p；720p 及以下输入保持 native，不再继续缩。
+  - `long_run_load_policy` 增加 `decode_path` 维度，CPU 回退 medium/high hot-sleep boost 从 `8/16ms` 提升到 `14/28ms`。
+  - `ResourceArbiter` 新增 `battery saver`、`remote session`、`display off/occluded` 电源态，并将其统一视为硬暂停来源。
+  - `RuntimeMetrics`/CSV 新增 `decode_output_pixels`、`thread_qos`、`occluded`、`power_state`，便于区分“内容复杂度”与“系统态降载”。
+  - decode 线程已接入 `SetThreadInformation(ThreadPowerThrottling/ThreadMemoryPriority)`，常态走 EcoQoS + low memory priority。
+- 验证：`run_tests` 全绿（106/106），`build_app` 成功。
+- 2026-03-29 追加发现：大量动态壁纸素材实际是 24fps / 25fps；现有 30/60 双档会把这类素材按 30fps 拉帧，长期运行时 decode pump 存在额外唤醒。
+- 2026-03-29 追加决策：
+  - 新增 `source_frame_rate_policy`，根据 MF 时间戳识别 24/25/30/60fps 源帧率，并带 4 样本迟滞。
+  - `ComputeDecodePumpHotSleepMs` 改成按“渲染档位 + 源帧率”联合决策：30fps=28ms、25fps=34ms、24fps=36ms。
+  - App 侧移除旧的 `sourceFpsHint30/sourceFpsHint60` 双档逻辑，统一改用 `SourceFrameRateState`。
+- 验证：`run_tests` 全绿（112/112），`build_app` 成功。
+- 2026-03-29 新增发现：`decode_pipeline_stub` 仍在 decode pump 轮询路径内同步调用 `IMFSourceReader::ReadSample(...)`，这使 MF 解码线程仍依赖外层唤醒节奏，属于长动态 CPU 热点之一。
+- 2026-03-29 官方文档核对：
+  - Source Reader 异步模式需要在创建 reader 时设置 `MF_SOURCE_READER_ASYNC_CALLBACK`。
+  - 异步模式下 `ReadSample` 立即返回，最后四个出参必须传 `NULL`，每次请求对应一次 `IMFSourceReaderCallback::OnReadSample` 回调。
+- 2026-03-29 追加决策：
+  - 新增 `decode_async_read_policy`，用纯状态机约束“单 in-flight 请求、ready sample 缓存、EOF seek 回绕”。
+  - `decode_pipeline_stub` 改为异步 Source Reader：回调线程只负责缓存样本；`TryAcquireLatestFrame` 只消费缓存并在消费后补发下一次请求。
+  - 运行态 `TrimMemory()` 暂停对 Source Reader 执行 flush，先避免异步 in-flight request 与 flush 交错带来的状态复杂度和潜在 `MF_E_NOTACCEPTING` 问题。
+- 验证：`run_tests` 全绿（117/117），`build_app` 成功。
+- 2026-03-29 新增发现：策略层虽然已识别 `kCpuNv12Fallback`，但 Win 运行态仍停留在 `RGB32` CPU 回退上传；这意味着 CPU-only 机器仍在承受 4 字节/像素上传带宽，NV12 只存在于类型层而未落到数据面。
+- 2026-03-29 官方/实现侧结论：
+  - 在非 D3D 互操作路径下优先协商 `MFVideoFormat_NV12`，可以把 CPU 回退的桥接/上传数据量从 `RGBA 4Bpp` 降到 `NV12 1.5Bpp`。
+  - 渲染端不必先做 CPU 颜色转换；直接上传 `Y=R8_UNORM`、`UV=R8G8_UNORM` 两张动态纹理，在像素着色器里做 BT.709 limited-range 变换即可。
+- 2026-03-29 追加决策：
+  - `decode_pipeline_stub`：非 D3D 互操作优先 `NV12 -> RGB32` 协商；命中 `NV12` 时优先走 `IMF2DBuffer::Lock2D` 发布平面视图，失败再回退连续缓冲。
+  - `wallpaper_host_win`：新增 NV12 双平面动态纹理与专用像素着色器，保持“只上传、不在 CPU 上转 RGBA”。
+  - `App`：把 `NV12` 与 `RGB32` 统一视为 CPU fallback，沿用现有 hot-sleep、working-set trim、adaptive reopen 策略。
+- 验证：`run_tests` 全绿（122/122），`build_app` 成功。
+- 2026-03-29 追加发现：顶部绿色色带不是通用颜色矩阵问题，更像 `NV12` UV 平面起点计算错误。
+  - 现有 `Lock2D` 路径默认 `uv_offset = visibleHeight * pitch`。
+  - 但部分 MF/NV12 buffer 会按更高的对齐高度分配，例如 `540 -> 544`；此时 UV 实际起点在 `alignedHeight * pitch`，顶端会读到错误 chroma，表现为顶边绿条。
+  - 另外 sample 可能包含多个 buffer；直接对 `GetBufferByIndex(0)` 做单-buffer 假设并不稳。
+- 2026-03-29 追加决策：
+  - 新增 `nv12_layout_policy`，根据 `frameHeight / pitch / totalBytes` 反推对齐后的 Y 行数，统一得到 UV 平面真实偏移。
+  - `decode_pipeline_stub` 的 NV12 直视图路径改为“仅单 buffer sample 且 `IMF2DBuffer` 可用时启用”；其余情况走 `ConvertToContiguousBuffer` 保守回退，优先保证正确性。
+  - 这次修复同时保留了安全场景下的 `Lock2D` 直视图快路径，没有把全部 NV12 强行退回成每帧额外拷贝。
+- 验证：`run_tests` 全绿（125/125），`build_app` 成功。

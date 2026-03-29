@@ -1,4 +1,5 @@
 #include "wallpaper/loop_sleep_policy.h"
+#include "wallpaper/source_frame_rate_policy.h"
 
 #include <chrono>
 
@@ -38,18 +39,41 @@ TEST_CASE(LoopSleepPolicy_DecodePumpNoFrameUsesBackoff) {
 }
 
 TEST_CASE(LoopSleepPolicy_DecodePumpHotSleepTracksFpsCap) {
-  EXPECT_EQ(wallpaper::ComputeDecodePumpHotSleepMs(60), 14);
-  EXPECT_EQ(wallpaper::ComputeDecodePumpHotSleepMs(30), 28);
+  EXPECT_EQ(wallpaper::ComputeDecodePumpHotSleepMs(60, 60), 14);
+  EXPECT_EQ(wallpaper::ComputeDecodePumpHotSleepMs(30, 30), 28);
+}
+
+TEST_CASE(LoopSleepPolicy_DecodePumpHotSleepUsesSourceFpsForLowFpsVideo) {
+  EXPECT_EQ(wallpaper::ComputeDecodePumpHotSleepMs(30, 25), 34);
+  EXPECT_EQ(wallpaper::ComputeDecodePumpHotSleepMs(30, 24), 36);
+  EXPECT_EQ(wallpaper::ComputeDecodePumpHotSleepMs(60, 24), 36);
 }
 
 TEST_CASE(LoopSleepPolicy_HighResolutionTimerEnabledOnlyForActive60Fps) {
-  EXPECT_TRUE(wallpaper::ShouldUseHighResolutionTimer(true, false, 60, 0));
-  EXPECT_TRUE(!wallpaper::ShouldUseHighResolutionTimer(false, false, 60, 0));
-  EXPECT_TRUE(!wallpaper::ShouldUseHighResolutionTimer(true, true, 60, 0));
-  EXPECT_TRUE(!wallpaper::ShouldUseHighResolutionTimer(true, false, 30, 0));
+  EXPECT_TRUE(wallpaper::ShouldUseHighResolutionTimer(
+      true, false, 60, 0, wallpaper::DecodePath::kDxvaZeroCopy, false));
+  EXPECT_TRUE(!wallpaper::ShouldUseHighResolutionTimer(
+      false, false, 60, 0, wallpaper::DecodePath::kDxvaZeroCopy, false));
+  EXPECT_TRUE(!wallpaper::ShouldUseHighResolutionTimer(
+      true, true, 60, 0, wallpaper::DecodePath::kDxvaZeroCopy, false));
+  EXPECT_TRUE(!wallpaper::ShouldUseHighResolutionTimer(
+      true, false, 30, 0, wallpaper::DecodePath::kDxvaZeroCopy, false));
 }
 
 TEST_CASE(LoopSleepPolicy_HighResolutionTimerDisabledUnderLongRunPressure) {
-  EXPECT_TRUE(!wallpaper::ShouldUseHighResolutionTimer(true, false, 60, 1));
-  EXPECT_TRUE(!wallpaper::ShouldUseHighResolutionTimer(true, false, 60, 2));
+  EXPECT_TRUE(!wallpaper::ShouldUseHighResolutionTimer(
+      true, false, 60, 1, wallpaper::DecodePath::kDxvaZeroCopy, false));
+  EXPECT_TRUE(!wallpaper::ShouldUseHighResolutionTimer(
+      true, false, 60, 2, wallpaper::DecodePath::kDxvaZeroCopy, false));
+}
+
+TEST_CASE(LoopSleepPolicy_HighResolutionTimerDisabledForCpuFallbackUnlessWarmupActive) {
+  EXPECT_TRUE(!wallpaper::ShouldUseHighResolutionTimer(
+      true, false, 60, 0, wallpaper::DecodePath::kCpuRgb32Fallback, false));
+  EXPECT_TRUE(wallpaper::ShouldUseHighResolutionTimer(
+      true, false, 60, 0, wallpaper::DecodePath::kCpuRgb32Fallback, true));
+  EXPECT_TRUE(!wallpaper::ShouldUseHighResolutionTimer(
+      true, false, 60, 0, wallpaper::DecodePath::kCpuNv12Fallback, false));
+  EXPECT_TRUE(wallpaper::ShouldUseHighResolutionTimer(
+      true, false, 60, 0, wallpaper::DecodePath::kCpuNv12Fallback, true));
 }

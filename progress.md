@@ -1036,3 +1036,127 @@
   - task_plan.md
   - findings.md
   - progress.md
+### Phase 43: 长时运行系统态仲裁与 CPU 回退进一步压降
+- **Status:** complete
+- Actions taken:
+  - Red: 扩展 `tests/decode_output_policy_tests.cpp`、`tests/long_run_load_policy_tests.cpp`、`tests/resource_arbiter_tests.cpp`、`tests/loop_sleep_policy_tests.cpp`、`tests/metrics_log_line_tests.cpp`，确认新增接口与行为先失败再实现。
+  - Green: `DecodeOpenProfile` 接入 `IDecodePipeline::Open`，并在 `App` / Win / stub 贯通；CPU 回退输出策略升级为 `720p -> 540p` 双档。
+  - Green: `LongRunLoadPolicy` 新增 `decode_path` 维度；CPU 回退路径对 medium/high 压力输出更激进的 hot-sleep boost。
+  - Green: `ResourceArbiter` 新增 `battery saver` / `remote session` / `display off` 电源态，并暴露 `CurrentPowerState()`。
+  - Green: `RuntimeMetrics` 与 CSV 日志新增 `decode_output_pixels`、`thread_qos`、`occluded`、`power_state`。
+  - Green: decode 线程接入 `SetThreadInformation(ThreadPowerThrottling/ThreadMemoryPriority)`，常态走 EcoQoS + low memory priority；壁纸宿主新增 `IsOccluded()` 并接入 App 采样/仲裁。
+- Verification:
+  - `./scripts/run_tests.ps1` -> 106/106 PASS
+  - `./scripts/build_app.ps1` -> build/wallpaper_app.exe 成功
+- Files modified:
+  - include/wallpaper/app.h
+  - include/wallpaper/decode_output_policy.h
+  - include/wallpaper/interfaces.h
+  - include/wallpaper/long_run_load_policy.h
+  - include/wallpaper/loop_sleep_policy.h
+  - include/wallpaper/metrics_sampler.h
+  - include/wallpaper/resource_arbiter.h
+  - src/app.cpp
+  - src/decode_output_policy.cpp
+  - src/long_run_load_policy.cpp
+  - src/loop_sleep_policy.cpp
+  - src/metrics_log_line.cpp
+  - src/platform_stubs.cpp
+  - src/resource_arbiter.cpp
+  - src/win/decode_pipeline_stub.cpp
+  - src/win/wallpaper_host_win.cpp
+  - tests/decode_output_policy_tests.cpp
+  - tests/long_run_load_policy_tests.cpp
+  - tests/loop_sleep_policy_tests.cpp
+  - tests/metrics_log_line_tests.cpp
+  - tests/resource_arbiter_tests.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md
+### Phase 44: 低帧率源感知降唤醒
+- **Status:** complete
+- Actions taken:
+  - Red: 新增 `tests/source_frame_rate_policy_tests.cpp`，并扩展 `tests/loop_sleep_policy_tests.cpp` 覆盖 24/25fps 低帧率热睡眠。
+  - Green: 新增 `include/wallpaper/source_frame_rate_policy.h` 与 `src/source_frame_rate_policy.cpp`，实现 24/25/30/60fps 时间戳识别与迟滞。
+  - Green: `ComputeDecodePumpHotSleepMs` 改为 `renderFpsCap + sourceFps` 双参策略，24/25fps 素材下降 decode pump 长期唤醒频率。
+  - Green: `App` 侧移除 `sourceFpsHint30/sourceFpsHint60`，统一改用 `SourceFrameRateState` 驱动 cadence。
+  - Green: 构建/测试清单补齐 `source_frame_rate_policy` 新增源与测试文件。
+- Verification:
+  - `./scripts/run_tests.ps1` -> 112/112 PASS
+  - `./scripts/build_app.ps1` -> build/wallpaper_app.exe 成功
+- Files modified:
+  - include/wallpaper/source_frame_rate_policy.h
+  - src/source_frame_rate_policy.cpp
+  - include/wallpaper/loop_sleep_policy.h
+  - src/loop_sleep_policy.cpp
+  - include/wallpaper/app.h
+  - src/app.cpp
+  - tests/source_frame_rate_policy_tests.cpp
+  - tests/loop_sleep_policy_tests.cpp
+  - CMakeLists.txt
+  - scripts/run_tests.ps1
+  - scripts/build_app.ps1
+  - task_plan.md
+  - findings.md
+  - progress.md
+### Phase 45: MF 异步单请求缓存化解码
+- **Status:** complete
+- Actions taken:
+  - Red: 新增 `tests/decode_async_read_policy_tests.cpp`，并更新 `CMakeLists.txt`、`scripts/run_tests.ps1`、`scripts/build_app.ps1`，首次编译失败确认 `decode_async_read_policy` 缺失。
+  - Green: 新增 `include/wallpaper/decode_async_read_policy.h` 与 `src/decode_async_read_policy.cpp`，实现单请求状态机：启动 prime、sample ready、pause、reset、EOF seek。
+  - Green: `src/win/decode_pipeline_stub.cpp` 接入 `MF_SOURCE_READER_ASYNC_CALLBACK` 与 `IMFSourceReaderCallback`，改为异步回调缓存 `IMFSample`。
+  - Green: `TryAcquireLatestFrame` 改为消费缓存样本并在消费后补发下一次异步请求，不再在轮询热路径里同步 `ReadSample`。
+  - Green: 运行态 `TrimMemory()` 去掉 Source Reader flush，避免异步 in-flight request 与 flush 交错。
+- Verification:
+  - `./scripts/run_tests.ps1` -> 117/117 PASS
+  - `./scripts/build_app.ps1` -> build/wallpaper_app.exe 成功
+- Files modified:
+  - include/wallpaper/decode_async_read_policy.h
+  - src/decode_async_read_policy.cpp
+  - src/win/decode_pipeline_stub.cpp
+  - tests/decode_async_read_policy_tests.cpp
+  - CMakeLists.txt
+  - scripts/run_tests.ps1
+  - scripts/build_app.ps1
+  - task_plan.md
+  - findings.md
+  - progress.md
+
+### Phase 46: CPU-only NV12 回退链路打通
+- **Status:** complete
+- Actions taken:
+  - Green: `src/win/decode_pipeline_stub.cpp` 在非 D3D 互操作路径优先协商 `MFVideoFormat_NV12`，并在发布阶段优先走 `IMF2DBuffer::Lock2D` 直连平面视图，失败时回退连续缓冲。
+  - Green: `src/win/wallpaper_host_win.cpp` 新增 NV12 双平面动态纹理（`R8_UNORM` + `R8G8_UNORM`）和专用像素着色器，避免 CPU 侧先转 RGBA。
+  - Green: `src/app.cpp` 把 `kCpuNv12Fallback` 纳入 CPU fallback 统一判定，复用现有 hot-sleep、working-set trim、adaptive reopen 降载策略。
+- Verification:
+  - `./scripts/run_tests.ps1` -> 122/122 PASS
+  - `./scripts/build_app.ps1` -> build/wallpaper_app.exe 成功
+- Files modified:
+  - src/win/decode_pipeline_stub.cpp
+  - src/win/wallpaper_host_win.cpp
+  - src/app.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md
+
+### Phase 47: NV12 顶部绿条修复与对齐布局收敛
+- **Status:** complete
+- Actions taken:
+  - Red: 新增 `include/wallpaper/nv12_layout_policy.h`、`tests/nv12_layout_policy_tests.cpp`，首次执行 `./scripts/run_tests.ps1` 因 `src/nv12_layout_policy.cpp` 缺失而编译失败，确认红灯真实存在。
+  - Green: 新增 `src/nv12_layout_policy.cpp`，按 `frameHeight / pitch / totalBytes` 推导 NV12 对齐布局，覆盖“可见高度小于对齐高度”的 UV 偏移场景。
+  - Green: `src/win/decode_pipeline_stub.cpp` 的 NV12 `Lock2D` 路径改为只在单 buffer sample 时启用，并使用 `sample->GetTotalLength()` + `ComputeNv12Layout(...)` 计算真实 UV 起点；多 buffer sample 自动回退连续缓冲。
+  - Green: 构建清单补齐 `nv12_layout_policy` 新源与测试文件。
+- Verification:
+  - `./scripts/run_tests.ps1` -> 125/125 PASS
+  - `./scripts/build_app.ps1` -> build/wallpaper_app.exe 成功
+- Files modified:
+  - include/wallpaper/nv12_layout_policy.h
+  - src/nv12_layout_policy.cpp
+  - tests/nv12_layout_policy_tests.cpp
+  - src/win/decode_pipeline_stub.cpp
+  - CMakeLists.txt
+  - scripts/run_tests.ps1
+  - scripts/build_app.ps1
+  - task_plan.md
+  - findings.md
+  - progress.md

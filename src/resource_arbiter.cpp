@@ -22,8 +22,16 @@ void ResourceArbiter::SetDesktopVisible(const bool visible) noexcept {
   desktopVisible_ = visible;
 }
 
+void ResourceArbiter::SetBatterySaverActive(const bool active) noexcept {
+  batterySaverActive_ = active;
+}
+
+void ResourceArbiter::SetRemoteSessionActive(const bool active) noexcept {
+  remoteSessionActive_ = active;
+}
+
 bool ResourceArbiter::ShouldPause() const noexcept {
-  if (!sessionActive_ || !desktopVisible_) {
+  if (CurrentPowerState() != RuntimePowerState::kNormal) {
     return true;
   }
   if (pauseWhenNotDesktopContext_ && !desktopContextActive_) {
@@ -35,7 +43,23 @@ bool ResourceArbiter::ShouldPause() const noexcept {
 
 bool ResourceArbiter::ShouldAllowHardSuspend() const noexcept {
   // 非桌面上下文（如全屏应用）仅做轻暂停，避免频繁 Stop/Open 导致恢复卡顿。
-  return !sessionActive_ || !desktopVisible_;
+  return CurrentPowerState() != RuntimePowerState::kNormal;
+}
+
+RuntimePowerState ResourceArbiter::CurrentPowerState() const noexcept {
+  if (!sessionActive_) {
+    return RuntimePowerState::kSessionInactive;
+  }
+  if (!desktopVisible_) {
+    return RuntimePowerState::kDisplayOff;
+  }
+  if (remoteSessionActive_) {
+    return RuntimePowerState::kRemoteSession;
+  }
+  if (batterySaverActive_) {
+    return RuntimePowerState::kBatterySaver;
+  }
+  return RuntimePowerState::kNormal;
 }
 
 }  // namespace wallpaper

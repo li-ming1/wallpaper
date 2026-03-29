@@ -25,3 +25,9 @@ TEST_CASE(RuntimeTrimPolicy_NeverTrimsWhenNotRequested) {
       false, true, wallpaper::DecodePath::kDxvaZeroCopy);
   EXPECT_TRUE(!shouldTrim);
 }
+
+TEST_CASE(RuntimeTrimPolicy_DisablesActiveTrimForCpuNv12Fallback) {
+  const bool shouldTrim = wallpaper::ShouldExecuteLongRunDecodeTrim(
+      true, true, wallpaper::DecodePath::kCpuNv12Fallback);
+  EXPECT_TRUE(!shouldTrim);
+}

@@ -4,7 +4,7 @@
 Implement a Windows 10/11 dynamic wallpaper app from an empty repo with strict performance-first architecture (WorkerW + MF + D3D11), plus tests for core logic.
 
 ## Current Phase
-Phase 6
+Phase 47
 
 ## Phases
 ### Phase 1: Requirements & Discovery
@@ -354,4 +354,45 @@ Phase 6
 - [x] Green: 启用/禁用自适应质量时热重开视频管线，使策略即时生效
 - [x] Green: 解码线程按状态切换优先级（active: below-normal / idle: idle）
 - [x] Verification: 单测通过（99/99） + 构建通过
+- **Status:** complete
+
+### Phase 43: 长时运行系统态仲裁与 CPU 回退进一步压降（Completed）
+- [x] Red: 新增/调整 `decode_output_policy`、`long_run_load_policy`、`resource_arbiter`、`loop_sleep_policy`、`metrics_log_line` 测试并验证失败
+- [x] Green: CPU 回退输出策略升级为 `720p -> 540p` 双档，并引入 `DecodeOpenProfile`
+- [x] Green: 长时负载策略按 `decode_path` 区分 DXVA / CPU 回退 hot-sleep 增量
+- [x] Green: `ResourceArbiter` 接入 battery saver / remote session / display off 电源态
+- [x] Green: 指标日志新增 `decode_output_pixels/thread_qos/occluded/power_state`
+- [x] Green: decode 线程接入 `SetThreadInformation`（EcoQoS + MemoryPriority）并记录实时 QoS
+- [x] Green: 壁纸宿主暴露 occlusion 状态，并接入 App 仲裁与指标采样
+- [x] Verification: 单测通过（106/106） + 构建通过
+- **Status:** complete
+
+### Phase 44: 低帧率源感知降唤醒（Completed）
+- [x] Red: 新增 `source_frame_rate_policy` 测试与 `loop_sleep_policy` 低帧率热睡眠测试并验证失败
+- [x] Green: 新增 24/25/30/60fps 源帧率识别策略
+- [x] Green: decode hot-sleep 改为按“渲染档位 + 源帧率”联合决策
+- [x] Green: App 从原先 30/60 双档 heuristics 切换到 `SourceFrameRateState`
+- [x] Verification: 单测通过（112/112） + 构建通过
+- **Status:** complete
+
+### Phase 45: MF 异步单请求缓存化解码（Completed）
+- [x] Red: 新增 `decode_async_read_policy` 测试并验证缺失实现导致编译失败
+- [x] Green: 实现异步单请求状态机（单 in-flight / ready sample / EOF seek）
+- [x] Green: `decode_pipeline_stub` 切到 `MF_SOURCE_READER_ASYNC_CALLBACK`，`TryAcquireLatestFrame` 改为消费缓存样本
+- [x] Green: 运行态 trim 去除 Source Reader flush，避免异步 in-flight 请求与 flush 交错复杂化
+- [x] Verification: 单测通过（117/117） + 构建通过
+- **Status:** complete
+
+### Phase 46: CPU-only NV12 回退链路打通（Completed）
+- [x] Green: `decode_pipeline_stub` 在非 D3D 互操作路径优先协商 `MFVideoFormat_NV12`
+- [x] Green: `frame_bridge` / `wallpaper_host_win` 打通 NV12 双平面发布与渲染
+- [x] Green: `App` 将 NV12 统一纳入 CPU fallback 降载/trim/热重开判定
+- [x] Verification: 单测通过（122/122） + 构建通过
+- **Status:** complete
+
+### Phase 47: NV12 顶部绿条修复与对齐布局收敛（Completed）
+- [x] Red: 新增 `nv12_layout_policy` 测试并先触发编译失败
+- [x] Green: 引入 NV12 对齐布局推导，修复 UV 平面起点不能简单按 `visibleHeight * pitch` 计算的问题
+- [x] Green: `decode_pipeline_stub` 仅在单 buffer sample 时走 `Lock2D` 直视图，多 buffer 回退连续缓冲
+- [x] Verification: 单测通过（125/125） + 构建通过
 - **Status:** complete

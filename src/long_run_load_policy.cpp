@@ -11,9 +11,9 @@ constexpr double kMediumPresentP95Ms = 8.0;
 constexpr double kHighPresentP95Ms = 10.0;
 constexpr double kMediumDroppedRatio = 0.02;
 constexpr double kHighDroppedRatio = 0.04;
-constexpr std::size_t kMediumPrivateBytes = 80U * 1024U * 1024U;
-constexpr std::size_t kHighPrivateBytes = 100U * 1024U * 1024U;
-constexpr std::size_t kTrimPrivateBytes = 104U * 1024U * 1024U;
+constexpr std::size_t kMediumPrivateBytes = 90U * 1024U * 1024U;
+constexpr std::size_t kHighPrivateBytes = 110U * 1024U * 1024U;
+constexpr std::size_t kTrimPrivateBytes = 120U * 1024U * 1024U;
 
 constexpr int kEnterMediumSamples = 4;
 constexpr int kEnterMediumFastSamples = 3;
@@ -22,12 +22,13 @@ constexpr int kExitHighSamples = 10;
 constexpr int kExitMediumSamples = 14;
 constexpr int kTrimCooldownSamples = 30;
 
-[[nodiscard]] int LevelToHotSleepBoostMs(const int level) noexcept {
+[[nodiscard]] int LevelToHotSleepBoostMs(const int level, const DecodePath decodePath) noexcept {
+  const bool cpuFallback = IsCpuFallbackDecodePath(decodePath);
   if (level >= 2) {
-    return 16;
+    return cpuFallback ? 28 : 16;
   }
   if (level == 1) {
-    return 8;
+    return cpuFallback ? 14 : 8;
   }
   return 0;
 }
@@ -35,7 +36,7 @@ constexpr int kTrimCooldownSamples = 30;
 }  // namespace
 
 LongRunLoadDecision UpdateLongRunLoadPolicy(const RuntimeMetrics& metrics, const bool hasActiveVideo,
-                                            const bool stablePaused,
+                                            const bool stablePaused, const DecodePath decodePath,
                                             LongRunLoadState* const state) noexcept {
   if (state == nullptr) {
     return {};
@@ -97,7 +98,7 @@ LongRunLoadDecision UpdateLongRunLoadPolicy(const RuntimeMetrics& metrics, const
   }
 
   LongRunLoadDecision decision;
-  decision.decodeHotSleepBoostMs = LevelToHotSleepBoostMs(state->level);
+  decision.decodeHotSleepBoostMs = LevelToHotSleepBoostMs(state->level, decodePath);
 
   const bool allowTrimByPressure = state->level >= 1 || mediumPressure;
   if (allowTrimByPressure && metrics.privateBytes >= kTrimPrivateBytes &&

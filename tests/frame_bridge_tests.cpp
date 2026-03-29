@@ -48,3 +48,25 @@ TEST_CASE(FrameBridge_PublishAndReadLatestGpuFrame) {
   EXPECT_EQ(static_cast<int>(latest.sequence), 7);
   EXPECT_TRUE(latest.rgbaPixels == nullptr);
 }
+
+TEST_CASE(FrameBridge_PublishAndReadLatestNv12Frame) {
+  wallpaper::frame_bridge::ClearLatestFrame();
+
+  auto nv12Holder = std::make_shared<std::vector<std::uint8_t>>(
+      std::vector<std::uint8_t>(12, static_cast<std::uint8_t>(9)));
+  wallpaper::frame_bridge::PublishLatestNv12FrameView(
+      4, 2, 4, 4, 1000, 9, nv12Holder->data(), 8, nv12Holder->data() + 8, 4,
+      std::shared_ptr<void>(nv12Holder, nv12Holder->data()));
+
+  wallpaper::frame_bridge::LatestFrame latest;
+  EXPECT_TRUE(wallpaper::frame_bridge::TryGetLatestFrame(&latest));
+  EXPECT_EQ(latest.width, 4);
+  EXPECT_EQ(latest.height, 2);
+  EXPECT_EQ(static_cast<int>(latest.sequence), 9);
+  EXPECT_EQ(static_cast<int>(latest.pixelFormat),
+            static_cast<int>(wallpaper::frame_bridge::PixelFormat::kNv12));
+  EXPECT_TRUE(latest.yPlaneData != nullptr);
+  EXPECT_TRUE(latest.uvPlaneData != nullptr);
+  EXPECT_EQ(latest.yPlaneBytes, static_cast<std::size_t>(8));
+  EXPECT_EQ(latest.uvPlaneBytes, static_cast<std::size_t>(4));
+}

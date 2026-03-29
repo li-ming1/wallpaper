@@ -194,6 +194,16 @@ bool IsSessionInteractive() {
   return true;
 }
 
+bool IsBatterySaverActive() {
+  SYSTEM_POWER_STATUS powerStatus{};
+  if (!GetSystemPowerStatus(&powerStatus)) {
+    return false;
+  }
+  return powerStatus.SystemStatusFlag != 0;
+}
+
+bool IsRemoteSessionActive() { return GetSystemMetrics(SM_REMOTESESSION) != 0; }
+
 bool TrimCurrentProcessWorkingSet() {
   return EmptyWorkingSet(GetCurrentProcess()) != FALSE;
 }
@@ -254,6 +264,8 @@ class ScopedHighResolutionTimer final {
 double QueryProcessCpuPercent() { return 0.0; }
 ProcessMemoryUsage QueryProcessMemoryUsage() { return {}; }
 bool IsSessionInteractive() { return true; }
+bool IsBatterySaverActive() { return false; }
+bool IsRemoteSessionActive() { return false; }
 bool TrimCurrentProcessWorkingSet() { return false; }
 bool SetAutoStartEnabled(bool) { return true; }
 bool TryDetectDesktopContextActive(bool* outActive) {
@@ -390,7 +402,8 @@ int App::Run() {
     const bool shouldPause = stablePauseForLoopSleep_;
     const bool hasActiveVideo = wallpaperAttached_ && decodeOpened_.load();
     const bool useHighResolutionTimer = ShouldUseHighResolutionTimer(
-        hasActiveVideo, shouldPause, scheduler_.GetFpsCap(), longRunLoadState_.level);
+        hasActiveVideo, shouldPause, scheduler_.GetFpsCap(), longRunLoadState_.level,
+        lastDecodePath_, decodeWarmupActive_.load());
     timerResolution.SetEnabled(useHighResolutionTimer);
     const auto untilNextRender = std::chrono::duration_cast<std::chrono::milliseconds>(
         scheduler_.TimeUntilNextRender(RenderScheduler::Clock::now()));
@@ -467,24 +480,27 @@ void App::DetachWallpaper() {
   presentSamplesMs_.shrink_to_fit();
 }
 
-void App::ResetPlaybackState() {
+void App::ResetPlaybackState(const bool resetLongRunState) {
   hasLastPresentedFrame_ = false;
   syntheticSequence_ = 0;
   lastDecodedTimestamp100ns_ = -1;
-  sourceFpsCap_ = 60;
-  sourceFpsHint30_ = 0;
-  sourceFpsHint60_ = 0;
+  ResetSourceFrameRateState(&sourceFrameRateState_);
   trayMenuVisible_ = false;
   lastTrayInteractionAt_ = RenderScheduler::Clock::time_point{};
   lastDecodeMode_ = DecodeMode::kUnknown;
   lastDecodePath_ = DecodePath::kUnknown;
   decodeCopyBytesInWindow_ = 0;
+  lastDecodeOutputPixels_ = 0;
   lastSessionProbeAt_ = RenderScheduler::Clock::time_point{};
   lastForegroundProbeAt_ = RenderScheduler::Clock::time_point{};
   foregroundProbeFailureStreak_ = 0;
   cachedSessionInteractive_ = true;
   cachedDesktopContextActive_ = true;
-  longRunLoadState_ = LongRunLoadState{};
+  cachedBatterySaverActive_ = false;
+  cachedRemoteSessionActive_ = false;
+  if (resetLongRunState) {
+    longRunLoadState_ = LongRunLoadState{};
+  }
   stablePauseForLoopSleep_ = false;
   wasPaused_ = false;
   decodeCacheTrimmedByPause_ = false;
@@ -499,6 +515,9 @@ void App::ResetPlaybackState() {
   hardSuspendedByPause_ = false;
   pauseTransitionState_ = PauseTransitionState{};
   decodePumpDynamicBoostMs_.store(0);
+  decodeThreadQos_.store(static_cast<int>(RuntimeThreadQos::kNormal));
+  decodeWarmupActive_.store(false);
+  decodeOpenLongRunLevel_ = 0;
   {
     std::lock_guard<std::mutex> lock(decodedTokenMu_);
     hasLatestDecodedToken_ = false;
@@ -506,14 +525,21 @@ void App::ResetPlaybackState() {
   }
 }
 
-bool App::StartVideoPipelineForPath(const std::string& path) {
+bool App::StartVideoPipelineForPath(const std::string& path, const int longRunLoadLevel,
+                                    const bool resetLongRunState) {
   if (!decodePipeline_ || !ShouldActivateVideoPipeline(path)) {
     return false;
   }
   if (!EnsureWallpaperAttached()) {
     return false;
   }
-  if (!decodePipeline_->Open(path, config_.codecPolicy, config_.adaptiveQuality)) {
+  DecodeOpenProfile openProfile;
+  openProfile.codecPolicy = config_.codecPolicy;
+  openProfile.adaptiveQualityEnabled = config_.adaptiveQuality;
+  openProfile.longRunLoadLevel = longRunLoadLevel;
+  openProfile.preferHardwareTransforms = true;
+  openProfile.requireHardwareTransforms = false;
+  if (!decodePipeline_->Open(path, openProfile)) {
     decodeOpened_.store(false);
     decodeRunning_.store(false);
     return false;
@@ -526,7 +552,8 @@ bool App::StartVideoPipelineForPath(const std::string& path) {
     return false;
   }
   decodeRunning_.store(true);
-  ResetPlaybackState();
+  ResetPlaybackState(resetLongRunState);
+  decodeOpenLongRunLevel_ = longRunLoadLevel;
   WakeDecodePump();
   ApplyRenderFpsCap(qualityGovernor_.CurrentFps());
   scheduler_.Reset();
@@ -535,12 +562,12 @@ bool App::StartVideoPipelineForPath(const std::string& path) {
 
 void App::ApplyRenderFpsCap(const int governorFps) {
   int desired = NormalizeFpsCap(governorFps);
-  if (sourceFpsCap_ == 30 && desired > 30) {
+  if (sourceFrameRateState_.sourceFps <= 30 && desired > 30) {
     desired = 30;
   }
-  int baseHotSleepMs = ComputeDecodePumpHotSleepMs(desired);
+  int baseHotSleepMs = ComputeDecodePumpHotSleepMs(desired, sourceFrameRateState_.sourceFps);
   int dynamicBoostMs = decodePumpDynamicBoostMs_.load();
-  if (lastDecodePath_ == DecodePath::kCpuRgb32Fallback) {
+  if (IsCpuFallbackDecodePath(lastDecodePath_)) {
     // CPU-only 回退链路下进一步放缓解码拉帧频率，降低长期动态 CPU 压力。
     baseHotSleepMs += (desired >= 60 ? 10 : 14);
     if (dynamicBoostMs > 0) {
@@ -616,6 +643,8 @@ void App::StartDecodePump() {
 
 #ifdef _WIN32
     int lastDecodeThreadPriority = THREAD_PRIORITY_NORMAL;
+    RuntimeThreadQos lastDecodeThreadQos = RuntimeThreadQos::kNormal;
+    ULONG lastMemoryPriority = MEMORY_PRIORITY_NORMAL;
     const auto setDecodeThreadPriority = [&](const int priority) {
       if (priority == lastDecodeThreadPriority) {
         return;
@@ -624,14 +653,44 @@ void App::StartDecodePump() {
         lastDecodeThreadPriority = priority;
       }
     };
-    setDecodeThreadPriority(THREAD_PRIORITY_BELOW_NORMAL);
+    const auto applyDecodeThreadServiceHints = [&](const bool decodeReady,
+                                                   const bool warmupActive) {
+      const RuntimeThreadQos nextQos =
+          warmupActive ? RuntimeThreadQos::kNormal : RuntimeThreadQos::kEco;
+      const ULONG nextMemoryPriority =
+          warmupActive ? MEMORY_PRIORITY_NORMAL : MEMORY_PRIORITY_LOW;
+      decodeThreadQos_.store(static_cast<int>(nextQos));
+      if (nextQos != lastDecodeThreadQos) {
+        THREAD_POWER_THROTTLING_STATE throttling{};
+        throttling.Version = THREAD_POWER_THROTTLING_CURRENT_VERSION;
+        throttling.ControlMask = THREAD_POWER_THROTTLING_EXECUTION_SPEED;
+        throttling.StateMask =
+            nextQos == RuntimeThreadQos::kEco ? THREAD_POWER_THROTTLING_EXECUTION_SPEED : 0;
+        SetThreadInformation(GetCurrentThread(), ThreadPowerThrottling, &throttling,
+                             sizeof(throttling));
+        lastDecodeThreadQos = nextQos;
+      }
+      if (nextMemoryPriority != lastMemoryPriority) {
+        MEMORY_PRIORITY_INFORMATION memoryInfo{};
+        memoryInfo.MemoryPriority = nextMemoryPriority;
+        SetThreadInformation(GetCurrentThread(), ThreadMemoryPriority, &memoryInfo,
+                             sizeof(memoryInfo));
+        lastMemoryPriority = nextMemoryPriority;
+      }
+      setDecodeThreadPriority(decodeReady ? THREAD_PRIORITY_BELOW_NORMAL : THREAD_PRIORITY_IDLE);
+    };
+    applyDecodeThreadServiceHints(false, false);
 #endif
 
     int decodeIdleSleepMs = 2;
     while (decodePumpRunning_.load()) {
       const bool decodeReady = decodePipeline_ && decodeOpened_.load() && decodeRunning_.load();
+      const bool warmupActive = decodeWarmupActive_.load();
 #ifdef _WIN32
-      setDecodeThreadPriority(decodeReady ? THREAD_PRIORITY_BELOW_NORMAL : THREAD_PRIORITY_IDLE);
+      applyDecodeThreadServiceHints(decodeReady, warmupActive);
+#else
+      decodeThreadQos_.store(static_cast<int>(warmupActive ? RuntimeThreadQos::kNormal
+                                                           : RuntimeThreadQos::kEco));
 #endif
       if (!decodeReady) {
         decodeIdleSleepMs = ComputeDecodePumpSleepMs(false, false, decodeIdleSleepMs);
@@ -818,6 +877,8 @@ void App::Tick() {
   const bool suppressDesktopContextProbe = trayMenuVisible_ || inTrayInteractionFreeze;
   if (ShouldRefreshRuntimeProbe(now, lastSessionProbeAt_, probeIntervals.session)) {
     cachedSessionInteractive_ = IsSessionInteractive();
+    cachedBatterySaverActive_ = IsBatterySaverActive();
+    cachedRemoteSessionActive_ = IsRemoteSessionActive();
     lastSessionProbeAt_ = now;
   }
   const bool shouldProbeForeground =
@@ -842,7 +903,9 @@ void App::Tick() {
   }
   arbiter_.SetSessionActive(cachedSessionInteractive_);
   arbiter_.SetDesktopContextActive(cachedDesktopContextActive_);
-  arbiter_.SetDesktopVisible(true);
+  arbiter_.SetDesktopVisible(!(wallpaperHost_ != nullptr && wallpaperHost_->IsOccluded()));
+  arbiter_.SetBatterySaverActive(cachedBatterySaverActive_);
+  arbiter_.SetRemoteSessionActive(cachedRemoteSessionActive_);
   const bool rawShouldPause = arbiter_.ShouldPause();
   constexpr std::chrono::milliseconds kPauseEnterDelay(110);
   constexpr std::chrono::milliseconds kPauseExitDelay(180);
@@ -869,6 +932,7 @@ void App::Tick() {
       decodeCacheTrimmedByPause_ = false;
       resumeWarmupOpened_ = false;
       resumeWarmupStarted_ = false;
+      decodeWarmupActive_.store(false);
       nextWarmupAttemptAt_ = RenderScheduler::Clock::time_point{};
       pauseEnteredAt_ = now;
       scheduler_.Reset();
@@ -897,6 +961,7 @@ void App::Tick() {
         hardSuspendedByPause_ = true;
         resumeWarmupOpened_ = false;
         resumeWarmupStarted_ = false;
+        decodeWarmupActive_.store(false);
         nextWarmupAttemptAt_ = now;
         resourcesReleasedByPause_ = true;
       }
@@ -904,13 +969,16 @@ void App::Tick() {
       const bool shouldWarmResume = ShouldWarmResumeDuringPause(rawShouldPause, hardSuspendedByPause_);
       if (shouldWarmResume && !resumeWarmupOpened_ && now >= nextWarmupAttemptAt_) {
         if (ShouldActivateVideoPipeline(config_.videoPath) &&
-            decodePipeline_->Open(config_.videoPath, config_.codecPolicy,
-                                  config_.adaptiveQuality)) {
+            decodePipeline_->Open(config_.videoPath, DecodeOpenProfile{config_.codecPolicy,
+                                                                       config_.adaptiveQuality,
+                                                                       decodeOpenLongRunLevel_,
+                                                                       true, false})) {
           // 在退出 pause 迟滞窗口内预热 Open，恢复时只需 Start，降低解冻卡顿。
           decodeOpened_.store(true);
           decodeRunning_.store(false);
           resumeWarmupOpened_ = true;
           resumeWarmupStarted_ = false;
+          decodeWarmupActive_.store(true);
           nextWarmupAttemptAt_ = RenderScheduler::Clock::time_point{};
         } else {
           nextWarmupAttemptAt_ = now + std::chrono::milliseconds(500);
@@ -919,6 +987,7 @@ void App::Tick() {
         if (decodePipeline_->Start()) {
           decodeRunning_.store(true);
           resumeWarmupStarted_ = true;
+          decodeWarmupActive_.store(true);
           WakeDecodePump();
         } else {
           decodePipeline_->Stop();
@@ -926,6 +995,7 @@ void App::Tick() {
           decodeRunning_.store(false);
           resumeWarmupOpened_ = false;
           resumeWarmupStarted_ = false;
+          decodeWarmupActive_.store(false);
           nextWarmupAttemptAt_ = now + std::chrono::milliseconds(500);
         }
       } else if (!shouldWarmResume && resumeWarmupOpened_) {
@@ -935,6 +1005,7 @@ void App::Tick() {
         decodeRunning_.store(false);
         resumeWarmupOpened_ = false;
         resumeWarmupStarted_ = false;
+        decodeWarmupActive_.store(false);
         nextWarmupAttemptAt_ = now + std::chrono::milliseconds(500);
       }
     }
@@ -956,6 +1027,7 @@ void App::Tick() {
         } else {
           decodeRunning_.store(true);
           resumeWarmupStarted_ = true;
+          decodeWarmupActive_.store(true);
         }
       } else {
         resumePipelinePending_ = ShouldActivateVideoPipeline(config_.videoPath);
@@ -965,6 +1037,7 @@ void App::Tick() {
       const bool resumed = decodePipeline_->Start();
       decodeRunning_.store(resumed);
       if (resumed) {
+        decodeWarmupActive_.store(false);
         WakeDecodePump();
       }
     }
@@ -973,6 +1046,7 @@ void App::Tick() {
     decodeCacheTrimmedByPause_ = false;
     resumeWarmupOpened_ = false;
     resumeWarmupStarted_ = false;
+    decodeWarmupActive_.store(false);
     nextWarmupAttemptAt_ = RenderScheduler::Clock::time_point{};
     pauseEnteredAt_ = RenderScheduler::Clock::time_point{};
     wasPaused_ = false;
@@ -980,7 +1054,7 @@ void App::Tick() {
 
   if (resumePipelinePending_ && now >= nextResumeAttemptAt_) {
     if (ShouldActivateVideoPipeline(config_.videoPath) &&
-        StartVideoPipelineForPath(config_.videoPath)) {
+        StartVideoPipelineForPath(config_.videoPath, decodeOpenLongRunLevel_, false)) {
       resumePipelinePending_ = false;
       nextResumeAttemptAt_ = RenderScheduler::Clock::time_point{};
     } else {
@@ -992,6 +1066,7 @@ void App::Tick() {
     const bool resumed = decodePipeline_->Start();
     decodeRunning_.store(resumed);
     if (resumed) {
+      decodeWarmupActive_.store(false);
       WakeDecodePump();
     }
   }
@@ -1017,40 +1092,19 @@ void App::Tick() {
     lastDecodeMode_ = frame.decodeMode;
     lastDecodePath_ = frame.decodePath;
     decodeCopyBytesInWindow_ += frame.cpuCopyBytes;
+    if (frame.width > 0 && frame.height > 0) {
+      lastDecodeOutputPixels_ =
+          static_cast<std::size_t>(frame.width) * static_cast<std::size_t>(frame.height);
+    }
     if (frame.decodeMode == DecodeMode::kMediaFoundation) {
-      if (lastDecodedTimestamp100ns_ > 0 && frame.timestamp100ns > lastDecodedTimestamp100ns_) {
-        const std::int64_t delta = frame.timestamp100ns - lastDecodedTimestamp100ns_;
-        const bool hint30 = delta >= 300000 && delta <= 500000;
-        const bool hint60 = delta >= 120000 && delta <= 220000;
-        // 用时间戳窗口 + 累积计数做滞回，避免 30/60 之间抖动切换。
-        if (hint30) {
-          if (sourceFpsHint30_ < 8) {
-            ++sourceFpsHint30_;
-          }
-          if (sourceFpsHint60_ > 0) {
-            --sourceFpsHint60_;
-          }
-        } else if (hint60) {
-          if (sourceFpsHint60_ < 8) {
-            ++sourceFpsHint60_;
-          }
-          if (sourceFpsHint30_ > 0) {
-            --sourceFpsHint30_;
-          }
-        }
-
-        if (sourceFpsHint30_ >= 4) {
-          sourceFpsCap_ = 30;
-        } else if (sourceFpsHint60_ >= 4) {
-          sourceFpsCap_ = 60;
-        }
-      }
+      const int observedSourceFps =
+          UpdateSourceFrameRateState(lastDecodedTimestamp100ns_, frame.timestamp100ns,
+                                     &sourceFrameRateState_);
+      (void)observedSourceFps;
       lastDecodedTimestamp100ns_ = frame.timestamp100ns;
     } else {
-      sourceFpsCap_ = 60;
+      ResetSourceFrameRateState(&sourceFrameRateState_);
       lastDecodedTimestamp100ns_ = -1;
-      sourceFpsHint30_ = 0;
-      sourceFpsHint60_ = 0;
     }
     ApplyRenderFpsCap(qualityGovernor_.CurrentFps());
     lastPresentedFrame_ = frame;
@@ -1095,6 +1149,11 @@ void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameD
   lastMetricsAt_ = now;
 
   RuntimeMetrics metrics;
+  metrics.decodeOutputPixels = lastDecodeOutputPixels_;
+  metrics.threadQos =
+      static_cast<RuntimeThreadQos>(decodeThreadQos_.load());
+  metrics.occluded = wallpaperHost_ != nullptr && wallpaperHost_->IsOccluded();
+  metrics.powerState = arbiter_.CurrentPowerState();
   metrics.cpuPercent = QueryProcessCpuPercent();
   const ProcessMemoryUsage memoryUsage = QueryProcessMemoryUsage();
   metrics.privateBytes = memoryUsage.privateBytes;
@@ -1108,14 +1167,15 @@ void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameD
   const int effectiveFps = qualityGovernor_.Update(metrics);
   const bool hasActiveVideo = wallpaperAttached_ && decodeOpened_.load() && decodeRunning_.load();
   const LongRunLoadDecision longRunDecision =
-      UpdateLongRunLoadPolicy(metrics, hasActiveVideo, stablePauseForLoopSleep_, &longRunLoadState_);
+      UpdateLongRunLoadPolicy(metrics, hasActiveVideo, stablePauseForLoopSleep_, lastDecodePath_,
+                              &longRunLoadState_);
   decodePumpDynamicBoostMs_.store(longRunDecision.decodeHotSleepBoostMs);
   if (decodePipeline_ &&
       ShouldExecuteLongRunDecodeTrim(longRunDecision.requestDecodeTrim, decodeRunning_.load(),
                                      lastDecodePath_)) {
     decodePipeline_->TrimMemory();
   }
-  if (hasActiveVideo && lastDecodePath_ == DecodePath::kCpuRgb32Fallback &&
+  if (hasActiveVideo && IsCpuFallbackDecodePath(lastDecodePath_) &&
       longRunLoadState_.level >= 1 &&
       metrics.workingSetBytes >= (100U * 1024U * 1024U)) {
     constexpr std::chrono::seconds kWorkingSetTrimInterval(15);
@@ -1123,6 +1183,19 @@ void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameD
         (now - lastWorkingSetTrimAt_) >= kWorkingSetTrimInterval) {
       TrimCurrentProcessWorkingSet();
       lastWorkingSetTrimAt_ = now;
+    }
+  }
+  if (hasActiveVideo && config_.adaptiveQuality &&
+      IsCpuFallbackDecodePath(lastDecodePath_)) {
+    const int desiredDecodeOpenLevel = longRunLoadState_.level >= 2 ? 2 : 0;
+    if (desiredDecodeOpenLevel != decodeOpenLongRunLevel_) {
+      const std::string currentPath = config_.videoPath;
+      if (ShouldActivateVideoPipeline(currentPath)) {
+        decodePipeline_->Stop();
+        decodeOpened_.store(false);
+        decodeRunning_.store(false);
+        StartVideoPipelineForPath(currentPath, desiredDecodeOpenLevel, false);
+      }
     }
   }
   ApplyRenderFpsCap(effectiveFps);

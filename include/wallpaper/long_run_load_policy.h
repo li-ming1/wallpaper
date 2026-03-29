@@ -1,5 +1,6 @@
 #pragma once
 
+#include "wallpaper/interfaces.h"
 #include "wallpaper/metrics_sampler.h"
 
 namespace wallpaper {
@@ -19,7 +20,7 @@ struct LongRunLoadDecision final {
 
 // 长时负载策略：在不重启管线的前提下，按持续压力动态提升 decode hot-sleep。
 [[nodiscard]] LongRunLoadDecision UpdateLongRunLoadPolicy(
-    const RuntimeMetrics& metrics, bool hasActiveVideo, bool stablePaused,
+    const RuntimeMetrics& metrics, bool hasActiveVideo, bool stablePaused, DecodePath decodePath,
     LongRunLoadState* state) noexcept;
 
 }  // namespace wallpaper

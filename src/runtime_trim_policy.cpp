@@ -10,7 +10,7 @@ bool ShouldExecuteLongRunDecodeTrim(const bool trimRequested, const bool decodeR
   if (!decodeRunning) {
     return true;
   }
-  return decodePath != DecodePath::kCpuRgb32Fallback;
+  return !IsCpuFallbackDecodePath(decodePath);
 }
 
 }  // namespace wallpaper

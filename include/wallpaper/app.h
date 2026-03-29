@@ -20,6 +20,7 @@
 #include "wallpaper/pause_suspend_policy.h"
 #include "wallpaper/render_scheduler.h"
 #include "wallpaper/resource_arbiter.h"
+#include "wallpaper/source_frame_rate_policy.h"
 
 namespace wallpaper {
 
@@ -37,8 +38,9 @@ class App final {
   bool ApplyVideoPath(const std::string& newPath);
   bool EnsureWallpaperAttached();
   void DetachWallpaper();
-  void ResetPlaybackState();
-  bool StartVideoPipelineForPath(const std::string& path);
+  void ResetPlaybackState(bool resetLongRunState = true);
+  bool StartVideoPipelineForPath(const std::string& path, int longRunLoadLevel = 0,
+                                 bool resetLongRunState = true);
   void ApplyRenderFpsCap(int governorFps);
   void StartDecodePump();
   void StopDecodePump();
@@ -64,6 +66,8 @@ class App final {
   std::atomic<bool> decodePumpRunning_{false};
   std::atomic<int> decodePumpHotSleepMs_{4};
   std::atomic<int> decodePumpDynamicBoostMs_{0};
+  std::atomic<int> decodeThreadQos_{static_cast<int>(RuntimeThreadQos::kNormal)};
+  std::atomic<bool> decodeWarmupActive_{false};
   mutable std::mutex decodePumpWaitMu_;
   std::condition_variable decodePumpWaitCv_;
   bool decodePumpWakeRequested_ = false;
@@ -84,9 +88,7 @@ class App final {
   bool hasLastPresentedFrame_ = false;
   std::uint64_t syntheticSequence_ = 0;
   std::int64_t lastDecodedTimestamp100ns_ = -1;
-  int sourceFpsCap_ = 60;
-  int sourceFpsHint30_ = 0;
-  int sourceFpsHint60_ = 0;
+  SourceFrameRateState sourceFrameRateState_{};
   bool trayMenuVisible_ = false;
   RenderScheduler::Clock::time_point lastTrayInteractionAt_{};
   RenderScheduler::Clock::time_point lastSessionProbeAt_{};
@@ -94,6 +96,8 @@ class App final {
   int foregroundProbeFailureStreak_ = 0;
   bool cachedSessionInteractive_ = true;
   bool cachedDesktopContextActive_ = true;
+  bool cachedBatterySaverActive_ = false;
+  bool cachedRemoteSessionActive_ = false;
   LongRunLoadState longRunLoadState_{};
   bool stablePauseForLoopSleep_ = false;
   bool wasPaused_ = false;
@@ -111,6 +115,8 @@ class App final {
   std::size_t droppedFrames_ = 0;
   std::size_t totalFrames_ = 0;
   std::size_t decodeCopyBytesInWindow_ = 0;
+  std::size_t lastDecodeOutputPixels_ = 0;
+  int decodeOpenLongRunLevel_ = 0;
 };
 
 }  // namespace wallpaper

@@ -7,6 +7,7 @@ TEST_CASE(ResourceArbiter_KeepsRunningOnNormalWindow) {
 
   arbiter.SetForegroundState(wallpaper::ForegroundState::kWindowed);
   EXPECT_TRUE(!arbiter.ShouldPause());
+  EXPECT_EQ(arbiter.CurrentPowerState(), wallpaper::RuntimePowerState::kNormal);
 }
 
 TEST_CASE(ResourceArbiter_PausesWhenForegroundNotDesktopContextByDefault) {
@@ -43,6 +44,7 @@ TEST_CASE(ResourceArbiter_PausesWhenSessionInactive) {
   arbiter.SetSessionActive(false);
   EXPECT_TRUE(arbiter.ShouldPause());
   EXPECT_TRUE(arbiter.ShouldAllowHardSuspend());
+  EXPECT_EQ(arbiter.CurrentPowerState(), wallpaper::RuntimePowerState::kSessionInactive);
 }
 
 TEST_CASE(ResourceArbiter_PausesWhenDesktopHidden) {
@@ -52,4 +54,25 @@ TEST_CASE(ResourceArbiter_PausesWhenDesktopHidden) {
   arbiter.SetDesktopVisible(false);
   EXPECT_TRUE(arbiter.ShouldPause());
   EXPECT_TRUE(arbiter.ShouldAllowHardSuspend());
+  EXPECT_EQ(arbiter.CurrentPowerState(), wallpaper::RuntimePowerState::kDisplayOff);
+}
+
+TEST_CASE(ResourceArbiter_PausesWhenBatterySaverActive) {
+  wallpaper::ResourceArbiter arbiter;
+
+  arbiter.SetForegroundState(wallpaper::ForegroundState::kWindowed);
+  arbiter.SetBatterySaverActive(true);
+  EXPECT_TRUE(arbiter.ShouldPause());
+  EXPECT_TRUE(arbiter.ShouldAllowHardSuspend());
+  EXPECT_EQ(arbiter.CurrentPowerState(), wallpaper::RuntimePowerState::kBatterySaver);
+}
+
+TEST_CASE(ResourceArbiter_PausesWhenRemoteSessionActive) {
+  wallpaper::ResourceArbiter arbiter;
+
+  arbiter.SetForegroundState(wallpaper::ForegroundState::kWindowed);
+  arbiter.SetRemoteSessionActive(true);
+  EXPECT_TRUE(arbiter.ShouldPause());
+  EXPECT_TRUE(arbiter.ShouldAllowHardSuspend());
+  EXPECT_EQ(arbiter.CurrentPowerState(), wallpaper::RuntimePowerState::kRemoteSession);
 }

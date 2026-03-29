@@ -5,30 +5,32 @@
 
 namespace wallpaper {
 
-DecodeOutputHint SelectDecodeOutputHint(const std::uint32_t desktopWidth,
-                                        const std::uint32_t desktopHeight,
-                                        const bool adaptiveQualityEnabled,
-                                        const bool cpuFallbackPath) noexcept {
-  DecodeOutputHint hint{desktopWidth, desktopHeight};
-  if (desktopWidth == 0 || desktopHeight == 0) {
+DecodeOutputHint SelectDecodeOutputHint(const DecodeOutputOptions& options) noexcept {
+  DecodeOutputHint hint{options.desktopWidth, options.desktopHeight};
+  if (options.desktopWidth == 0 || options.desktopHeight == 0) {
     return {};
   }
-  if (!adaptiveQualityEnabled || !cpuFallbackPath) {
+  if (!options.adaptiveQualityEnabled || !options.cpuFallbackPath) {
     return hint;
   }
 
-  constexpr double kMaxAdaptiveCpuPixels = 1280.0 * 720.0;
+  const double maxPixels =
+      options.longRunLoadLevel >= 2 ? (960.0 * 540.0) : (1280.0 * 720.0);
   const double currentPixels =
-      static_cast<double>(desktopWidth) * static_cast<double>(desktopHeight);
-  if (currentPixels <= kMaxAdaptiveCpuPixels) {
+      static_cast<double>(options.desktopWidth) * static_cast<double>(options.desktopHeight);
+  constexpr double kNativeCpuFloorPixels = 1280.0 * 720.0;
+  if (currentPixels <= kNativeCpuFloorPixels) {
+    return hint;
+  }
+  if (currentPixels <= maxPixels) {
     return hint;
   }
 
-  const double scale = std::sqrt(kMaxAdaptiveCpuPixels / currentPixels);
+  const double scale = std::sqrt(maxPixels / currentPixels);
   std::uint32_t scaledWidth = static_cast<std::uint32_t>(
-      std::max(2.0, std::floor(static_cast<double>(desktopWidth) * scale)));
+      std::max(2.0, std::floor(static_cast<double>(options.desktopWidth) * scale)));
   std::uint32_t scaledHeight = static_cast<std::uint32_t>(
-      std::max(2.0, std::floor(static_cast<double>(desktopHeight) * scale)));
+      std::max(2.0, std::floor(static_cast<double>(options.desktopHeight) * scale)));
 
   // 偶数尺寸更贴近常见 YUV/RGB 处理链路，减少内部对齐与协商失败概率。
   if ((scaledWidth & 1U) != 0U) {

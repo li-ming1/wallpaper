@@ -1,7 +1,9 @@
 #include "wallpaper/interfaces.h"
+#include "wallpaper/decode_async_read_policy.h"
 #include "wallpaper/decode_output_policy.h"
 #include "wallpaper/d3d11_interop_device.h"
 #include "wallpaper/frame_buffer_policy.h"
+#include "wallpaper/nv12_layout_policy.h"
 
 #include "wallpaper/frame_bridge.h"
 
@@ -27,13 +29,53 @@
 namespace wallpaper {
 namespace {
 
+#ifdef _WIN32
+class DecodePipelineStub;
+
+struct Locked2DBufferHolder final {
+  IMFMediaBuffer* mediaBuffer = nullptr;
+  IMF2DBuffer* buffer2d = nullptr;
+
+  ~Locked2DBufferHolder() {
+    if (buffer2d != nullptr) {
+      buffer2d->Unlock2D();
+      buffer2d->Release();
+    }
+    if (mediaBuffer != nullptr) {
+      mediaBuffer->Release();
+    }
+  }
+};
+
+class AsyncSourceReaderCallback final : public IMFSourceReaderCallback {
+ public:
+  explicit AsyncSourceReaderCallback(DecodePipelineStub* owner) : owner_(owner) {}
+
+  STDMETHODIMP QueryInterface(REFIID riid, void** object) override;
+  STDMETHODIMP_(ULONG) AddRef() override;
+  STDMETHODIMP_(ULONG) Release() override;
+  STDMETHODIMP OnReadSample(HRESULT status, DWORD streamIndex, DWORD streamFlags,
+                            LONGLONG timestamp100ns, IMFSample* sample) override;
+  STDMETHODIMP OnFlush(DWORD) override { return S_OK; }
+  STDMETHODIMP OnEvent(DWORD, IMFMediaEvent*) override { return S_OK; }
+
+  void Detach() { owner_ = nullptr; }
+
+ private:
+  ~AsyncSourceReaderCallback() = default;
+
+  volatile long refCount_ = 1;
+  DecodePipelineStub* owner_ = nullptr;
+};
+#endif
+
 class DecodePipelineStub final : public IDecodePipeline {
  public:
-  bool Open(const std::string& path, CodecPolicy, const bool adaptiveQuality) override {
+  bool Open(const std::string& path, const DecodeOpenProfile& profile) override {
     std::lock_guard<std::mutex> lock(mu_);
 
     ResetStateLocked();
-    adaptiveQualityEnabled_ = adaptiveQuality;
+    openProfile_ = profile;
 
     const bool hasPath = !path.empty();
     if (hasPath && !std::filesystem::exists(path)) {
@@ -78,6 +120,12 @@ class DecodePipelineStub final : public IDecodePipeline {
       }
       running_ = true;
     }
+#ifdef _WIN32
+    if (mode_ == Mode::kMediaFoundation) {
+      ResumeDecodeAsyncRead(&decodeAsyncReadState_);
+      PumpDecodeAsyncReadsLocked();
+    }
+#endif
     return true;
   }
 
@@ -87,6 +135,9 @@ class DecodePipelineStub final : public IDecodePipeline {
       pauseAt_ = Clock::now();
     }
     running_ = false;
+#ifdef _WIN32
+    PauseDecodeAsyncRead(&decodeAsyncReadState_);
+#endif
   }
 
   void Stop() override {
@@ -99,10 +150,8 @@ class DecodePipelineStub final : public IDecodePipeline {
     if (running_) {
       // 运行态只标记延迟收缩，不做清帧。这样可避免“黑幕一闪”。
       trimRequested_ = true;
-      if (sourceReader_ != nullptr && mfGpuZeroCopyActive_) {
-        // GPU 零拷贝路径允许轻量 flush，CPU 回退路径避免 flush 导致突发抖动。
-        sourceReader_->Flush(MF_SOURCE_READER_FIRST_VIDEO_STREAM);
-      }
+      // 异步 Source Reader 阶段先不在运行态 flush，避免与 in-flight request 交错后
+      // 把单请求状态重新复杂化；本轮仅保留下一帧的缓冲收缩。
       return;
     }
     previousPublishedCpuBytes_ = 0;
@@ -131,6 +180,8 @@ class DecodePipelineStub final : public IDecodePipeline {
   }
 
  private:
+  friend class AsyncSourceReaderCallback;
+
   using Clock = std::chrono::steady_clock;
 
   enum class Mode {
@@ -148,6 +199,8 @@ class DecodePipelineStub final : public IDecodePipeline {
 
     sequence_ = expectedIndex;
     frame->sequence = sequence_;
+    frame->width = 0;
+    frame->height = 0;
     frame->decodeMode = DecodeMode::kFallbackTicker;
     frame->decodePath = DecodePath::kFallbackTicker;
     frame->gpuBacked = false;
@@ -184,6 +237,11 @@ class DecodePipelineStub final : public IDecodePipeline {
       return false;
     }
 
+    auto* callback = new (std::nothrow) AsyncSourceReaderCallback(this);
+    if (callback == nullptr) {
+      return false;
+    }
+
     const auto createReader = [&](const bool enableVideoProcessing,
                                   const bool tryD3DInterop,
                                   IMFSourceReader** const outReader) -> bool {
@@ -194,15 +252,23 @@ class DecodePipelineStub final : public IDecodePipeline {
 
       bool useD3DInterop = false;
       IMFAttributes* readerAttributes = nullptr;
-      HRESULT hr = MFCreateAttributes(&readerAttributes, 4);
+      HRESULT hr = MFCreateAttributes(&readerAttributes, 5);
       if (SUCCEEDED(hr) && readerAttributes != nullptr) {
         // 低延迟模式可减少解码链路内部排队帧数，从而降低内存峰值。
         hr = readerAttributes->SetUINT32(MF_LOW_LATENCY, TRUE);
       }
       if (SUCCEEDED(hr) && readerAttributes != nullptr) {
+        hr = readerAttributes->SetUnknown(MF_SOURCE_READER_ASYNC_CALLBACK, callback);
+      }
+      if (SUCCEEDED(hr) && readerAttributes != nullptr && openProfile_.preferHardwareTransforms) {
         // 优先启用硬件变换路径，降低色彩转换的 CPU 占用。
         hr = readerAttributes->SetUINT32(MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, TRUE);
       }
+#if defined(MF_READWRITE_USE_ONLY_HARDWARE_TRANSFORMS)
+      if (SUCCEEDED(hr) && readerAttributes != nullptr && openProfile_.requireHardwareTransforms) {
+        hr = readerAttributes->SetUINT32(MF_READWRITE_USE_ONLY_HARDWARE_TRANSFORMS, TRUE);
+      }
+#endif
       if (SUCCEEDED(hr) && readerAttributes != nullptr && enableVideoProcessing) {
         // 回退路径：在无法直接协商输出时再开启软件视频处理。
         hr = readerAttributes->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, TRUE);
@@ -274,8 +340,13 @@ class DecodePipelineStub final : public IDecodePipeline {
           if (hintWidth > 0 && hintHeight > 0) {
             const bool cpuFallbackPath =
                 !(mfD3DInteropEnabled_ && IsEqualGUID(subtype, MFVideoFormat_ARGB32));
-            const DecodeOutputHint selectedHint = SelectDecodeOutputHint(
-                hintWidth, hintHeight, adaptiveQualityEnabled_, cpuFallbackPath);
+            DecodeOutputOptions outputOptions;
+            outputOptions.desktopWidth = hintWidth;
+            outputOptions.desktopHeight = hintHeight;
+            outputOptions.adaptiveQualityEnabled = openProfile_.adaptiveQualityEnabled;
+            outputOptions.cpuFallbackPath = cpuFallbackPath;
+            outputOptions.longRunLoadLevel = openProfile_.longRunLoadLevel;
+            const DecodeOutputHint selectedHint = SelectDecodeOutputHint(outputOptions);
             if (selectedHint.width > 0 && selectedHint.height > 0) {
               // 在 CPU 回退链路对输出像素做上限控制，直接压低解码/上传成本。
               localHr = MFSetAttributeSize(outType, MF_MT_FRAME_SIZE, selectedHint.width,
@@ -293,13 +364,19 @@ class DecodePipelineStub final : public IDecodePipeline {
         return localHr;
       };
 
-      const GUID preferredSubtypes[] = {
-          mfD3DInteropEnabled_ ? MFVideoFormat_ARGB32 : MFVideoFormat_RGB32,
-          MFVideoFormat_RGB32,
-      };
+      GUID preferredSubtypes[2]{};
+      int preferredSubtypeCount = 0;
+      if (mfD3DInteropEnabled_) {
+        preferredSubtypes[preferredSubtypeCount++] = MFVideoFormat_ARGB32;
+        preferredSubtypes[preferredSubtypeCount++] = MFVideoFormat_RGB32;
+      } else {
+        preferredSubtypes[preferredSubtypeCount++] = MFVideoFormat_NV12;
+        preferredSubtypes[preferredSubtypeCount++] = MFVideoFormat_RGB32;
+      }
 
       bool configured = false;
-      for (const GUID& subtype : preferredSubtypes) {
+      for (int i = 0; i < preferredSubtypeCount; ++i) {
+        const GUID& subtype = preferredSubtypes[i];
         hr = setOutType(true, subtype);
         if (FAILED(hr)) {
           // 某些编解码链路不接受帧大小提示，回退到默认输出协商。
@@ -328,31 +405,39 @@ class DecodePipelineStub final : public IDecodePipeline {
     UINT32 width = 0;
     UINT32 height = 0;
     IMFSourceReader* reader = nullptr;
-    bool opened = createReader(false, true, &reader) && configureReader(reader, &width, &height);
+    bool opened = createReader(false, openProfile_.preferHardwareTransforms, &reader) &&
+                  configureReader(reader, &width, &height);
     if (!opened) {
       if (reader != nullptr) {
         reader->Release();
         reader = nullptr;
       }
-      // 某些设备/编码器必须启用软件视频处理才能协商到 RGB32。
-      opened = createReader(true, false, &reader) && configureReader(reader, &width, &height);
+      if (!openProfile_.requireHardwareTransforms) {
+        // 某些设备/编码器必须启用软件视频处理才能协商到 RGB32。
+        opened = createReader(true, false, &reader) && configureReader(reader, &width, &height);
+      }
     }
     if (!opened || reader == nullptr) {
       if (reader != nullptr) {
         reader->Release();
       }
+      callback->Detach();
+      callback->Release();
       return false;
     }
 
     sourceReader_ = reader;
+    sourceReaderCallback_ = callback;
     frameWidth_ = width;
     frameHeight_ = height;
-    frameStride_ = width * 4;
+    frameStride_ = IsEqualGUID(selectedOutputSubtype_, MFVideoFormat_NV12) ? width : width * 4;
     mfGpuZeroCopyActive_ =
         mfD3DInteropEnabled_ && IsEqualGUID(selectedOutputSubtype_, MFVideoFormat_ARGB32);
     mfBaseOffset100ns_ = 0;
     mfLastRawTimestamp100ns_ = -1;
     mfLastOutputTimestamp100ns_ = -1;
+    ResetDecodeAsyncRead(&decodeAsyncReadState_);
+    ClearAsyncReadySampleLocked();
     return true;
   }
 
@@ -369,9 +454,15 @@ class DecodePipelineStub final : public IDecodePipeline {
   }
 
   void ReleaseMfLocked() {
+    ClearAsyncReadySampleLocked();
     if (sourceReader_ != nullptr) {
       sourceReader_->Release();
       sourceReader_ = nullptr;
+    }
+    if (sourceReaderCallback_ != nullptr) {
+      sourceReaderCallback_->Detach();
+      sourceReaderCallback_->Release();
+      sourceReaderCallback_ = nullptr;
     }
     if (dxgiDeviceManager_ != nullptr) {
       dxgiDeviceManager_->Release();
@@ -387,6 +478,7 @@ class DecodePipelineStub final : public IDecodePipeline {
     mfBaseOffset100ns_ = 0;
     mfLastRawTimestamp100ns_ = -1;
     mfLastOutputTimestamp100ns_ = -1;
+    ResetDecodeAsyncRead(&decodeAsyncReadState_);
   }
 
   bool SeekReaderToStartLocked() {
@@ -408,6 +500,93 @@ class DecodePipelineStub final : public IDecodePipeline {
     bool gpuBacked = false;
     std::size_t cpuCopyBytes = 0;
   };
+
+  void ClearAsyncReadySampleLocked() {
+    if (asyncReadySample_ != nullptr) {
+      asyncReadySample_->Release();
+      asyncReadySample_ = nullptr;
+    }
+    asyncReadyRawTimestamp100ns_ = 0;
+    asyncReadyFlags_ = 0;
+  }
+
+  bool IssueAsyncReadLocked() {
+    if (sourceReader_ == nullptr) {
+      return false;
+    }
+    const HRESULT hr =
+        sourceReader_->ReadSample(MF_SOURCE_READER_FIRST_VIDEO_STREAM, 0, nullptr, nullptr, nullptr,
+                                  nullptr);
+    if (FAILED(hr)) {
+      return false;
+    }
+    MarkDecodeAsyncReadIssued(&decodeAsyncReadState_);
+    return true;
+  }
+
+  void PumpDecodeAsyncReadsLocked() {
+    while (sourceReader_ != nullptr) {
+      const DecodeAsyncReadAction action = PeekDecodeAsyncReadAction(decodeAsyncReadState_);
+      if (action == DecodeAsyncReadAction::kNone) {
+        return;
+      }
+      if (action == DecodeAsyncReadAction::kIssueRead) {
+        if (!IssueAsyncReadLocked()) {
+          return;
+        }
+        return;
+      }
+      if (action == DecodeAsyncReadAction::kSeekToStart) {
+        if (!SeekReaderToStartLocked()) {
+          return;
+        }
+        MarkDecodeAsyncReadSeekCompleted(&decodeAsyncReadState_);
+        continue;
+      }
+    }
+  }
+
+  void HandleAsyncReadSample(HRESULT status, DWORD streamFlags, LONGLONG rawTimestamp100ns,
+                             IMFSample* sample) {
+    std::lock_guard<std::mutex> lock(mu_);
+    if (mode_ != Mode::kMediaFoundation || sourceReader_ == nullptr) {
+      return;
+    }
+
+    if (FAILED(status)) {
+      MarkDecodeAsyncReadCompleted(false, false, &decodeAsyncReadState_);
+      return;
+    }
+
+    if ((streamFlags & MF_SOURCE_READERF_ENDOFSTREAM) != 0) {
+      ClearAsyncReadySampleLocked();
+      MarkDecodeAsyncReadCompleted(false, true, &decodeAsyncReadState_);
+      PumpDecodeAsyncReadsLocked();
+      return;
+    }
+
+    if (sample != nullptr && (streamFlags & MF_SOURCE_READERF_STREAMTICK) == 0) {
+      ClearAsyncReadySampleLocked();
+      sample->AddRef();
+      asyncReadySample_ = sample;
+      asyncReadyRawTimestamp100ns_ = rawTimestamp100ns;
+      asyncReadyFlags_ = streamFlags;
+      MarkDecodeAsyncReadCompleted(true, false, &decodeAsyncReadState_);
+      return;
+    }
+
+    MarkDecodeAsyncReadCompleted(false, false, &decodeAsyncReadState_);
+    PumpDecodeAsyncReadsLocked();
+  }
+
+  [[nodiscard]] bool IsSelectedOutputNv12Locked() const {
+    return IsEqualGUID(selectedOutputSubtype_, MFVideoFormat_NV12);
+  }
+
+  [[nodiscard]] DecodePath SelectedCpuDecodePathLocked() const {
+    return IsSelectedOutputNv12Locked() ? DecodePath::kCpuNv12Fallback
+                                        : DecodePath::kCpuRgb32Fallback;
+  }
 
   PublishResult PublishSampleToBridgeLocked(IMFSample* sample, const std::uint64_t sequence,
                                             const std::int64_t timestamp100ns) {
@@ -454,6 +633,97 @@ class DecodePipelineStub final : public IDecodePipeline {
       }
     }
 
+    if (IsSelectedOutputNv12Locked()) {
+      DWORD sampleBufferCount = 0;
+      DWORD sampleTotalLength = 0;
+      const bool singleBufferSample =
+          SUCCEEDED(sample->GetBufferCount(&sampleBufferCount)) && sampleBufferCount == 1;
+      (void)sample->GetTotalLength(&sampleTotalLength);
+
+      IMFMediaBuffer* indexedBuffer = nullptr;
+      if (singleBufferSample && SUCCEEDED(sample->GetBufferByIndex(0, &indexedBuffer)) &&
+          indexedBuffer != nullptr) {
+        IMF2DBuffer* buffer2d = nullptr;
+        if (SUCCEEDED(indexedBuffer->QueryInterface(__uuidof(IMF2DBuffer),
+                                                    reinterpret_cast<void**>(&buffer2d))) &&
+            buffer2d != nullptr) {
+          BYTE* scanline0 = nullptr;
+          LONG pitch = 0;
+          if (SUCCEEDED(buffer2d->Lock2D(&scanline0, &pitch)) && scanline0 != nullptr &&
+              pitch > 0) {
+            const Nv12Layout layout =
+                ComputeNv12Layout(frameHeight_, static_cast<std::uint32_t>(pitch),
+                                  static_cast<std::size_t>(sampleTotalLength));
+            if (layout.yPlaneBytes != 0 && layout.uvPlaneBytes != 0) {
+              std::shared_ptr<void> bufferHolder(
+                  new Locked2DBufferHolder{indexedBuffer, buffer2d}, [](void* ptr) {
+                    delete static_cast<Locked2DBufferHolder*>(ptr);
+                  });
+              frame_bridge::PublishLatestNv12FrameView(
+                  static_cast<int>(frameWidth_), static_cast<int>(frameHeight_),
+                  static_cast<int>(pitch), static_cast<int>(pitch), timestamp100ns, sequence,
+                  static_cast<const std::uint8_t*>(scanline0 + layout.yPlaneOffsetBytes),
+                  layout.yPlaneBytes,
+                  static_cast<const std::uint8_t*>(scanline0 + layout.uvPlaneOffsetBytes),
+                  layout.uvPlaneBytes, std::move(bufferHolder));
+              return PublishResult{true, false, layout.yPlaneBytes + layout.uvPlaneBytes};
+            }
+
+            buffer2d->Unlock2D();
+          }
+          buffer2d->Release();
+        }
+        indexedBuffer->Release();
+      }
+
+      IMFMediaBuffer* mediaBuffer = nullptr;
+      HRESULT hr = sample->ConvertToContiguousBuffer(&mediaBuffer);
+      if (FAILED(hr) || mediaBuffer == nullptr) {
+        return {};
+      }
+
+      BYTE* rawData = nullptr;
+      DWORD maxLength = 0;
+      DWORD currentLength = 0;
+      hr = mediaBuffer->Lock(&rawData, &maxLength, &currentLength);
+      if (FAILED(hr) || rawData == nullptr || currentLength == 0) {
+        mediaBuffer->Release();
+        return {};
+      }
+
+      const std::size_t requiredBytes = static_cast<std::size_t>(currentLength);
+      const std::size_t nextCapacity =
+          trimRequested_ ? requiredBytes
+                         : DecideFrameBufferCapacity(previousPublishedCpuBytes_, requiredBytes);
+      trimRequested_ = false;
+      previousPublishedCpuBytes_ = nextCapacity;
+
+      const Nv12Layout layout =
+          ComputeNv12Layout(frameHeight_, frameWidth_, requiredBytes);
+      if (layout.yPlaneBytes == 0 || layout.uvPlaneBytes == 0) {
+        mediaBuffer->Unlock();
+        mediaBuffer->Release();
+        return {};
+      }
+
+      std::shared_ptr<void> bufferHolder(
+          mediaBuffer, [](void* ptr) {
+            if (ptr != nullptr) {
+              auto* buffer = static_cast<IMFMediaBuffer*>(ptr);
+              buffer->Unlock();
+              buffer->Release();
+            }
+          });
+
+      frame_bridge::PublishLatestNv12FrameView(
+          static_cast<int>(frameWidth_), static_cast<int>(frameHeight_),
+          static_cast<int>(frameWidth_), static_cast<int>(frameWidth_), timestamp100ns, sequence,
+          static_cast<const std::uint8_t*>(rawData + layout.yPlaneOffsetBytes), layout.yPlaneBytes,
+          static_cast<const std::uint8_t*>(rawData + layout.uvPlaneOffsetBytes), layout.uvPlaneBytes,
+          std::move(bufferHolder));
+      return PublishResult{true, false, requiredBytes};
+    }
+
     IMFMediaBuffer* mediaBuffer = nullptr;
     HRESULT hr = sample->ConvertToContiguousBuffer(&mediaBuffer);
     if (FAILED(hr) || mediaBuffer == nullptr) {
@@ -497,36 +767,18 @@ class DecodePipelineStub final : public IDecodePipeline {
       return false;
     }
 
-    DWORD streamIndex = 0;
-    DWORD flags = 0;
-    LONGLONG rawTimestamp100ns = 0;
-    IMFSample* sample = nullptr;
-    const HRESULT hr = sourceReader_->ReadSample(MF_SOURCE_READER_FIRST_VIDEO_STREAM, 0, &streamIndex,
-                                                 &flags, &rawTimestamp100ns, &sample);
-    if (FAILED(hr)) {
-      if (sample != nullptr) {
-        sample->Release();
-      }
+    PumpDecodeAsyncReadsLocked();
+    if (asyncReadySample_ == nullptr || !decodeAsyncReadState_.sampleReady) {
       return false;
     }
 
-    // 到达尾帧时回绕到 0，维持时间戳单调并形成循环视频行为。
-    if ((flags & MF_SOURCE_READERF_ENDOFSTREAM) != 0) {
-      if (sample != nullptr) {
-        sample->Release();
-      }
-      if (!SeekReaderToStartLocked()) {
-        return false;
-      }
-      return false;
-    }
-
-    if (sample == nullptr || (flags & MF_SOURCE_READERF_STREAMTICK) != 0) {
-      if (sample != nullptr) {
-        sample->Release();
-      }
-      return false;
-    }
+    IMFSample* sample = asyncReadySample_;
+    asyncReadySample_ = nullptr;
+    const LONGLONG rawTimestamp100ns = asyncReadyRawTimestamp100ns_;
+    asyncReadyRawTimestamp100ns_ = 0;
+    asyncReadyFlags_ = 0;
+    MarkDecodeAsyncReadSampleConsumed(&decodeAsyncReadState_);
+    PumpDecodeAsyncReadsLocked();
 
     if (mfLastRawTimestamp100ns_ >= 0 && rawTimestamp100ns < mfLastRawTimestamp100ns_) {
       // 文件循环或时间戳回绕时，增加基线偏移，保证对上层输出时间戳始终单调。
@@ -544,6 +796,8 @@ class DecodePipelineStub final : public IDecodePipeline {
 
     ++sequence_;
     frame->sequence = sequence_;
+    frame->width = static_cast<int>(frameWidth_);
+    frame->height = static_cast<int>(frameHeight_);
     frame->decodeMode = DecodeMode::kMediaFoundation;
     frame->timestamp100ns = outputTimestamp100ns;
     mfLastRawTimestamp100ns_ = rawTimestamp100ns;
@@ -552,8 +806,8 @@ class DecodePipelineStub final : public IDecodePipeline {
         PublishSampleToBridgeLocked(sample, sequence_, outputTimestamp100ns);
     frame->gpuBacked = publishResult.gpuBacked;
     frame->cpuCopyBytes = publishResult.cpuCopyBytes;
-    frame->decodePath = publishResult.gpuBacked ? DecodePath::kDxvaZeroCopy
-                                                : DecodePath::kCpuRgb32Fallback;
+    frame->decodePath =
+        publishResult.gpuBacked ? DecodePath::kDxvaZeroCopy : SelectedCpuDecodePathLocked();
     sample->Release();
     return publishResult.ok;
   }
@@ -585,10 +839,11 @@ class DecodePipelineStub final : public IDecodePipeline {
   std::uint64_t sequence_ = 0;
   std::size_t previousPublishedCpuBytes_ = 0;
   bool trimRequested_ = false;
-  bool adaptiveQualityEnabled_ = true;
+  DecodeOpenProfile openProfile_{};
 
 #ifdef _WIN32
   IMFSourceReader* sourceReader_ = nullptr;
+  AsyncSourceReaderCallback* sourceReaderCallback_ = nullptr;
   IMFDXGIDeviceManager* dxgiDeviceManager_ = nullptr;
   UINT dxgiDeviceResetToken_ = 0;
   bool mfStarted_ = false;
@@ -601,8 +856,51 @@ class DecodePipelineStub final : public IDecodePipeline {
   std::int64_t mfBaseOffset100ns_ = 0;
   std::int64_t mfLastRawTimestamp100ns_ = -1;
   std::int64_t mfLastOutputTimestamp100ns_ = -1;
+  DecodeAsyncReadState decodeAsyncReadState_{};
+  IMFSample* asyncReadySample_ = nullptr;
+  std::int64_t asyncReadyRawTimestamp100ns_ = 0;
+  DWORD asyncReadyFlags_ = 0;
 #endif
 };
+
+#ifdef _WIN32
+STDMETHODIMP AsyncSourceReaderCallback::QueryInterface(REFIID riid, void** object) {
+  if (object == nullptr) {
+    return E_POINTER;
+  }
+  *object = nullptr;
+  if (riid == __uuidof(IUnknown) || riid == __uuidof(IMFSourceReaderCallback)) {
+    *object = static_cast<IMFSourceReaderCallback*>(this);
+    AddRef();
+    return S_OK;
+  }
+  return E_NOINTERFACE;
+}
+
+STDMETHODIMP_(ULONG) AsyncSourceReaderCallback::AddRef() {
+  return static_cast<ULONG>(InterlockedIncrement(&refCount_));
+}
+
+STDMETHODIMP_(ULONG) AsyncSourceReaderCallback::Release() {
+  const ULONG count = static_cast<ULONG>(InterlockedDecrement(&refCount_));
+  if (count == 0) {
+    delete this;
+  }
+  return count;
+}
+
+STDMETHODIMP AsyncSourceReaderCallback::OnReadSample(HRESULT status, DWORD streamIndex,
+                                                     DWORD streamFlags, LONGLONG timestamp100ns,
+                                                     IMFSample* sample) {
+  (void)streamIndex;
+  DecodePipelineStub* owner = owner_;
+  if (owner == nullptr) {
+    return S_OK;
+  }
+  owner->HandleAsyncReadSample(status, streamFlags, timestamp100ns, sample);
+  return S_OK;
+}
+#endif
 
 }  // namespace
 
