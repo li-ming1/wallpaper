@@ -581,3 +581,14 @@ Phase 61
 - [x] Verification: `scripts/build_app.ps1 -BuildDir build_tmp/phase74_app`（PASS）
 - [x] Verification: `scripts/bench_perf.ps1 ... -Tag phase74_desktop`（CPU avg `0.0095%`）
 - **Status:** complete
+
+### Phase 75: 会话探测状态感知降频优化（Completed）
+- [x] Red: 新增 `probe_cadence_policy` 会话探测间隔状态策略测试并验证失败
+- [x] Green: 新增 `SelectSessionProbeIntervalForState`（正常稳定态放宽到 `2x`，上限 `1200ms`；异常态保持基础间隔）
+- [x] Green: `App::Tick` 接入状态感知会话探测间隔，减少稳定桌面阶段系统探测调用
+- [x] Verification: `scripts/run_tests.ps1 -BuildDir build_tmp/phase75_green`（179/179 PASS）
+- [x] Verification: `scripts/build_app.ps1 -BuildDir build_tmp/phase75_app`（PASS）
+- [x] Verification: 同配置对比（`phase74_app` vs `phase75_app`，均加载 `kuroha_1080p30_h264.mp4`）
+  - phase74: CPU avg `1.4748%`（`desktop_20260330_205746_phase74_desktop_with_video_r3`）
+  - phase75: CPU avg `1.4038%`（`desktop_20260330_205717_phase75_desktop_with_video`）
+- **Status:** complete

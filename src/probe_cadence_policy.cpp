@@ -65,4 +65,19 @@ bool ShouldReuseForegroundProbeResult(const std::uintptr_t currentForegroundWind
   return (now - lastDeepProbeAt) < deepProbeReuseInterval;
 }
 
+std::chrono::milliseconds SelectSessionProbeIntervalForState(
+    const std::chrono::milliseconds baseInterval, const bool sessionInteractive,
+    const bool batterySaverActive, const bool remoteSessionActive) noexcept {
+  if (baseInterval <= std::chrono::milliseconds(0)) {
+    return std::chrono::milliseconds(1);
+  }
+  if (!sessionInteractive || batterySaverActive || remoteSessionActive) {
+    return baseInterval;
+  }
+
+  const auto relaxed = baseInterval * 2;
+  constexpr auto kRelaxedCap = std::chrono::milliseconds(1200);
+  return relaxed > kRelaxedCap ? kRelaxedCap : relaxed;
+}
+
 }  // namespace wallpaper

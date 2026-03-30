@@ -81,3 +81,17 @@ TEST_CASE(ProbeCadencePolicy_DoesNotReuseForegroundProbeWithoutPriorDeepProbe) {
   EXPECT_TRUE(!wallpaper::ShouldReuseForegroundProbeResult(
       0x1001, 0x1001, now, wallpaper::ProbeClock::time_point{}, 1200ms));
 }
+
+TEST_CASE(ProbeCadencePolicy_SessionIntervalRelaxesInStableNormalState) {
+  EXPECT_EQ(wallpaper::SelectSessionProbeIntervalForState(450ms, true, false, false), 900ms);
+}
+
+TEST_CASE(ProbeCadencePolicy_SessionIntervalKeepsBaseWhenPowerOrSessionNotNormal) {
+  EXPECT_EQ(wallpaper::SelectSessionProbeIntervalForState(450ms, false, false, false), 450ms);
+  EXPECT_EQ(wallpaper::SelectSessionProbeIntervalForState(450ms, true, true, false), 450ms);
+  EXPECT_EQ(wallpaper::SelectSessionProbeIntervalForState(450ms, true, false, true), 450ms);
+}
+
+TEST_CASE(ProbeCadencePolicy_SessionIntervalIsCappedForPausedBase) {
+  EXPECT_EQ(wallpaper::SelectSessionProbeIntervalForState(1200ms, true, false, false), 1200ms);
+}

@@ -995,13 +995,16 @@ void App::Tick() {
 
   const RuntimeProbeIntervals probeIntervals = SelectRuntimeProbeIntervals(wasPaused_);
   const auto now = RenderScheduler::Clock::now();
+  const auto sessionProbeInterval = SelectSessionProbeIntervalForState(
+      probeIntervals.session, cachedSessionInteractive_, cachedBatterySaverActive_,
+      cachedRemoteSessionActive_);
   constexpr std::chrono::milliseconds kTrayInteractionProbeFreeze(1200);
   const bool inTrayInteractionFreeze =
       lastTrayInteractionAt_ != RenderScheduler::Clock::time_point{} &&
       now >= lastTrayInteractionAt_ &&
       (now - lastTrayInteractionAt_) <= kTrayInteractionProbeFreeze;
   const bool suppressDesktopContextProbe = trayMenuVisible_ || inTrayInteractionFreeze;
-  if (ShouldRefreshRuntimeProbe(now, lastSessionProbeAt_, probeIntervals.session)) {
+  if (ShouldRefreshRuntimeProbe(now, lastSessionProbeAt_, sessionProbeInterval)) {
     cachedSessionInteractive_ = IsSessionInteractive();
     cachedBatterySaverActive_ = IsBatterySaverActive();
     cachedRemoteSessionActive_ = IsRemoteSessionActive();

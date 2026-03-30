@@ -34,4 +34,9 @@ struct RuntimeProbeIntervals final {
     ProbeClock::time_point now, ProbeClock::time_point lastDeepProbeAt,
     std::chrono::milliseconds deepProbeReuseInterval) noexcept;
 
+// 正常稳定态适度放宽会话探测节奏，减少系统调用；异常态保持基础节奏以保证恢复及时性。
+[[nodiscard]] std::chrono::milliseconds SelectSessionProbeIntervalForState(
+    std::chrono::milliseconds baseInterval, bool sessionInteractive, bool batterySaverActive,
+    bool remoteSessionActive) noexcept;
+
 }  // namespace wallpaper

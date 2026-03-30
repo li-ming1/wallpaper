@@ -454,3 +454,18 @@
 - 验证结果：
   - `run_tests` 176/176 全绿，`build_app` 通过。
   - `bench_perf`（desktop, 10s, warmup 5s）`cpu_avg_percent=0.0095`，继续低于 phase73 的 `0.0192`。
+
+## 2026-03-30 20:57:17 会话探测状态感知降频结论
+- 问题：会话探测（`IsSessionInteractive/GetSystemPowerStatus/SM_REMOTESESSION`）在稳定桌面态仍按固定间隔执行，存在无效系统调用。
+- 决策：新增 `SelectSessionProbeIntervalForState`，对正常稳定态做可控降频，异常态保持原频避免恢复迟滞：
+  - 正常稳定态：`base * 2`（上限 `1200ms`）
+  - 异常态（非交互 / 省电模式 / 远程会话）：保持 `base`
+- 落地：
+  - `probe_cadence_policy` 增加策略函数及测试。
+  - `App::Tick` 用状态感知间隔替代固定 `probeIntervals.session`。
+- 验证结果：
+  - `run_tests` 179/179 全绿，`build_app` 通过。
+  - 同配置短基准（均加载 `kuroha_1080p30_h264.mp4`）：
+    - phase74: `cpu_avg_percent=1.4748`
+    - phase75: `cpu_avg_percent=1.4038`
+  - 结论：短窗样本下 CPU 平均占用小幅下降，且内存指标无异常增长。

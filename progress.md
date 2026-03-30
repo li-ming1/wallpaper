@@ -1662,3 +1662,25 @@
   - tests/probe_cadence_policy_tests.cpp
   - include/wallpaper/app.h
   - src/app.cpp
+
+### Phase 75: 会话探测状态感知降频优化
+- **Status:** complete
+- **Completed:** 2026-03-30 20:57:17
+- Actions taken:
+  - 先补 Red 测试：为 `probe_cadence_policy` 新增 3 组会话探测间隔状态策略测试。
+  - 新增 `SelectSessionProbeIntervalForState(...)`：
+    - 正常稳定态（interactive=true 且非 battery saver 且非 remote）按 `2x` 放宽。
+    - 放宽后间隔上限 `1200ms`。
+    - 非正常态保持基础间隔，确保状态恢复感知速度。
+  - `App::Tick` 接入该策略，替代固定 `probeIntervals.session` 调用。
+- Verification:
+  - `./scripts/run_tests.ps1 -BuildDir build_tmp/phase75_green` -> pass (179/179)
+  - `./scripts/build_app.ps1 -BuildDir build_tmp/phase75_app` -> pass
+  - 同配置短基准（均加载 `kuroha_1080p30_h264.mp4`）：
+    - phase74: `cpu_avg_percent=1.4748`（`desktop_20260330_205746_phase74_desktop_with_video_r3.json`）
+    - phase75: `cpu_avg_percent=1.4038`（`desktop_20260330_205717_phase75_desktop_with_video.json`）
+- Files modified:
+  - include/wallpaper/probe_cadence_policy.h
+  - src/probe_cadence_policy.cpp
+  - tests/probe_cadence_policy_tests.cpp
+  - src/app.cpp
