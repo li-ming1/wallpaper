@@ -39,7 +39,6 @@ add_library(wallpaper_core STATIC
   src/runtime_trim_policy.cpp
   src/startup_policy.cpp
   src/video_render_policy.cpp
-  src/video_surface_cache_policy.cpp
   src/video_path_probe_policy.cpp
 )
 target_include_directories(wallpaper_core PUBLIC include)
@@ -109,7 +108,6 @@ add_executable(wallpaper_tests
   tests/startup_policy_tests.cpp
   tests/tray_thread_stop_policy_tests.cpp
   tests/video_render_policy_tests.cpp
-  tests/video_surface_cache_policy_tests.cpp
   tests/video_path_probe_policy_tests.cpp
   tests/video_path_matcher_tests.cpp
   src/config_store.cpp
@@ -139,7 +137,6 @@ add_executable(wallpaper_tests
   src/runtime_trim_policy.cpp
   src/startup_policy.cpp
   src/video_render_policy.cpp
-  src/video_surface_cache_policy.cpp
   src/video_path_probe_policy.cpp
   src/video_path_matcher.cpp
 )

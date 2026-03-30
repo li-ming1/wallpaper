@@ -81,7 +81,6 @@ $sources = @(
   "src/frame_bridge.cpp",
   "src/startup_policy.cpp",
   "src/video_render_policy.cpp",
-  "src/video_surface_cache_policy.cpp",
   "src/video_path_probe_policy.cpp"
 )
 
