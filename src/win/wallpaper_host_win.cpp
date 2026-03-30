@@ -4,6 +4,7 @@
 #include "wallpaper/frame_bridge.h"
 #include "wallpaper/desktop_attach_policy.h"
 #include "wallpaper/frame_latency_policy.h"
+#include "wallpaper/monitor_layout_policy.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -222,6 +223,48 @@ RECT GetParentBoundsOrVirtual(HWND parent) {
   return GetVirtualChildBounds();
 }
 
+DisplayRect ToDisplayRect(const RECT rect) {
+  return DisplayRect{rect.left, rect.top, rect.right, rect.bottom};
+}
+
+RenderViewport BuildFullscreenViewport(const UINT width, const UINT height) {
+  return RenderViewport{
+      0,
+      0,
+      static_cast<int>(width),
+      static_cast<int>(height),
+  };
+}
+
+bool RenderTargetMatchesVirtualDesktop(const UINT renderWidth, const UINT renderHeight) {
+  const RECT virtualRect = GetVirtualScreenRect();
+  const int virtualWidth = virtualRect.right - virtualRect.left;
+  const int virtualHeight = virtualRect.bottom - virtualRect.top;
+  return virtualWidth > 0 && virtualHeight > 0 &&
+         static_cast<UINT>(virtualWidth) == renderWidth &&
+         static_cast<UINT>(virtualHeight) == renderHeight;
+}
+
+BOOL CALLBACK CollectMonitorRect(HMONITOR, HDC, LPRECT monitorRect, LPARAM userData) {
+  if (monitorRect == nullptr || userData == 0) {
+    return TRUE;
+  }
+  auto* monitors = reinterpret_cast<std::vector<DisplayRect>*>(userData);
+  const DisplayRect rect = ToDisplayRect(*monitorRect);
+  if (rect.right <= rect.left || rect.bottom <= rect.top) {
+    return TRUE;
+  }
+  monitors->push_back(rect);
+  return TRUE;
+}
+
+std::vector<DisplayRect> EnumerateMonitorRects() {
+  std::vector<DisplayRect> monitors;
+  EnumDisplayMonitors(nullptr, nullptr, CollectMonitorRect,
+                      reinterpret_cast<LPARAM>(&monitors));
+  return monitors;
+}
+
 HWND FindWorkerWWindow() {
   const RECT virtualRect = GetVirtualScreenRect();
   const LONG virtualWidth = virtualRect.right - virtualRect.left;
@@ -425,6 +468,7 @@ class WallpaperHostWin final : public IWallpaperHost {
     renderWindowVisible_ = false;
     renderViewportWidth_ = 0;
     renderViewportHeight_ = 0;
+    monitorViewports_.clear();
   }
 
   void ResizeForDisplays() override {
@@ -565,6 +609,30 @@ class WallpaperHostWin final : public IWallpaperHost {
     }
     renderViewportWidth_ = width;
     renderViewportHeight_ = height;
+    RebuildMonitorViewports();
+  }
+
+  void RebuildMonitorViewports() {
+    monitorViewports_.clear();
+    if (renderViewportWidth_ == 0 || renderViewportHeight_ == 0) {
+      return;
+    }
+
+    // 只有当渲染目标与虚拟桌面一致时，按物理显示器拆分视口才有确定映射关系。
+    if (!RenderTargetMatchesVirtualDesktop(renderViewportWidth_, renderViewportHeight_)) {
+      monitorViewports_.push_back(
+          BuildFullscreenViewport(renderViewportWidth_, renderViewportHeight_));
+      return;
+    }
+
+    const RECT virtualRect = GetVirtualScreenRect();
+    const std::vector<DisplayRect> monitors = EnumerateMonitorRects();
+    monitorViewports_ = BuildRenderMonitorViewports(ToDisplayRect(virtualRect), monitors);
+    if (monitorViewports_.empty()) {
+      // 兜底回退到单视口，确保显示链路可用。
+      monitorViewports_.push_back(
+          BuildFullscreenViewport(renderViewportWidth_, renderViewportHeight_));
+    }
   }
 
   bool RefreshRenderViewportCacheFromWindow() {
@@ -1142,12 +1210,6 @@ class WallpaperHostWin final : public IWallpaperHost {
         return false;
       }
     }
-    D3D11_VIEWPORT viewport{};
-    viewport.Width = static_cast<float>(renderViewportWidth_);
-    viewport.Height = static_cast<float>(renderViewportHeight_);
-    viewport.MinDepth = 0.0f;
-    viewport.MaxDepth = 1.0f;
-    context_->RSSetViewports(1, &viewport);
 
     context_->OMSetRenderTargets(1, &renderTargetView_, nullptr);
 
@@ -1161,7 +1223,38 @@ class WallpaperHostWin final : public IWallpaperHost {
     context_->PSSetShader(pixelShader, nullptr, 0);
     context_->PSSetSamplers(0, 1, &videoSampler_);
     context_->PSSetShaderResources(0, srvCount, srvs);
-    context_->Draw(4, 0);
+
+    if (monitorViewports_.empty()) {
+      RebuildMonitorViewports();
+    }
+
+    bool drewAnyViewport = false;
+    for (const RenderViewport& viewportRect : monitorViewports_) {
+      if (viewportRect.width <= 0 || viewportRect.height <= 0) {
+        continue;
+      }
+
+      D3D11_VIEWPORT viewport{};
+      viewport.TopLeftX = static_cast<float>(viewportRect.left);
+      viewport.TopLeftY = static_cast<float>(viewportRect.top);
+      viewport.Width = static_cast<float>(viewportRect.width);
+      viewport.Height = static_cast<float>(viewportRect.height);
+      viewport.MinDepth = 0.0f;
+      viewport.MaxDepth = 1.0f;
+      context_->RSSetViewports(1, &viewport);
+      // 每个显示器视口都重复绘制同一帧，避免多屏被拼成一个跨屏画面。
+      context_->Draw(4, 0);
+      drewAnyViewport = true;
+    }
+    if (!drewAnyViewport) {
+      D3D11_VIEWPORT fallbackViewport{};
+      fallbackViewport.Width = static_cast<float>(renderViewportWidth_);
+      fallbackViewport.Height = static_cast<float>(renderViewportHeight_);
+      fallbackViewport.MinDepth = 0.0f;
+      fallbackViewport.MaxDepth = 1.0f;
+      context_->RSSetViewports(1, &fallbackViewport);
+      context_->Draw(4, 0);
+    }
 
     ID3D11ShaderResourceView* nullSrvs[2] = {nullptr, nullptr};
     context_->PSSetShaderResources(0, srvCount, nullSrvs);
@@ -1212,6 +1305,7 @@ class WallpaperHostWin final : public IWallpaperHost {
     nextOcclusionProbeAtTick_ = 0;
     renderViewportWidth_ = 0;
     renderViewportHeight_ = 0;
+    monitorViewports_.clear();
     if (frameLatencyWaitableObject_ != nullptr) {
       CloseHandle(frameLatencyWaitableObject_);
       frameLatencyWaitableObject_ = nullptr;
@@ -1245,6 +1339,7 @@ class WallpaperHostWin final : public IWallpaperHost {
   ID3D11RenderTargetView* renderTargetView_ = nullptr;
   UINT renderViewportWidth_ = 0;
   UINT renderViewportHeight_ = 0;
+  std::vector<RenderViewport> monitorViewports_;
 
   bool videoPipelineReady_ = false;
   ID3D11VertexShader* videoVertexShader_ = nullptr;

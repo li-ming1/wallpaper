@@ -20,6 +20,7 @@ add_library(wallpaper_core STATIC
   src/loop_sleep_policy.cpp
   src/metrics_log_line.cpp
   src/metrics_log_file.cpp
+  src/monitor_layout_policy.cpp
   src/pause_suspend_policy.cpp
   src/pause_transition_policy.cpp
   src/pause_resource_policy.cpp
@@ -91,6 +92,7 @@ add_executable(wallpaper_tests
   tests/metrics_sampler_tests.cpp
   tests/metrics_log_line_tests.cpp
   tests/metrics_log_file_tests.cpp
+  tests/monitor_layout_policy_tests.cpp
   tests/nv12_layout_policy_tests.cpp
   tests/pause_resource_policy_tests.cpp
   tests/pause_suspend_policy_tests.cpp
@@ -120,6 +122,7 @@ add_executable(wallpaper_tests
   src/metrics_sampler.cpp
   src/metrics_log_line.cpp
   src/metrics_log_file.cpp
+  src/monitor_layout_policy.cpp
   src/nv12_layout_policy.cpp
   src/pause_suspend_policy.cpp
   src/pause_transition_policy.cpp

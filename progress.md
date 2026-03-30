@@ -1560,3 +1560,37 @@
   - `scripts/run_tests.ps1 -BuildDir build_tmp/phase64_tests` -> pass (163/163)
   - `scripts/build_app.ps1 -BuildDir build_tmp/phase64_probe_cache_cxx23` -> pass
   - `scripts/build_app.ps1 -BuildDir build_tmp/phase64_probe_cache_cxx26 -UseCxx26` -> pass
+
+## Session: 2026-03-30
+
+### Phase 62: 多显示器独立渲染修复
+- **Status:** in_progress
+- **Started:** 2026-03-30 09:26:52
+- Actions taken:
+  - 扫描并定位到 wallpaper_host_win.cpp 中单视口全屏渲染路径。
+  - 确认当前实现未做按显示器独立视口拆分。
+  - 制定 TDD 修复路线：先策略测试，再接入宿主渲染。
+- Files created/modified:
+  - task_plan.md
+  - findings.md
+  - progress.md
+
+### Phase 62: 多显示器独立渲染修复
+- **Status:** complete
+- **Completed:** 2026-03-30 09:37:48
+- Actions taken:
+  - 新增 monitor_layout_policy 头/源与 4 个策略单测（并排、堆叠、越界裁剪、空输入）。
+  - 在 Windows 壁纸宿主中接入显示器枚举与多视口绘制循环。
+  - 将测试/构建脚本与 CMake 源清单更新为包含新模块。
+  - 执行 Red -> Green -> 回归验证流程。
+- Verification:
+  - ./scripts/run_tests.ps1 通过（167/167）
+  - ./scripts/build_app.ps1 通过（uild/wallpaper_app.exe）
+- Files created/modified:
+  - include/wallpaper/monitor_layout_policy.h
+  - src/monitor_layout_policy.cpp
+  - tests/monitor_layout_policy_tests.cpp
+  - src/win/wallpaper_host_win.cpp
+  - CMakeLists.txt
+  - scripts/run_tests.ps1
+  - scripts/build_app.ps1

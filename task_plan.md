@@ -538,3 +538,17 @@ Phase 61
 - [x] Green: 非恢复路径保持实时探测，确保换源/首次启动行为不漂移
 - [x] Verification: 单测通过（163/163）+ C++23/C++26 构建通过
 - **Status:** complete
+
+### Phase 62: 多显示器独立渲染修复（In Progress）
+- [ ] Brainstorming: 明确多显示器期望行为与验收标准
+- [ ] TDD Red: 新增多显示器视口策略测试并确认失败
+- [ ] Green: 实现显示器视口拆分策略并接入 Windows 宿主渲染
+- [ ] Verification: 运行测试与构建验证
+- **Status:** in_progress
+
+### Phase 62: 多显示器独立渲染修复（Completed）
+- [x] Brainstorming: 明确多显示器期望行为与验收标准（默认值：每屏独立完整显示）
+- [x] TDD Red: 新增多显示器视口策略测试并确认失败
+- [x] Green: 实现显示器视口拆分策略并接入 Windows 宿主渲染
+- [x] Verification: 运行测试与构建验证
+- **Status:** complete
