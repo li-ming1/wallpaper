@@ -1594,3 +1594,24 @@
   - CMakeLists.txt
   - scripts/run_tests.ps1
   - scripts/build_app.ps1
+
+### Phase 63: 静态恢复时延与资源权衡优化
+- **Status:** complete
+- **Completed:** 2026-03-30 09:55:36
+- Actions taken:
+  - 先新增失败测试：默认暂停阈值配置策略测试。
+  - 实现 DefaultPauseSuspendThresholdProfile() 并在 App::Tick 统一使用。
+  - 调整暂停态循环与探测节奏，缩短恢复检测延迟。
+  - 执行全量单测和应用构建验证。
+- Verification:
+  - ./scripts/run_tests.ps1 通过（168/168）
+  - ./scripts/build_app.ps1 通过（uild/wallpaper_app.exe）
+- Files modified:
+  - include/wallpaper/pause_suspend_policy.h
+  - src/pause_suspend_policy.cpp
+  - src/app.cpp
+  - src/loop_sleep_policy.cpp
+  - src/probe_cadence_policy.cpp
+  - tests/pause_suspend_policy_tests.cpp
+  - tests/loop_sleep_policy_tests.cpp
+  - tests/probe_cadence_policy_tests.cpp

@@ -1026,9 +1026,8 @@ void App::Tick() {
   constexpr std::chrono::milliseconds kPauseEnterDelay(110);
   constexpr std::chrono::milliseconds kPauseExitDelay(180);
   constexpr std::chrono::milliseconds kPauseExitDelayWarmup(360);
-  constexpr std::chrono::milliseconds kTrimDecodeCacheAfter(2500);
-  constexpr std::chrono::milliseconds kHardSuspendAfterAggressive(8000);
-  constexpr std::chrono::milliseconds kHardSuspendAfterConservative(12000);
+  const PauseSuspendThresholdProfile pauseSuspendProfile =
+      DefaultPauseSuspendThresholdProfile();
   const auto effectivePauseExitDelay =
       hardSuspendedByPause_ ? kPauseExitDelayWarmup : kPauseExitDelay;
   const bool shouldPause =
@@ -1061,15 +1060,17 @@ void App::Tick() {
       const auto pausedDuration =
           std::chrono::duration_cast<std::chrono::milliseconds>(now - pauseEnteredAt_);
       if (!decodeCacheTrimmedByPause_ &&
-          ShouldTrimDecodeCacheDuringPause(pausedDuration, kTrimDecodeCacheAfter)) {
+          ShouldTrimDecodeCacheDuringPause(pausedDuration,
+                                           pauseSuspendProfile.trimDecodeCacheAfter)) {
         // 轻暂停持续一段时间后释放 CPU 侧帧缓存，降低内存驻留峰值。
         decodePipeline_->TrimMemory();
         decodeCacheTrimmedByPause_ = true;
       }
       const bool allowAggressiveSuspend = arbiter_.ShouldAllowHardSuspend();
       const auto hardSuspendThreshold =
-          SelectHardSuspendThreshold(allowAggressiveSuspend, kHardSuspendAfterAggressive,
-                                     kHardSuspendAfterConservative);
+          SelectHardSuspendThreshold(allowAggressiveSuspend,
+                                     pauseSuspendProfile.hardSuspendAggressive,
+                                     pauseSuspendProfile.hardSuspendConservative);
       if (ShouldHardSuspendDuringPause(pausedDuration, hardSuspendThreshold)) {
         // 长暂停再升级为硬挂起，兼顾资源回收与短切换流畅性。
         decodePipeline_->Stop();

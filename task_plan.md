@@ -552,3 +552,11 @@ Phase 61
 - [x] Green: 实现显示器视口拆分策略并接入 Windows 宿主渲染
 - [x] Verification: 运行测试与构建验证
 - **Status:** complete
+
+### Phase 63: 静态恢复时延与资源权衡优化（Completed）
+- [x] Red: 新增暂停阈值配置测试（默认配置）并验证失败
+- [x] Green: 引入默认暂停阈值配置（Trim=2.5s, AggressiveSuspend=20s, ConservativeSuspend=90s）
+- [x] Green: 暂停态主循环睡眠从 110ms 调整到 90ms
+- [x] Green: 暂停态前台探测间隔从 260ms 调整到 180ms
+- [x] Verification: 全量测试与构建验证
+- **Status:** complete

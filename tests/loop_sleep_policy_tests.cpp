@@ -10,7 +10,7 @@ using namespace std::chrono_literals;
 
 TEST_CASE(LoopSleepPolicy_MainLoopPauseUsesLongInterval) {
   const int sleepMs = wallpaper::ComputeMainLoopSleepMs(true, true, 0ms);
-  EXPECT_EQ(sleepMs, 110);
+  EXPECT_EQ(sleepMs, 90);
 }
 
 TEST_CASE(LoopSleepPolicy_MainLoopNoActiveVideoUsesIdleInterval) {

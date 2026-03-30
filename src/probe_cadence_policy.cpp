@@ -17,7 +17,7 @@ bool ShouldRefreshRuntimeProbe(const ProbeClock::time_point now,
 RuntimeProbeIntervals SelectRuntimeProbeIntervals(const bool stablePaused) noexcept {
   if (stablePaused) {
     return RuntimeProbeIntervals{std::chrono::milliseconds(1200),
-                                 std::chrono::milliseconds(260)};
+                                 std::chrono::milliseconds(180)};
   }
   return RuntimeProbeIntervals{std::chrono::milliseconds(450),
                                std::chrono::milliseconds(180)};

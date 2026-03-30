@@ -53,3 +53,11 @@ TEST_CASE(PauseSuspendPolicy_ResumePipelineRetryDelayEscalatesAndCaps) {
   EXPECT_EQ(wallpaper::ComputeResumePipelineRetryDelay(4), 700ms);
   EXPECT_EQ(wallpaper::ComputeResumePipelineRetryDelay(10), 1000ms);
 }
+
+TEST_CASE(PauseSuspendPolicy_DefaultThresholdProfileBalancesRecoveryAndResources) {
+  const auto profile = wallpaper::DefaultPauseSuspendThresholdProfile();
+  EXPECT_EQ(profile.trimDecodeCacheAfter, 2500ms);
+  EXPECT_EQ(profile.hardSuspendAggressive, 20s);
+  EXPECT_EQ(profile.hardSuspendConservative, 90s);
+  EXPECT_TRUE(profile.hardSuspendConservative > profile.hardSuspendAggressive);
+}

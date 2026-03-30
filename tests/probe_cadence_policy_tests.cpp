@@ -38,7 +38,7 @@ TEST_CASE(ProbeCadencePolicy_SelectsAggressiveCadenceWhenRunning) {
 TEST_CASE(ProbeCadencePolicy_SelectsSparseCadenceWhenPaused) {
   const auto intervals = wallpaper::SelectRuntimeProbeIntervals(true);
   EXPECT_EQ(intervals.session, 1200ms);
-  EXPECT_EQ(intervals.foreground, 260ms);
+  EXPECT_EQ(intervals.foreground, 180ms);
 }
 
 TEST_CASE(ProbeCadencePolicy_ForegroundProbeFailureStreakResetsOnSuccess) {

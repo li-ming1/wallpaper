@@ -2,6 +2,10 @@
 
 namespace wallpaper {
 
+PauseSuspendThresholdProfile DefaultPauseSuspendThresholdProfile() noexcept {
+  return PauseSuspendThresholdProfile{};
+}
+
 bool ShouldHardSuspendDuringPause(const std::chrono::milliseconds pausedDuration,
                                   const std::chrono::milliseconds threshold) noexcept {
   return pausedDuration >= threshold;
