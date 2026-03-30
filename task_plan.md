@@ -4,7 +4,7 @@
 Implement a Windows 10/11 dynamic wallpaper app from an empty repo with strict performance-first architecture (WorkerW + MF + D3D11), plus tests for core logic.
 
 ## Current Phase
-Phase 69
+Phase 61
 
 ## Phases
 ### Phase 1: Requirements & Discovery
@@ -593,17 +593,4 @@ Phase 69
 - [x] Green: 为 `IWallpaperHost` 增加 `TrimMemory()`，Windows 宿主仅释放渲染侧视频纹理
 - [x] Green: 在长静态 pause 与视频路径切换时主动触发渲染缓存回收
 - [x] Verification: 单测、构建、桌面/前台窗口 pause 基准验证通过
-- **Status:** complete
-
-### Phase 68: 真实运行链路复盘（Completed）
-- [x] Discovery: 确认用户真实运行入口为 `build/wallpaper_app.exe + build/config.json`
-- [x] Discovery: 确认此前“超低占用”采样来自错误实例/错误状态
-- [x] Verification: 在真实链路重测并记录 CPU/内存与 `decode_path`
-- **Status:** complete
-
-### Phase 69: DXVA 源帧率提示收敛（Completed）
-- [x] Red: 为 `source_frame_rate_policy` 增加“NTSC 29.97 归一化 + 立即应用提示”失败测试
-- [x] Green: 新增 `NormalizeSourceFrameRateHint/ApplySourceFrameRateHint` 并接入 App 调度
-- [x] Green: `decode_pipeline_stub` 从 MF 输出媒体类型读取 `MF_MT_FRAME_RATE`，透传到 `FrameToken`
-- [x] Verification: 单测通过（188/188）+ 构建通过 + 真实链路指标 `effective_fps=30`（30fps 素材）
 - **Status:** complete

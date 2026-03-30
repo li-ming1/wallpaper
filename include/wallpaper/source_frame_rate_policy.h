@@ -16,11 +16,6 @@ struct SourceFrameRateState final {
                                              std::int64_t currentTimestamp100ns,
                                              SourceFrameRateState* state) noexcept;
 
-[[nodiscard]] int NormalizeSourceFrameRateHint(double fpsHint) noexcept;
-
-[[nodiscard]] int ApplySourceFrameRateHint(int hintedSourceFps,
-                                           SourceFrameRateState* state) noexcept;
-
 void ResetSourceFrameRateState(SourceFrameRateState* state) noexcept;
 
 }  // namespace wallpaper

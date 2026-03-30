@@ -124,8 +124,6 @@ class App final {
   bool hardSuspendedByPause_ = false;
   PauseTransitionState pauseTransitionState_{};
   RenderScheduler::Clock::time_point lastWorkingSetTrimAt_{};
-  RenderScheduler::Clock::time_point activePlaybackStartedAt_{};
-  bool activeWorkingSetTrimDone_ = false;
   std::size_t droppedFrames_ = 0;
   std::size_t totalFrames_ = 0;
   std::size_t decodeCopyBytesInWindow_ = 0;

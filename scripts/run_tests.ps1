@@ -46,7 +46,6 @@ $sources = @(
   "tests/desktop_context_policy_tests.cpp",
   "tests/desktop_attach_policy_tests.cpp",
   "tests/decode_output_policy_tests.cpp",
-  "tests/decode_output_subtype_policy_tests.cpp",
   "tests/frame_buffer_policy_tests.cpp",
   "tests/frame_latency_policy_tests.cpp",
   "tests/frame_bridge_tests.cpp",
@@ -71,17 +70,14 @@ $sources = @(
   "tests/startup_policy_tests.cpp",
   "tests/tray_thread_stop_policy_tests.cpp",
   "tests/video_render_policy_tests.cpp",
-  "tests/video_present_policy_tests.cpp",
   "tests/video_surface_cache_policy_tests.cpp",
   "tests/video_path_probe_policy_tests.cpp",
   "tests/video_path_matcher_tests.cpp",
-  "tests/working_set_trim_policy_tests.cpp",
   "src/config_store.cpp",
   "src/decode_async_read_policy.cpp",
   "src/desktop_context_policy.cpp",
   "src/desktop_attach_policy.cpp",
   "src/decode_output_policy.cpp",
-  "src/decode_output_subtype_policy.cpp",
   "src/frame_buffer_policy.cpp",
   "src/frame_latency_policy.cpp",
   "src/frame_bridge.cpp",
@@ -103,12 +99,10 @@ $sources = @(
   "src/source_frame_rate_policy.cpp",
   "src/runtime_trim_policy.cpp",
   "src/startup_policy.cpp",
-  "src/video_present_policy.cpp",
   "src/video_render_policy.cpp",
   "src/video_surface_cache_policy.cpp",
   "src/video_path_probe_policy.cpp",
-  "src/video_path_matcher.cpp",
-  "src/working_set_trim_policy.cpp"
+  "src/video_path_matcher.cpp"
 )
 
 $useExperimentalCxx = $UseCxx26 -or $UseCxx2c

@@ -55,17 +55,3 @@ TEST_CASE(SourceFrameRatePolicy_IgnoresInvalidTimestampOrder) {
   EXPECT_EQ(fps, 25);
   EXPECT_EQ(state.sourceFps, 25);
 }
-
-TEST_CASE(SourceFrameRatePolicy_NormalizesNtscHintTo30Fps) {
-  EXPECT_EQ(wallpaper::NormalizeSourceFrameRateHint(30000.0 / 1001.0), 30);
-}
-
-TEST_CASE(SourceFrameRatePolicy_AppliesFrameRateHintImmediately) {
-  wallpaper::SourceFrameRateState state;
-  state.sourceFps = 60;
-
-  const int fps = wallpaper::ApplySourceFrameRateHint(30, &state);
-
-  EXPECT_EQ(fps, 30);
-  EXPECT_EQ(state.sourceFps, 30);
-}

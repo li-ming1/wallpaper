@@ -1,10 +1,8 @@
 #include "wallpaper/interfaces.h"
 #include "wallpaper/decode_async_read_policy.h"
 #include "wallpaper/decode_output_policy.h"
-#include "wallpaper/decode_output_subtype_policy.h"
 #include "wallpaper/d3d11_interop_device.h"
 #include "wallpaper/nv12_layout_policy.h"
-#include "wallpaper/source_frame_rate_policy.h"
 
 #include "wallpaper/frame_bridge.h"
 
@@ -32,93 +30,6 @@ namespace wallpaper {
 namespace {
 
 #ifdef _WIN32
-template <typename T>
-void ReleaseCom(T** ptr) {
-  if (ptr != nullptr && *ptr != nullptr) {
-    (*ptr)->Release();
-    *ptr = nullptr;
-  }
-}
-
-GUID GuidForDecodeOutputSubtype(const DecodeOutputSubtype subtype) {
-  switch (subtype) {
-    case DecodeOutputSubtype::kNv12:
-      return MFVideoFormat_NV12;
-    case DecodeOutputSubtype::kArgb32:
-      return MFVideoFormat_ARGB32;
-    case DecodeOutputSubtype::kRgb32:
-    default:
-      return MFVideoFormat_RGB32;
-  }
-}
-
-bool SupportsGpuNv12ShaderResources(ID3D11Device* const device) {
-  if (device == nullptr) {
-    return false;
-  }
-
-  D3D11_TEXTURE2D_DESC textureDesc{};
-  textureDesc.Width = 2;
-  textureDesc.Height = 2;
-  textureDesc.MipLevels = 1;
-  textureDesc.ArraySize = 1;
-  textureDesc.Format = DXGI_FORMAT_NV12;
-  textureDesc.SampleDesc.Count = 1;
-  textureDesc.Usage = D3D11_USAGE_DEFAULT;
-  textureDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-
-  ID3D11Texture2D* texture = nullptr;
-  HRESULT hr = device->CreateTexture2D(&textureDesc, nullptr, &texture);
-  if (FAILED(hr) || texture == nullptr) {
-    return false;
-  }
-
-  D3D11_SHADER_RESOURCE_VIEW_DESC ySrvDesc{};
-  ySrvDesc.Format = DXGI_FORMAT_R8_UNORM;
-  ySrvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
-  ySrvDesc.Texture2DArray.MostDetailedMip = 0;
-  ySrvDesc.Texture2DArray.MipLevels = 1;
-  ySrvDesc.Texture2DArray.FirstArraySlice = 0;
-  ySrvDesc.Texture2DArray.ArraySize = 1;
-
-  ID3D11ShaderResourceView* ySrv = nullptr;
-  hr = device->CreateShaderResourceView(texture, &ySrvDesc, &ySrv);
-  if (FAILED(hr) || ySrv == nullptr) {
-    ReleaseCom(&texture);
-    return false;
-  }
-
-  D3D11_SHADER_RESOURCE_VIEW_DESC uvSrvDesc{};
-  uvSrvDesc.Format = DXGI_FORMAT_R8G8_UNORM;
-  uvSrvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
-  uvSrvDesc.Texture2DArray.MostDetailedMip = 0;
-  uvSrvDesc.Texture2DArray.MipLevels = 1;
-  uvSrvDesc.Texture2DArray.FirstArraySlice = 0;
-  uvSrvDesc.Texture2DArray.ArraySize = 1;
-
-  ID3D11ShaderResourceView* uvSrv = nullptr;
-  hr = device->CreateShaderResourceView(texture, &uvSrvDesc, &uvSrv);
-  const bool supported = SUCCEEDED(hr) && uvSrv != nullptr;
-  ReleaseCom(&uvSrv);
-  ReleaseCom(&ySrv);
-  ReleaseCom(&texture);
-  return supported;
-}
-
-int ExtractSourceFrameRateHint(IMFMediaType* const mediaType) {
-  if (mediaType == nullptr) {
-    return 0;
-  }
-  UINT32 numerator = 0;
-  UINT32 denominator = 0;
-  if (FAILED(MFGetAttributeRatio(mediaType, MF_MT_FRAME_RATE, &numerator, &denominator)) ||
-      denominator == 0) {
-    return 0;
-  }
-  const double fpsHint = static_cast<double>(numerator) / static_cast<double>(denominator);
-  return NormalizeSourceFrameRateHint(fpsHint);
-}
-
 class DecodePipelineStub;
 
 class AsyncSourceReaderCallback final : public IMFSourceReaderCallback {
@@ -320,7 +231,6 @@ class DecodePipelineStub final : public IDecodePipeline {
     frame->cpuCopyBytes = 0;
     // 100ns 单位，便于未来与 MF 时间戳对齐。
     frame->timestamp100ns = static_cast<std::int64_t>(sequence_ * 333333);
-    frame->sourceFrameRateHint = 0;
     return true;
   }
 
@@ -399,7 +309,6 @@ class DecodePipelineStub final : public IDecodePipeline {
             if (SUCCEEDED(readerAttributes->SetUnknown(MF_SOURCE_READER_D3D_MANAGER,
                                                        dxgiDeviceManager_))) {
               useD3DInterop = true;
-              mfGpuNv12RenderingSupported_ = SupportsGpuNv12ShaderResources(sharedDevice);
             }
           }
           sharedDevice->Release();
@@ -453,11 +362,8 @@ class DecodePipelineStub final : public IDecodePipeline {
           UINT32 hintHeight = 0;
           QueryDesktopFrameHint(&hintWidth, &hintHeight);
           if (hintWidth > 0 && hintHeight > 0) {
-            const bool gpuZeroCopySubtype =
-                mfD3DInteropEnabled_ &&
-                (IsEqualGUID(subtype, MFVideoFormat_ARGB32) ||
-                 (mfGpuNv12RenderingSupported_ && IsEqualGUID(subtype, MFVideoFormat_NV12)));
-            const bool cpuFallbackPath = !gpuZeroCopySubtype;
+            const bool cpuFallbackPath =
+                !(mfD3DInteropEnabled_ && IsEqualGUID(subtype, MFVideoFormat_ARGB32));
             DecodeOutputOptions outputOptions;
             outputOptions.desktopWidth = hintWidth;
             outputOptions.desktopHeight = hintHeight;
@@ -482,11 +388,19 @@ class DecodePipelineStub final : public IDecodePipeline {
         return localHr;
       };
 
-      const auto preferredSubtypes =
-          BuildPreferredDecodeOutputSubtypes(mfD3DInteropEnabled_, mfGpuNv12RenderingSupported_);
+      GUID preferredSubtypes[2]{};
+      int preferredSubtypeCount = 0;
+      if (mfD3DInteropEnabled_) {
+        preferredSubtypes[preferredSubtypeCount++] = MFVideoFormat_ARGB32;
+        preferredSubtypes[preferredSubtypeCount++] = MFVideoFormat_RGB32;
+      } else {
+        preferredSubtypes[preferredSubtypeCount++] = MFVideoFormat_NV12;
+        preferredSubtypes[preferredSubtypeCount++] = MFVideoFormat_RGB32;
+      }
+
       bool configured = false;
-      for (const DecodeOutputSubtype preferredSubtype : preferredSubtypes) {
-        const GUID subtype = GuidForDecodeOutputSubtype(preferredSubtype);
+      for (int i = 0; i < preferredSubtypeCount; ++i) {
+        const GUID& subtype = preferredSubtypes[i];
         hr = setOutType(true, subtype);
         if (FAILED(hr)) {
           // 某些编解码链路不接受帧大小提示，回退到默认输出协商。
@@ -507,10 +421,8 @@ class DecodePipelineStub final : public IDecodePipeline {
       if (FAILED(hr) || outType == nullptr) {
         return false;
       }
-      const int sourceFrameRateHint = ExtractSourceFrameRateHint(outType);
       hr = MFGetAttributeSize(outType, MF_MT_FRAME_SIZE, outWidth, outHeight);
       outType->Release();
-      sourceFrameRateHint_ = sourceFrameRateHint;
       return SUCCEEDED(hr) && *outWidth > 0 && *outHeight > 0;
     };
 
@@ -543,7 +455,8 @@ class DecodePipelineStub final : public IDecodePipeline {
     frameWidth_ = width;
     frameHeight_ = height;
     frameStride_ = IsEqualGUID(selectedOutputSubtype_, MFVideoFormat_NV12) ? width : width * 4;
-    mfGpuZeroCopyActive_ = mfD3DInteropEnabled_;
+    mfGpuZeroCopyActive_ =
+        mfD3DInteropEnabled_ && IsEqualGUID(selectedOutputSubtype_, MFVideoFormat_ARGB32);
     mfBaseOffset100ns_ = 0;
     mfLastRawTimestamp100ns_ = -1;
     mfLastOutputTimestamp100ns_ = -1;
@@ -585,12 +498,10 @@ class DecodePipelineStub final : public IDecodePipeline {
     frameStride_ = 0;
     mfD3DInteropEnabled_ = false;
     mfGpuZeroCopyActive_ = false;
-    mfGpuNv12RenderingSupported_ = false;
     selectedOutputSubtype_ = GUID{};
     mfBaseOffset100ns_ = 0;
     mfLastRawTimestamp100ns_ = -1;
     mfLastOutputTimestamp100ns_ = -1;
-    sourceFrameRateHint_ = 0;
     ResetDecodeAsyncRead(&decodeAsyncReadState_);
   }
 
@@ -960,7 +871,6 @@ class DecodePipelineStub final : public IDecodePipeline {
     frame->height = static_cast<int>(snapshot.frameHeight);
     frame->decodeMode = DecodeMode::kMediaFoundation;
     frame->timestamp100ns = snapshot.outputTimestamp100ns;
-    frame->sourceFrameRateHint = sourceFrameRateHint_;
     frame->gpuBacked = publishResult.gpuBacked;
     frame->cpuCopyBytes = publishResult.cpuCopyBytes;
     frame->decodePath = publishResult.gpuBacked
@@ -1004,7 +914,6 @@ class DecodePipelineStub final : public IDecodePipeline {
   bool mfStarted_ = false;
   bool mfD3DInteropEnabled_ = false;
   bool mfGpuZeroCopyActive_ = false;
-  bool mfGpuNv12RenderingSupported_ = false;
   GUID selectedOutputSubtype_ = GUID{};
   std::uint32_t frameWidth_ = 0;
   std::uint32_t frameHeight_ = 0;
@@ -1012,7 +921,6 @@ class DecodePipelineStub final : public IDecodePipeline {
   std::int64_t mfBaseOffset100ns_ = 0;
   std::int64_t mfLastRawTimestamp100ns_ = -1;
   std::int64_t mfLastOutputTimestamp100ns_ = -1;
-  int sourceFrameRateHint_ = 0;
   DecodeAsyncReadState decodeAsyncReadState_{};
   IMFSample* asyncReadySample_ = nullptr;
   std::int64_t asyncReadyRawTimestamp100ns_ = 0;

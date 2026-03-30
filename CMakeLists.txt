@@ -16,7 +16,6 @@ add_library(wallpaper_core STATIC
   src/desktop_context_policy.cpp
   src/desktop_attach_policy.cpp
   src/decode_output_policy.cpp
-  src/decode_output_subtype_policy.cpp
   src/foreground_policy.cpp
   src/loop_sleep_policy.cpp
   src/metrics_log_line.cpp
@@ -39,11 +38,9 @@ add_library(wallpaper_core STATIC
   src/nv12_layout_policy.cpp
   src/runtime_trim_policy.cpp
   src/startup_policy.cpp
-  src/video_present_policy.cpp
   src/video_render_policy.cpp
   src/video_surface_cache_policy.cpp
   src/video_path_probe_policy.cpp
-  src/working_set_trim_policy.cpp
 )
 target_include_directories(wallpaper_core PUBLIC include)
 
@@ -88,7 +85,6 @@ add_executable(wallpaper_tests
   tests/desktop_context_policy_tests.cpp
   tests/desktop_attach_policy_tests.cpp
   tests/decode_output_policy_tests.cpp
-  tests/decode_output_subtype_policy_tests.cpp
   tests/frame_buffer_policy_tests.cpp
   tests/frame_latency_policy_tests.cpp
   tests/frame_bridge_tests.cpp
@@ -112,18 +108,15 @@ add_executable(wallpaper_tests
   tests/single_instance_policy_tests.cpp
   tests/startup_policy_tests.cpp
   tests/tray_thread_stop_policy_tests.cpp
-  tests/video_present_policy_tests.cpp
   tests/video_render_policy_tests.cpp
   tests/video_surface_cache_policy_tests.cpp
   tests/video_path_probe_policy_tests.cpp
   tests/video_path_matcher_tests.cpp
-  tests/working_set_trim_policy_tests.cpp
   src/config_store.cpp
   src/decode_async_read_policy.cpp
   src/desktop_context_policy.cpp
   src/desktop_attach_policy.cpp
   src/decode_output_policy.cpp
-  src/decode_output_subtype_policy.cpp
   src/frame_bridge.cpp
   src/frame_buffer_policy.cpp
   src/frame_latency_policy.cpp
@@ -145,12 +138,10 @@ add_executable(wallpaper_tests
   src/source_frame_rate_policy.cpp
   src/runtime_trim_policy.cpp
   src/startup_policy.cpp
-  src/video_present_policy.cpp
   src/video_render_policy.cpp
   src/video_surface_cache_policy.cpp
   src/video_path_probe_policy.cpp
   src/video_path_matcher.cpp
-  src/working_set_trim_policy.cpp
 )
 
 target_include_directories(wallpaper_tests PRIVATE include)
