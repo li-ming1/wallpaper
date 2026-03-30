@@ -35,7 +35,6 @@ add_library(wallpaper_core STATIC
   src/frame_buffer_policy.cpp
   src/frame_latency_policy.cpp
   src/long_run_load_policy.cpp
-  src/gpu_nv12_srv_cache_policy.cpp
   src/probe_cadence_policy.cpp
   src/nv12_layout_policy.cpp
   src/runtime_trim_policy.cpp
@@ -93,7 +92,6 @@ add_executable(wallpaper_tests
   tests/frame_buffer_policy_tests.cpp
   tests/frame_latency_policy_tests.cpp
   tests/frame_bridge_tests.cpp
-  tests/gpu_nv12_srv_cache_policy_tests.cpp
   tests/foreground_policy_tests.cpp
   tests/loop_sleep_policy_tests.cpp
   tests/long_run_load_policy_tests.cpp
@@ -130,7 +128,6 @@ add_executable(wallpaper_tests
   src/frame_buffer_policy.cpp
   src/frame_latency_policy.cpp
   src/foreground_policy.cpp
-  src/gpu_nv12_srv_cache_policy.cpp
   src/loop_sleep_policy.cpp
   src/long_run_load_policy.cpp
   src/metrics_sampler.cpp
