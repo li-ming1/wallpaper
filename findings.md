@@ -444,3 +444,13 @@
 - 验证结果：
   - `run_tests` 172/172 全绿，`build_app` 通过。
   - `bench_perf`（desktop, 10s, warmup 5s）`cpu_avg_percent=0.0192`，低于此前同类样本（`~0.0284`）的量级。
+
+## 2026-03-30 20:30:18 前台探测稳定窗口复用结论
+- 问题：前台探测按固定节奏执行，即使前台窗口长时间不变，也会重复进入 `GetClassName + (可能) OpenProcess/QueryFullProcessImageNameW` 深度路径。
+- 决策：新增 `ShouldReuseForegroundProbeResult`；当“前台窗口句柄未变化且距离上次深度探测未超过复用窗口（1200ms）”时，直接复用上次结论。
+- 落地：
+  - `App` 新增 `lastForegroundWindowHandle_` / `lastForegroundDeepProbeAt_`，在 probe 成功或保守失败路径更新。
+  - `TryDetectDesktopContextActive` 改为接收外部采样句柄，避免同一轮内重复 `GetForegroundWindow()`。
+- 验证结果：
+  - `run_tests` 176/176 全绿，`build_app` 通过。
+  - `bench_perf`（desktop, 10s, warmup 5s）`cpu_avg_percent=0.0095`，继续低于 phase73 的 `0.0192`。

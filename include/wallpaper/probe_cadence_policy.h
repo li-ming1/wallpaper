@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
 
 namespace wallpaper {
 
@@ -26,5 +27,11 @@ struct RuntimeProbeIntervals final {
 // 连续失败达到阈值后，采用保守策略（按非桌面上下文处理）。
 [[nodiscard]] bool ShouldUseConservativeDesktopContext(int failureStreak,
                                                        int failureThreshold) noexcept;
+
+// 当前台窗口句柄稳定时，复用最近一次深度探测结果，减少高开销进程查询。
+[[nodiscard]] bool ShouldReuseForegroundProbeResult(
+    std::uintptr_t currentForegroundWindowHandle, std::uintptr_t lastForegroundWindowHandle,
+    ProbeClock::time_point now, ProbeClock::time_point lastDeepProbeAt,
+    std::chrono::milliseconds deepProbeReuseInterval) noexcept;
 
 }  // namespace wallpaper

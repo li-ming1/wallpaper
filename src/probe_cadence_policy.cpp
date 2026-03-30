@@ -44,4 +44,25 @@ bool ShouldUseConservativeDesktopContext(const int failureStreak,
   return failureStreak >= failureThreshold;
 }
 
+bool ShouldReuseForegroundProbeResult(const std::uintptr_t currentForegroundWindowHandle,
+                                      const std::uintptr_t lastForegroundWindowHandle,
+                                      const ProbeClock::time_point now,
+                                      const ProbeClock::time_point lastDeepProbeAt,
+                                      const std::chrono::milliseconds deepProbeReuseInterval)
+    noexcept {
+  if (currentForegroundWindowHandle == 0 || currentForegroundWindowHandle != lastForegroundWindowHandle) {
+    return false;
+  }
+  if (lastDeepProbeAt == ProbeClock::time_point{}) {
+    return false;
+  }
+  if (deepProbeReuseInterval <= std::chrono::milliseconds(0)) {
+    return false;
+  }
+  if (now < lastDeepProbeAt) {
+    return true;
+  }
+  return (now - lastDeepProbeAt) < deepProbeReuseInterval;
+}
+
 }  // namespace wallpaper

@@ -571,3 +571,13 @@ Phase 61
 - [x] Verification: `scripts/build_app.ps1 -BuildDir build_tmp/phase73_app`（PASS）
 - [x] Verification: `scripts/bench_perf.ps1 ... -Tag phase73_desktop`（CPU avg `0.0192%`）
 - **Status:** complete
+
+### Phase 74: 前台探测稳定窗口复用优化（Completed）
+- [x] Red: 新增 `probe_cadence_policy` 前台探测复用策略测试并验证失败
+- [x] Green: 新增 `ShouldReuseForegroundProbeResult`，在前台窗口稳定时复用最近深度探测结果
+- [x] Green: `App` 接入前台窗口句柄与深度探测时间戳缓存，减少重复 `GetClassName/OpenProcess/QueryFullProcessImageNameW`
+- [x] Green: `TryDetectDesktopContextActive` 改为使用外部采样的前台窗口句柄，避免重复 `GetForegroundWindow`
+- [x] Verification: `scripts/run_tests.ps1 -BuildDir build_tmp/phase74_green`（176/176 PASS）
+- [x] Verification: `scripts/build_app.ps1 -BuildDir build_tmp/phase74_app`（PASS）
+- [x] Verification: `scripts/bench_perf.ps1 ... -Tag phase74_desktop`（CPU avg `0.0095%`）
+- **Status:** complete

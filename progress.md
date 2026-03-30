@@ -1640,3 +1640,25 @@
   - src/metrics_log_file.cpp
   - tests/startup_policy_tests.cpp
   - tests/metrics_log_file_tests.cpp
+
+### Phase 74: 前台探测稳定窗口复用优化
+- **Status:** complete
+- **Completed:** 2026-03-30 20:30:18
+- Actions taken:
+  - 先补 Red 测试：`probe_cadence_policy` 增加 4 个“前台窗口稳定复用”测试。
+  - 新增策略函数 `ShouldReuseForegroundProbeResult(...)`。
+  - `App` 新增 `lastForegroundWindowHandle_` 与 `lastForegroundDeepProbeAt_` 状态；`ResetPlaybackState` 同步重置。
+  - 前台探测路径改为“稳定窗口先复用，未命中再深度探测”，并将 `TryDetectDesktopContextActive` 改成接收已采样句柄，避免重复前台窗口查询。
+- Verification:
+  - `./scripts/run_tests.ps1 -BuildDir build_tmp/phase74_green` -> pass (176/176)
+  - `./scripts/build_app.ps1 -BuildDir build_tmp/phase74_app` -> pass
+  - `./scripts/bench_perf.ps1 -ExePath build_tmp/phase74_app/wallpaper_app.exe -Scenario desktop -DurationSec 10 -WarmupSec 5 -SampleMs 500 -Tag phase74_desktop`
+    - `cpu_avg_percent=0.0095`
+    - `cpu_p95_percent=0.0`
+    - `working_set_bytes_delta=0`
+- Files modified:
+  - include/wallpaper/probe_cadence_policy.h
+  - src/probe_cadence_policy.cpp
+  - tests/probe_cadence_policy_tests.cpp
+  - include/wallpaper/app.h
+  - src/app.cpp

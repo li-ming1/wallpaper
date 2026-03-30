@@ -54,3 +54,30 @@ TEST_CASE(ProbeCadencePolicy_UsesConservativeDesktopContextAfterRepeatedFailures
   EXPECT_TRUE(!wallpaper::ShouldUseConservativeDesktopContext(2, 3));
   EXPECT_TRUE(wallpaper::ShouldUseConservativeDesktopContext(3, 3));
 }
+
+TEST_CASE(ProbeCadencePolicy_ReusesForegroundProbeWhenWindowStableWithinInterval) {
+  const auto now = wallpaper::ProbeClock::time_point{} + 2s;
+  const auto lastDeepProbe = now - 200ms;
+  EXPECT_TRUE(wallpaper::ShouldReuseForegroundProbeResult(0x1001, 0x1001, now, lastDeepProbe,
+                                                          1200ms));
+}
+
+TEST_CASE(ProbeCadencePolicy_DoesNotReuseForegroundProbeWhenWindowChanges) {
+  const auto now = wallpaper::ProbeClock::time_point{} + 2s;
+  const auto lastDeepProbe = now - 200ms;
+  EXPECT_TRUE(!wallpaper::ShouldReuseForegroundProbeResult(0x1001, 0x2002, now, lastDeepProbe,
+                                                           1200ms));
+}
+
+TEST_CASE(ProbeCadencePolicy_DoesNotReuseForegroundProbeWhenIntervalElapsed) {
+  const auto now = wallpaper::ProbeClock::time_point{} + 2s;
+  const auto lastDeepProbe = now - 1500ms;
+  EXPECT_TRUE(!wallpaper::ShouldReuseForegroundProbeResult(0x1001, 0x1001, now, lastDeepProbe,
+                                                           1200ms));
+}
+
+TEST_CASE(ProbeCadencePolicy_DoesNotReuseForegroundProbeWithoutPriorDeepProbe) {
+  const auto now = wallpaper::ProbeClock::time_point{} + 2s;
+  EXPECT_TRUE(!wallpaper::ShouldReuseForegroundProbeResult(
+      0x1001, 0x1001, now, wallpaper::ProbeClock::time_point{}, 1200ms));
+}

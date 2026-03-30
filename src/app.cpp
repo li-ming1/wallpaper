@@ -88,11 +88,15 @@ bool TryQueryForegroundProcessBaseName(const HWND hwnd, std::wstring* outProcess
   return true;
 }
 
-bool TryDetectDesktopContextActive(bool* outActive) {
+std::uintptr_t QueryForegroundWindowHandle() {
+  return reinterpret_cast<std::uintptr_t>(GetForegroundWindow());
+}
+
+bool TryDetectDesktopContextActive(const std::uintptr_t foregroundWindowHandle, bool* outActive) {
   if (outActive == nullptr) {
     return false;
   }
-  const HWND hwnd = GetForegroundWindow();
+  const HWND hwnd = reinterpret_cast<HWND>(foregroundWindowHandle);
   if (hwnd == nullptr) {
     return false;
   }
@@ -271,7 +275,8 @@ bool IsBatterySaverActive() { return false; }
 bool IsRemoteSessionActive() { return false; }
 bool TrimCurrentProcessWorkingSet() { return false; }
 bool SetAutoStartEnabled(bool) { return true; }
-bool TryDetectDesktopContextActive(bool* outActive) {
+std::uintptr_t QueryForegroundWindowHandle() { return 0; }
+bool TryDetectDesktopContextActive(std::uintptr_t, bool* outActive) {
   if (outActive == nullptr) {
     return false;
   }
@@ -550,6 +555,8 @@ void App::ResetPlaybackState(const bool resetLongRunState) {
   lastDecodeOutputPixels_ = 0;
   lastSessionProbeAt_ = RenderScheduler::Clock::time_point{};
   lastForegroundProbeAt_ = RenderScheduler::Clock::time_point{};
+  lastForegroundDeepProbeAt_ = RenderScheduler::Clock::time_point{};
+  lastForegroundWindowHandle_ = 0;
   foregroundProbeFailureStreak_ = 0;
   cachedSessionInteractive_ = true;
   cachedDesktopContextActive_ = true;
@@ -1003,20 +1010,34 @@ void App::Tick() {
   const bool shouldProbeForeground =
       ShouldRefreshRuntimeProbe(now, lastForegroundProbeAt_, probeIntervals.foreground);
   if (shouldProbeForeground && !suppressDesktopContextProbe) {
-    bool desktopContextActive = cachedDesktopContextActive_;
-    const bool probeSucceeded = TryDetectDesktopContextActive(&desktopContextActive);
-    foregroundProbeFailureStreak_ =
-        UpdateForegroundProbeFailureStreak(probeSucceeded, foregroundProbeFailureStreak_);
-    if (probeSucceeded) {
-      cachedDesktopContextActive_ = desktopContextActive;
+    constexpr std::chrono::milliseconds kForegroundDeepProbeReuseInterval(1200);
+    const std::uintptr_t foregroundWindowHandle = QueryForegroundWindowHandle();
+    if (ShouldReuseForegroundProbeResult(foregroundWindowHandle, lastForegroundWindowHandle_, now,
+                                         lastForegroundDeepProbeAt_,
+                                         kForegroundDeepProbeReuseInterval)) {
+      // 前台窗口未变化时复用最近深度探测结果，减少高开销进程查询。
       lastForegroundProbeAt_ = now;
     } else {
-      constexpr int kForegroundProbeFailureFallbackThreshold = 3;
-      if (ShouldUseConservativeDesktopContext(foregroundProbeFailureStreak_,
-                                              kForegroundProbeFailureFallbackThreshold)) {
-        // 前台探测连续失败时采用保守降载策略，避免非桌面启动阶段长时间保持动态。
-        cachedDesktopContextActive_ = false;
+      bool desktopContextActive = cachedDesktopContextActive_;
+      const bool probeSucceeded =
+          TryDetectDesktopContextActive(foregroundWindowHandle, &desktopContextActive);
+      foregroundProbeFailureStreak_ =
+          UpdateForegroundProbeFailureStreak(probeSucceeded, foregroundProbeFailureStreak_);
+      if (probeSucceeded) {
+        cachedDesktopContextActive_ = desktopContextActive;
         lastForegroundProbeAt_ = now;
+        lastForegroundDeepProbeAt_ = now;
+        lastForegroundWindowHandle_ = foregroundWindowHandle;
+      } else {
+        constexpr int kForegroundProbeFailureFallbackThreshold = 3;
+        if (ShouldUseConservativeDesktopContext(foregroundProbeFailureStreak_,
+                                                kForegroundProbeFailureFallbackThreshold)) {
+          // 前台探测连续失败时采用保守降载策略，避免非桌面启动阶段长时间保持动态。
+          cachedDesktopContextActive_ = false;
+          lastForegroundProbeAt_ = now;
+          lastForegroundDeepProbeAt_ = now;
+          lastForegroundWindowHandle_ = foregroundWindowHandle;
+        }
       }
     }
   }
