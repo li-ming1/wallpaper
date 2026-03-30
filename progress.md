@@ -1615,3 +1615,28 @@
   - tests/pause_suspend_policy_tests.cpp
   - tests/loop_sleep_policy_tests.cpp
   - tests/probe_cadence_policy_tests.cpp
+
+### Phase 73: 静帧呈现节流 + 指标写盘路径降载
+- **Status:** complete
+- **Completed:** 2026-03-30 19:48:13
+- Actions taken:
+  - 先补 Red 测试：`startup_policy` 静帧 keepalive 呈现门控测试；`metrics_log_file` 日期 provider 调用次数约束测试。
+  - 实现静帧呈现门控：`ShouldPresentFrame` 增加 stale-frame due 入参；新增 `ShouldPresentStaleFrame`。
+  - 在 `App::Tick` 接入 `250ms` 静帧 keepalive 呈现节流，并在 `ResetPlaybackState/DetachWallpaper` 重置 `lastPresentedAt_`。
+  - 优化指标写盘路径：`MetricsLogFile::Append` 改为单次 active path 计算；新增 `EnsureReadyForPath/MaybePruneShards`，将 shard prune 改为“路径切换或 10 分钟到期”触发。
+- Verification:
+  - `./scripts/run_tests.ps1 -BuildDir build_tmp/phase73_green` -> pass (172/172)
+  - `./scripts/build_app.ps1 -BuildDir build_tmp/phase73_app` -> pass
+  - `./scripts/bench_perf.ps1 -ExePath build_tmp/phase73_app/wallpaper_app.exe -Scenario desktop -DurationSec 10 -WarmupSec 5 -SampleMs 500 -Tag phase73_desktop`
+    - `cpu_avg_percent=0.0192`
+    - `cpu_p95_percent=0.1909`
+    - `working_set_bytes_delta=0`
+- Files modified:
+  - include/wallpaper/startup_policy.h
+  - src/startup_policy.cpp
+  - include/wallpaper/app.h
+  - src/app.cpp
+  - include/wallpaper/metrics_log_file.h
+  - src/metrics_log_file.cpp
+  - tests/startup_policy_tests.cpp
+  - tests/metrics_log_file_tests.cpp

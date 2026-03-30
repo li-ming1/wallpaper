@@ -31,15 +31,39 @@ TEST_CASE(StartupPolicy_ShouldStartVideoWhenPathExists) {
 }
 
 TEST_CASE(StartupPolicy_ShouldNotPresentBeforeFirstDecodedFrame) {
-  EXPECT_TRUE(!wallpaper::ShouldPresentFrame(false, false));
+  EXPECT_TRUE(!wallpaper::ShouldPresentFrame(false, false, true));
 }
 
 TEST_CASE(StartupPolicy_ShouldPresentAfterDecodedFrameArrives) {
-  EXPECT_TRUE(wallpaper::ShouldPresentFrame(true, false));
+  EXPECT_TRUE(wallpaper::ShouldPresentFrame(true, false, false));
 }
 
-TEST_CASE(StartupPolicy_ShouldPresentWhenReusingLastFrame) {
-  EXPECT_TRUE(wallpaper::ShouldPresentFrame(false, true));
+TEST_CASE(StartupPolicy_ShouldNotPresentWhenReusingLastFrameBeforeKeepAliveDue) {
+  EXPECT_TRUE(!wallpaper::ShouldPresentFrame(false, true, false));
+}
+
+TEST_CASE(StartupPolicy_ShouldPresentWhenReusingLastFrameAndKeepAliveDue) {
+  EXPECT_TRUE(wallpaper::ShouldPresentFrame(false, true, true));
+}
+
+TEST_CASE(StartupPolicy_StaleFrameKeepAliveRequiresInterval) {
+  using Clock = std::chrono::steady_clock;
+  constexpr std::chrono::milliseconds kInterval(250);
+
+  const Clock::time_point base = Clock::time_point{} + std::chrono::seconds(1);
+  EXPECT_TRUE(!wallpaper::ShouldPresentStaleFrame(base + std::chrono::milliseconds(200), base,
+                                                  kInterval));
+  EXPECT_TRUE(wallpaper::ShouldPresentStaleFrame(base + std::chrono::milliseconds(250), base,
+                                                 kInterval));
+}
+
+TEST_CASE(StartupPolicy_StaleFrameKeepAliveAllowsImmediatePresentWhenNoPriorPresent) {
+  using Clock = std::chrono::steady_clock;
+  constexpr std::chrono::milliseconds kInterval(250);
+
+  EXPECT_TRUE(
+      wallpaper::ShouldPresentStaleFrame(Clock::time_point{} + std::chrono::seconds(5),
+                                         Clock::time_point{}, kInterval));
 }
 
 TEST_CASE(StartupPolicy_DeferDecodeOnFirstRunWithVideo) {

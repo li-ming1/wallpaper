@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <chrono>
 #include <filesystem>
 #include <functional>
 #include <string>
@@ -15,11 +16,13 @@ class MetricsLogFile final {
   MetricsLogFile(std::filesystem::path path, std::size_t maxBytes, std::string header,
                  std::size_t keepDays = 1, DateKeyProvider dateKeyProvider = {});
 
-  [[nodiscard]] bool EnsureReady() const;
+ [[nodiscard]] bool EnsureReady() const;
   [[nodiscard]] bool Append(std::string_view line) const;
 
  private:
   [[nodiscard]] std::filesystem::path ActivePath() const;
+  [[nodiscard]] bool EnsureReadyForPath(const std::filesystem::path& activePath) const;
+  void MaybePruneShards(const std::filesystem::path& activePath) const;
   [[nodiscard]] bool RewriteWithHeader(const std::filesystem::path& path) const;
   void PruneShards(const std::filesystem::path& activePath) const;
 
@@ -28,6 +31,8 @@ class MetricsLogFile final {
   std::string header_;
   std::size_t keepDays_;
   DateKeyProvider dateKeyProvider_;
+  mutable std::filesystem::path lastPrunedActivePath_;
+  mutable std::chrono::steady_clock::time_point lastPrunedAt_{};
 };
 
 }  // namespace wallpaper

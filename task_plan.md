@@ -560,3 +560,14 @@ Phase 61
 - [x] Green: 暂停态前台探测间隔从 260ms 调整到 180ms
 - [x] Verification: 全量测试与构建验证
 - **Status:** complete
+
+### Phase 73: 静帧呈现节流 + 指标写盘路径降载（Completed）
+- [x] Red: 新增 `startup_policy` 静帧 keepalive 呈现门控测试并验证失败
+- [x] Red: 新增 `metrics_log_file` 日期 provider 调用次数约束测试并验证失败
+- [x] Green: `ShouldPresentFrame` 升级为“新帧立即呈现 + 静帧 keepalive 门控”
+- [x] Green: `App` 接入静帧 `250ms` keepalive 呈现节流（无新帧不再每个渲染 tick 都 `Present`）
+- [x] Green: `MetricsLogFile` 改为单次 active path 解析 + 条件化 shard prune，减少每次 `Append` 文件系统维护开销
+- [x] Verification: `scripts/run_tests.ps1 -BuildDir build_tmp/phase73_green`（172/172 PASS）
+- [x] Verification: `scripts/build_app.ps1 -BuildDir build_tmp/phase73_app`（PASS）
+- [x] Verification: `scripts/bench_perf.ps1 ... -Tag phase73_desktop`（CPU avg `0.0192%`）
+- **Status:** complete

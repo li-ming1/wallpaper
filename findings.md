@@ -434,3 +434,13 @@
 - 参数：Trim 阈值 2500ms；激进硬挂起阈值 20s（电源/会话敏感）；保守硬挂起阈值 90s（普通桌面场景）。
 - 额外降延迟：暂停态主循环睡眠 110ms -> 90ms；暂停态前台探测 260ms -> 180ms。
 - 预期效果：60s 静态后恢复不再走硬挂起冷启动路径，恢复时间显著缩短，同时保留长静态场景的CPU/内存节约收益。
+
+## 2026-03-30 19:48:13 静帧呈现节流 + 指标写盘路径降载结论
+- 新增呈现门控：`ShouldPresentFrame` 由“有 last frame 就呈现”升级为“新帧立即呈现 + 静帧按 keepalive 到期呈现”。
+- `App` 接入静帧 keepalive 间隔 `250ms`；无新解码帧时不再每个渲染周期都 `Present`，降低 CPU/GPU 提交频率。
+- `MetricsLogFile` 路径优化：
+  - `Append` 改为单次 `ActivePath()` 解析，消除每次写入双次日期键计算。
+  - shard 清理从“每次 EnsureReady 都执行”改为“activePath 变化或 10 分钟超时”触发，降低文件系统维护开销。
+- 验证结果：
+  - `run_tests` 172/172 全绿，`build_app` 通过。
+  - `bench_perf`（desktop, 10s, warmup 5s）`cpu_avg_percent=0.0192`，低于此前同类样本（`~0.0284`）的量级。

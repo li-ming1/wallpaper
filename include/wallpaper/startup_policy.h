@@ -9,7 +9,11 @@ namespace wallpaper {
 [[nodiscard]] bool ShouldActivateVideoPipeline(const std::string& videoPath);
 
 // 首帧未就绪时禁止呈现，避免启动瞬间绘制回退色场导致“幕布闪现”。
-[[nodiscard]] bool ShouldPresentFrame(bool hasDecodedFrame, bool hasLastPresentedFrame) noexcept;
+[[nodiscard]] bool ShouldPresentFrame(bool hasDecodedFrame, bool hasLastPresentedFrame,
+                                      bool staleFramePresentDue) noexcept;
+[[nodiscard]] bool ShouldPresentStaleFrame(std::chrono::steady_clock::time_point now,
+                                           std::chrono::steady_clock::time_point lastPresentAt,
+                                           std::chrono::milliseconds minimumInterval) noexcept;
 
 // 首次运行且已有有效视频时，初始化阶段先不启动解码，避免首启瞬时 CPU/内存峰值过高。
 [[nodiscard]] bool ShouldDeferVideoDecodeStart(bool configExistedBeforeLoad,

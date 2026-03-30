@@ -55,7 +55,10 @@ MetricsLogFile::MetricsLogFile(std::filesystem::path path, const std::size_t max
       dateKeyProvider_(std::move(dateKeyProvider)) {}
 
 bool MetricsLogFile::EnsureReady() const {
-  const std::filesystem::path activePath = ActivePath();
+  return EnsureReadyForPath(ActivePath());
+}
+
+bool MetricsLogFile::EnsureReadyForPath(const std::filesystem::path& activePath) const {
   std::error_code ec;
   const auto parent = activePath.parent_path();
   if (!parent.empty()) {
@@ -69,7 +72,7 @@ bool MetricsLogFile::EnsureReady() const {
     if (!RewriteWithHeader(activePath)) {
       return false;
     }
-    PruneShards(activePath);
+    MaybePruneShards(activePath);
     return true;
   }
   if (ec) {
@@ -81,17 +84,17 @@ bool MetricsLogFile::EnsureReady() const {
     if (!RewriteWithHeader(activePath)) {
       return false;
     }
-    PruneShards(activePath);
+    MaybePruneShards(activePath);
     return true;
   }
   if (bytes == 0) {
     if (!RewriteWithHeader(activePath)) {
       return false;
     }
-    PruneShards(activePath);
+    MaybePruneShards(activePath);
     return true;
   }
-  PruneShards(activePath);
+  MaybePruneShards(activePath);
   return true;
 }
 
@@ -99,11 +102,11 @@ bool MetricsLogFile::Append(const std::string_view line) const {
   if (header_.size() + line.size() > maxBytes_) {
     return false;
   }
-  if (!EnsureReady()) {
+  const std::filesystem::path activePath = ActivePath();
+  if (!EnsureReadyForPath(activePath)) {
     return false;
   }
 
-  const std::filesystem::path activePath = ActivePath();
   std::error_code ec;
   const auto bytes = std::filesystem::file_size(activePath, ec);
   if (ec) {
@@ -121,6 +124,26 @@ bool MetricsLogFile::Append(const std::string_view line) const {
   }
   out.write(line.data(), static_cast<std::streamsize>(line.size()));
   return static_cast<bool>(out);
+}
+
+void MetricsLogFile::MaybePruneShards(const std::filesystem::path& activePath) const {
+  if (keepDays_ <= 1) {
+    return;
+  }
+  constexpr std::chrono::minutes kPruneInterval(10);
+
+  const auto now = std::chrono::steady_clock::now();
+  const bool activePathChanged = activePath != lastPrunedActivePath_;
+  const bool pruneOverdue = lastPrunedAt_ == std::chrono::steady_clock::time_point{} ||
+                            now < lastPrunedAt_ ||
+                            (now - lastPrunedAt_) >= kPruneInterval;
+  if (!activePathChanged && !pruneOverdue) {
+    return;
+  }
+
+  PruneShards(activePath);
+  lastPrunedActivePath_ = activePath;
+  lastPrunedAt_ = now;
 }
 
 std::filesystem::path MetricsLogFile::ActivePath() const {

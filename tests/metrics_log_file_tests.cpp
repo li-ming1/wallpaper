@@ -95,3 +95,26 @@ TEST_CASE(MetricsLogFile_SplitsByDayAndKeepsRecentShards) {
   EXPECT_TRUE(content29.find("x,y\n") == 0);
   EXPECT_TRUE(content29.find("3,3\n") != std::string::npos);
 }
+
+TEST_CASE(MetricsLogFile_MinimizesDateKeyProviderCallsAcrossAppends) {
+  const auto dir = std::filesystem::temp_directory_path();
+  const auto base = dir / "wallpaper_metrics_provider_calls.csv";
+  const auto marker = std::string("wallpaper_metrics_provider_calls_");
+
+  for (const auto& path : ListFiles(dir, marker)) {
+    std::filesystem::remove(path);
+  }
+  std::filesystem::remove(base);
+
+  int providerCalls = 0;
+  std::string day = "20260330";
+  wallpaper::MetricsLogFile log(base, 512, "a,b\n", 2, [&providerCalls, &day]() {
+    ++providerCalls;
+    return day;
+  });
+
+  EXPECT_TRUE(log.Append("1,1\n"));
+  EXPECT_TRUE(log.Append("2,2\n"));
+  EXPECT_TRUE(log.Append("3,3\n"));
+  EXPECT_TRUE(providerCalls <= 4);
+}

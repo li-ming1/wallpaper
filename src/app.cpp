@@ -526,16 +526,19 @@ void App::DetachWallpaper() {
   if (!wallpaperHost_ || !wallpaperAttached_) {
     frame_bridge::ClearLatestFrame();
     presentSamplesMs_.clear();
+    lastPresentedAt_ = RenderScheduler::Clock::time_point{};
     return;
   }
   wallpaperHost_->DetachFromDesktop();
   wallpaperAttached_ = false;
   frame_bridge::ClearLatestFrame();
   presentSamplesMs_.clear();
+  lastPresentedAt_ = RenderScheduler::Clock::time_point{};
 }
 
 void App::ResetPlaybackState(const bool resetLongRunState) {
   hasLastPresentedFrame_ = false;
+  lastPresentedAt_ = RenderScheduler::Clock::time_point{};
   syntheticSequence_ = 0;
   lastDecodedTimestamp100ns_ = -1;
   ResetSourceFrameRateState(&sourceFrameRateState_);
@@ -1263,7 +1266,10 @@ void App::Tick() {
     return;
   }
 
-  if (!ShouldPresentFrame(hasNewDecodedToken, hasLastPresentedFrame_)) {
+  constexpr std::chrono::milliseconds kStaleFrameKeepAliveInterval(250);
+  const bool staleFramePresentDue =
+      ShouldPresentStaleFrame(now, lastPresentedAt_, kStaleFrameKeepAliveInterval);
+  if (!ShouldPresentFrame(hasNewDecodedToken, hasLastPresentedFrame_, staleFramePresentDue)) {
     MaybeSampleAndLogMetrics(false, false, 0.0);
     return;
   }
@@ -1271,6 +1277,7 @@ void App::Tick() {
   const auto presentBegin = RenderScheduler::Clock::now();
   wallpaperHost_->Present(frame);
   const auto presentEnd = RenderScheduler::Clock::now();
+  lastPresentedAt_ = presentEnd;
   const double presentMs =
       std::chrono::duration<double, std::milli>(presentEnd - presentBegin).count();
   MaybeSampleAndLogMetrics(true, false, presentMs);
