@@ -434,3 +434,33 @@
 - 参数：Trim 阈值 2500ms；激进硬挂起阈值 20s（电源/会话敏感）；保守硬挂起阈值 90s（普通桌面场景）。
 - 额外降延迟：暂停态主循环睡眠 110ms -> 90ms；暂停态前台探测 260ms -> 180ms。
 - 预期效果：60s 静态后恢复不再走硬挂起冷启动路径，恢复时间显著缩短，同时保留长静态场景的CPU/内存节约收益。
+
+## 2026-03-30 壁纸清晰度问题调研
+- 现象：用户反馈动态壁纸明显比外部播放器更模糊。
+- 定位：`src/win/wallpaper_host_win.cpp` 渲染端使用 `D3D11_FILTER_MIN_MAG_MIP_LINEAR`，但更关键的问题不在采样器，而在解码输出尺寸策略。
+- 定位：`src/win/decode_pipeline_stub.cpp` 在 CPU fallback 路径会调用 `SelectDecodeOutputHint()`，并把 `MF_MT_FRAME_SIZE` 直接提示给 `IMFSourceReader`。
+- 事实：`src/decode_output_policy.cpp` 当前默认策略是 CPU fallback + adaptive quality 开启时，把高分辨率桌面直接压到 `1280x720`；长期高压再进一步压到 `960x540`。
+- 影响：当设备没有进入 `DXVA zero-copy`，即便源视频/桌面本身是 1080p 或 4K，应用也会先低分辨率解码，再由渲染端整屏放大，导致观感明显发糊。
+- 初步结论：当前模糊的主因是“默认过早降解码分辨率”，不是播放器与壁纸窗口的天然显示差异。
+- 修复决策：默认保清晰，CPU fallback 在 `longRunLoadLevel 0/1` 保持原始桌面分辨率，只在 `level 2` 时才降到 `1280x720`。
+- 修复结果：保留长期高压自适应降档能力，同时移除无 GPU 用户在常态桌面下被强制压到 720p 的画质损失。
+
+## 2026-03-30 播放速度偏慢问题调研
+- 现象：用户反馈播放体感不像标准 `1x`，感觉偏慢。
+- 定位：`src/app.cpp` 的 `ApplyRenderFpsCap()` 在 CPU fallback 路径会给 `decodePumpHotSleepMs_` 追加 `10~14ms` 惩罚；对 24fps/25fps 素材，热路径 sleep 可能达到约 `46~50ms`。
+- 事实：24fps 素材的理论帧间隔约为 `41.7ms`，25fps 约为 `40ms`。当前 sleep 超过该阈值时，解码泵会以慢于源时间轴的节奏去消费 SourceReader 样本。
+- 辅助事实：`src/win/decode_pipeline_stub.cpp` 当前 `ShouldIssueReadImmediatelyAfterConsume()` 返回 `false`，意味着样本消费后不会立刻 reissue read，而是等解码泵下一轮醒来才继续推进。
+- 初步结论：在无 GPU 的 CPU fallback 路径，播放“发黏/偏慢”的主因更像是解码泵被过度降频，而不是 MF 时间戳本身异常。
+- 修复决策：以“严格 1x 播放优先”为目标，对 CPU fallback 热路径 sleep 增加源帧预算上限，并把样本消费后的下一次 read 改为立即 reissue。
+- 修复结果：新增 `CapDecodePumpHotSleepMsToSourceBudget()`，将 24/25/30/60fps 的热路径 sleep 分别收敛到不超过 `37/36/29/12ms`；同时取消 lazy read，避免低帧率素材因解码泵唤醒周期被拖慢。
+- 预期影响：播放速度与节奏会更接近播放器的 `1x`；代价是 CPU fallback 路径在低帧率素材上的解码线程唤醒频率会略高。
+
+## 2026-03-30 渲染清晰度与色彩链路优化
+- 目标：在保留现有解码链路的前提下，缩小“壁纸观感”与播放器的清晰度/层次差距。
+- 新增策略模块：`video_render_policy`。
+- 高质量上采样策略：仅当目标视口严格大于源帧时启用，避免等比/缩小时引入额外像素成本。
+- 色彩空间策略：按分辨率启发式选择 `BT.709 limited`（>=720p 或 >=1280 宽）与 `BT.601 limited`（SD）。
+- 渲染接线：`wallpaper_host_win.cpp` 新增像素着色器常量缓冲，将源纹理 texel size、上采样开关和色彩空间标志传入着色器。
+- RGBA 路径：在线性采样基础上增加 5-tap 锐化式上采样，仅在放大时启用。
+- NV12 路径：对 luma 做同样的高质量上采样；色彩转换从“固定 BT.709”升级为“BT.601/BT.709 按策略切换”。
+- 额外验证：通过独立 `D3DCompile` 试编验证新 RGBA/NV12 像素着色器语法有效，避免运行时才暴露 HLSL 错误。

@@ -560,3 +560,29 @@ Phase 61
 - [x] Green: 暂停态前台探测间隔从 260ms 调整到 180ms
 - [x] Verification: 全量测试与构建验证
 - **Status:** complete
+
+### Phase 64: 壁纸清晰度回归修复（In Progress）
+- [x] Discovery: 排查解码输出尺寸、采样器和交换链路径
+- [x] Discovery: 确认默认 CPU fallback + adaptive quality 会把高分辨率桌面输出压到 720p
+- [x] Design: 确认默认质量策略取舍并锁定修复方案（默认保清晰，仅长期高压降档）
+- [x] TDD Red: 新增/调整解码输出策略测试，覆盖“默认保清晰”和“高压再降档”
+- [x] Green: 收紧默认降分辨率条件，避免常态桌面被过早降画质
+- [x] Verification: 运行测试与构建验证
+- **Status:** complete
+
+### Phase 65: 播放速度偏慢排查（In Progress）
+- [x] Discovery: 复核 MF 时间戳、渲染调度和解码泵睡眠策略
+- [x] Discovery: 确认 CPU fallback 路径的 decode hot-sleep 可能高于 24/25fps 帧间隔
+- [x] Design: 锁定“严格 1x 播放优先”方案
+- [x] TDD Red: 为低帧率素材和 CPU fallback 热路径补充失败测试
+- [x] Green: 修正解码泵节奏，避免帧获取间隔超过源帧间隔
+- [x] Verification: 运行测试与构建验证
+- **Status:** complete
+
+### Phase 66: 渲染清晰度与色彩链路优化（Completed）
+- [x] Design: 锁定“高质量上采样 + 分辨率驱动色彩矩阵”方案
+- [x] TDD Red: 新增视频渲染策略测试，覆盖高质量上采样启用条件与 BT.601/BT.709 选择
+- [x] Green: 引入 `video_render_policy` 并接入 Windows 渲染宿主
+- [x] Green: 为 RGBA/NV12 像素着色器增加高质量上采样常量与色彩空间切换
+- [x] Verification: 全量单测、构建、HLSL 试编验证通过
+- **Status:** complete

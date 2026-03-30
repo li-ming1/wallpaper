@@ -26,7 +26,7 @@ TEST_CASE(DecodeOutputPolicy_GpuPathKeepsDesktopHint) {
   EXPECT_EQ(hint.height, 2160U);
 }
 
-TEST_CASE(DecodeOutputPolicy_CpuPathCapsPixelsAt720pInNormalPressure) {
+TEST_CASE(DecodeOutputPolicy_CpuPathKeepsDesktopHintInNormalPressure) {
   wallpaper::DecodeOutputOptions options;
   options.desktopWidth = 3840;
   options.desktopHeight = 2160;
@@ -35,11 +35,11 @@ TEST_CASE(DecodeOutputPolicy_CpuPathCapsPixelsAt720pInNormalPressure) {
   options.longRunLoadLevel = 0;
 
   const wallpaper::DecodeOutputHint hint = wallpaper::SelectDecodeOutputHint(options);
-  EXPECT_EQ(hint.width, 1280U);
-  EXPECT_EQ(hint.height, 720U);
+  EXPECT_EQ(hint.width, 3840U);
+  EXPECT_EQ(hint.height, 2160U);
 }
 
-TEST_CASE(DecodeOutputPolicy_CpuPathKeeps720pAtMediumPressure) {
+TEST_CASE(DecodeOutputPolicy_CpuPathKeepsDesktopHintAtMediumPressure) {
   wallpaper::DecodeOutputOptions options;
   options.desktopWidth = 3840;
   options.desktopHeight = 2160;
@@ -48,11 +48,11 @@ TEST_CASE(DecodeOutputPolicy_CpuPathKeeps720pAtMediumPressure) {
   options.longRunLoadLevel = 1;
 
   const wallpaper::DecodeOutputHint hint = wallpaper::SelectDecodeOutputHint(options);
-  EXPECT_EQ(hint.width, 1280U);
-  EXPECT_EQ(hint.height, 720U);
+  EXPECT_EQ(hint.width, 3840U);
+  EXPECT_EQ(hint.height, 2160U);
 }
 
-TEST_CASE(DecodeOutputPolicy_CpuPathDropsTo540pAtHighPressure) {
+TEST_CASE(DecodeOutputPolicy_CpuPathDropsTo720pAtHighPressure) {
   wallpaper::DecodeOutputOptions options;
   options.desktopWidth = 3840;
   options.desktopHeight = 2160;
@@ -61,8 +61,8 @@ TEST_CASE(DecodeOutputPolicy_CpuPathDropsTo540pAtHighPressure) {
   options.longRunLoadLevel = 2;
 
   const wallpaper::DecodeOutputHint hint = wallpaper::SelectDecodeOutputHint(options);
-  EXPECT_EQ(hint.width, 960U);
-  EXPECT_EQ(hint.height, 540U);
+  EXPECT_EQ(hint.width, 1280U);
+  EXPECT_EQ(hint.height, 720U);
 }
 
 TEST_CASE(DecodeOutputPolicy_CpuPathKeepsSmallFrames) {

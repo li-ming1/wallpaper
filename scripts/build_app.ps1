@@ -80,6 +80,7 @@ $sources = @(
   "src/metrics_sampler.cpp",
   "src/frame_bridge.cpp",
   "src/startup_policy.cpp",
+  "src/video_render_policy.cpp",
   "src/video_path_probe_policy.cpp"
 )
 

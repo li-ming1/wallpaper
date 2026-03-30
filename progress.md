@@ -1615,3 +1615,75 @@
   - tests/pause_suspend_policy_tests.cpp
   - tests/loop_sleep_policy_tests.cpp
   - tests/probe_cadence_policy_tests.cpp
+
+### Phase 64: 壁纸清晰度回归排查
+- **Status:** complete
+- **Started:** 2026-03-30 13:46:00
+- Actions taken:
+  - 复核工程入口、Windows 壁纸宿主与 MF 解码链路，排查纹理采样、交换链和视口逻辑。
+  - 确认渲染端虽使用线性采样，但默认模糊主因来自 `decode_output_policy` 的主动降分辨率。
+  - 确认 `DecodeOpenProfile.adaptiveQualityEnabled = true` 的默认路径下，只要落到 CPU fallback，就会把高分辨率桌面提示压到 720p。
+  - 形成下一步方案：保留长期高压降档能力，但移除常态默认降画质。
+- **Completed:** 2026-03-30 14:48:00
+- Follow-up actions:
+  - 先修改 `tests/decode_output_policy_tests.cpp`，让 CPU fallback 在常态/中压保持原分辨率、高压降到 720p，并验证红测。
+  - 再最小化修改 `src/decode_output_policy.cpp`，把默认降分辨率阈值收紧到 `longRunLoadLevel >= 2`。
+  - 同步更新 `include/wallpaper/decode_output_policy.h` 注释，避免策略文档与实现偏离。
+- Verification:
+  - `./scripts/run_tests.ps1 -BuildDir build_tmp/phase64_quality_red` -> fail as expected（仅 `DecodeOutputPolicy` 3 项失败）
+  - `./scripts/run_tests.ps1 -BuildDir build_tmp/phase64_quality_green` -> pass（168/168）
+  - `./scripts/build_app.ps1 -BuildDir build_tmp/phase64_quality_app` -> pass
+- Files reviewed:
+  - src/win/decode_pipeline_stub.cpp
+  - src/win/wallpaper_host_win.cpp
+  - src/decode_output_policy.cpp
+  - tests/decode_output_policy_tests.cpp
+  - src/app.cpp
+
+### Phase 65: 播放速度偏慢排查
+- **Status:** complete
+- **Started:** 2026-03-30 15:02:00
+- Actions taken:
+  - 复核 `ApplyRenderFpsCap()`、`StartDecodePump()`、`ComputeDecodePumpHotSleepMs()` 与 MF 异步读取策略。
+  - 确认 CPU fallback 路径会在热路径额外追加 `10~14ms` 睡眠，24/25fps 素材时总 sleep 可能超过源帧间隔。
+  - 确认 `ShouldIssueReadImmediatelyAfterConsume()` 为 lazy read，消费样本后不会立刻 reissue read，会放大解码泵睡眠对时间轴推进的影响。
+- **Completed:** 2026-03-30 16:10:00
+- Follow-up actions:
+  - 新增 `CapDecodePumpHotSleepMsToSourceBudget()` 策略接口与单测，先以缺失符号形式验证红测。
+  - 调整 `decode_async_read_policy`，把消费样本后的续读策略改为立即 reissue。
+  - 在 `App::ApplyRenderFpsCap()` 接入源帧预算上限，确保 CPU fallback 额外降频不会越过素材时间轴。
+- Verification:
+  - `./scripts/run_tests.ps1 -BuildDir build_tmp/phase65_speed_red` -> fail as expected（缺少新策略实现）
+  - `./scripts/run_tests.ps1 -BuildDir build_tmp/phase65_speed_green` -> pass（170/170）
+  - `./scripts/build_app.ps1 -BuildDir build_tmp/phase65_speed_app` -> pass
+- Files reviewed:
+  - src/app.cpp
+  - src/loop_sleep_policy.cpp
+  - src/win/decode_pipeline_stub.cpp
+  - src/decode_async_read_policy.cpp
+  - src/source_frame_rate_policy.cpp
+  - src/render_scheduler.cpp
+
+### Phase 66: 渲染清晰度与色彩链路优化
+- **Status:** complete
+- **Started:** 2026-03-30 16:22:00
+- **Completed:** 2026-03-30 17:05:00
+- Actions taken:
+  - 新增 `video_render_policy` 头/源与单测，先锁定高质量上采样启用条件和 BT.601/BT.709 选择规则。
+  - 在 `wallpaper_host_win.cpp` 为 RGBA/NV12 像素着色器增加常量缓冲，传入源纹理 texel size、锐化强度和 BT.709 标志。
+  - 将 RGBA 路径升级为“线性采样 + 5-tap 锐化式上采样”，仅放大时启用。
+  - 将 NV12 路径升级为“luma 高质量上采样 + BT.601/BT.709 按分辨率切换”。
+  - 额外编写一次性 shader 试编程序，直接调用 `D3DCompile` 验证两段像素着色器可通过编译。
+- Verification:
+  - `./scripts/run_tests.ps1 -BuildDir build_tmp/phase66_render_red` -> fail as expected（新策略测试 2 项失败）
+  - `./scripts/run_tests.ps1 -BuildDir build_tmp/phase66_render_green` -> pass（174/174）
+  - `./scripts/build_app.ps1 -BuildDir build_tmp/phase66_render_app` -> pass
+  - `build_tmp/phase66_render_shader_check.exe` -> `shader compile ok`
+- Files created/modified:
+  - include/wallpaper/video_render_policy.h
+  - src/video_render_policy.cpp
+  - tests/video_render_policy_tests.cpp
+  - src/win/wallpaper_host_win.cpp
+  - CMakeLists.txt
+  - scripts/run_tests.ps1
+  - scripts/build_app.ps1

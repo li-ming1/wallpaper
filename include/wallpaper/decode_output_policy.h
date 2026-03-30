@@ -20,7 +20,7 @@ struct DecodeOutputOptions final {
 // 选择 SourceReader 输出尺寸提示：
 // - 自适应关闭：保持桌面分辨率；
 // - GPU 零拷贝路径：保持桌面分辨率；
-// - CPU 回退路径 + 自适应开启：常态限制到 720p，高压长期运行再降到 540p。
+// - CPU 回退路径 + 自适应开启：默认保持桌面分辨率，仅长期高压时降到 720p。
 [[nodiscard]] DecodeOutputHint SelectDecodeOutputHint(const DecodeOutputOptions& options) noexcept;
 
 }  // namespace wallpaper

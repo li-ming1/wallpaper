@@ -5,6 +5,7 @@
 #include "wallpaper/desktop_attach_policy.h"
 #include "wallpaper/frame_latency_policy.h"
 #include "wallpaper/monitor_layout_policy.h"
+#include "wallpaper/video_render_policy.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -55,6 +56,15 @@ struct VideoVertex final {
   float v;
 };
 
+struct VideoPixelShaderConstants final {
+  float sourceTexelSizeX = 0.0f;
+  float sourceTexelSizeY = 0.0f;
+  float sharpenStrength = 0.0f;
+  float useBt709 = 0.0f;
+};
+
+constexpr float kHighQualityUpscaleSharpenStrength = 0.32f;
+
 consteval std::array<VideoVertex, 4> BuildFullscreenQuadVertices() {
   return {{{-1.0f, -1.0f, 0.0f, 1.0f},
            {-1.0f, 1.0f, 0.0f, 0.0f},
@@ -99,6 +109,12 @@ VSOut main(VSIn input) {
 )";
 
 constexpr char kVideoPsSource[] = R"(
+cbuffer VideoConstants : register(b0) {
+  float2 sourceTexelSize;
+  float sharpenStrength;
+  float useBt709;
+};
+
 Texture2D videoTex : register(t0);
 SamplerState videoSamp : register(s0);
 
@@ -107,12 +123,33 @@ struct PSIn {
   float2 uv  : TEXCOORD0;
 };
 
+float4 SampleVideo(float2 uv) {
+  const float4 center = videoTex.Sample(videoSamp, uv);
+  if (sharpenStrength <= 0.0 || sourceTexelSize.x <= 0.0 || sourceTexelSize.y <= 0.0) {
+    return center;
+  }
+
+  const float2 dx = float2(sourceTexelSize.x, 0.0);
+  const float2 dy = float2(0.0, sourceTexelSize.y);
+  const float3 blur =
+      (videoTex.Sample(videoSamp, uv - dx).rgb + videoTex.Sample(videoSamp, uv + dx).rgb +
+       videoTex.Sample(videoSamp, uv - dy).rgb + videoTex.Sample(videoSamp, uv + dy).rgb) * 0.25;
+  const float3 sharpened = saturate(center.rgb + (center.rgb - blur) * sharpenStrength);
+  return float4(sharpened, center.a);
+}
+
 float4 main(PSIn input) : SV_TARGET {
-  return videoTex.Sample(videoSamp, input.uv);
+  return SampleVideo(input.uv);
 }
 )";
 
 constexpr char kVideoNv12PsSource[] = R"(
+cbuffer VideoConstants : register(b0) {
+  float2 sourceTexelSize;
+  float sharpenStrength;
+  float useBt709;
+};
+
 Texture2D lumaTex : register(t0);
 Texture2D chromaTex : register(t1);
 SamplerState videoSamp : register(s0);
@@ -122,19 +159,42 @@ struct PSIn {
   float2 uv  : TEXCOORD0;
 };
 
-float4 main(PSIn input) : SV_TARGET {
-  const float ySample = lumaTex.Sample(videoSamp, input.uv).r;
-  const float2 uvSample = chromaTex.Sample(videoSamp, input.uv).rg;
+float SampleSharpenedLuma(float2 uv) {
+  const float center = lumaTex.Sample(videoSamp, uv).r;
+  if (sharpenStrength <= 0.0 || sourceTexelSize.x <= 0.0 || sourceTexelSize.y <= 0.0) {
+    return center;
+  }
 
+  const float2 dx = float2(sourceTexelSize.x, 0.0);
+  const float2 dy = float2(0.0, sourceTexelSize.y);
+  const float blur =
+      (lumaTex.Sample(videoSamp, uv - dx).r + lumaTex.Sample(videoSamp, uv + dx).r +
+       lumaTex.Sample(videoSamp, uv - dy).r + lumaTex.Sample(videoSamp, uv + dy).r) * 0.25;
+  return saturate(center + (center - blur) * sharpenStrength);
+}
+
+float3 ConvertLimitedRangeYuvToRgb(float ySample, float2 uvSample) {
   const float y = max(0.0, 1.16438356 * (ySample - 0.06274510));
   const float u = uvSample.x - 0.5;
   const float v = uvSample.y - 0.5;
 
   float3 rgb;
-  rgb.r = saturate(y + 1.79274107 * v);
-  rgb.g = saturate(y - 0.21324861 * u - 0.53290933 * v);
-  rgb.b = saturate(y + 2.11240179 * u);
-  return float4(rgb, 1.0);
+  if (useBt709 >= 0.5) {
+    rgb.r = y + 1.79274107 * v;
+    rgb.g = y - 0.21324861 * u - 0.53290933 * v;
+    rgb.b = y + 2.11240179 * u;
+  } else {
+    rgb.r = y + 1.59602678 * v;
+    rgb.g = y - 0.39176229 * u - 0.81296764 * v;
+    rgb.b = y + 2.01723214 * u;
+  }
+  return saturate(rgb);
+}
+
+float4 main(PSIn input) : SV_TARGET {
+  const float ySample = SampleSharpenedLuma(input.uv);
+  const float2 uvSample = chromaTex.Sample(videoSamp, input.uv).rg;
+  return float4(ConvertLimitedRangeYuvToRgb(ySample, uvSample), 1.0);
 }
 )";
 
@@ -859,6 +919,16 @@ class WallpaperHostWin final : public IWallpaperHost {
       return false;
     }
 
+    D3D11_BUFFER_DESC constantBufferDesc{};
+    constantBufferDesc.ByteWidth = static_cast<UINT>(sizeof(VideoPixelShaderConstants));
+    constantBufferDesc.Usage = D3D11_USAGE_DYNAMIC;
+    constantBufferDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    constantBufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    hr = device_->CreateBuffer(&constantBufferDesc, nullptr, &videoPixelShaderConstantsBuffer_);
+    if (FAILED(hr)) {
+      return false;
+    }
+
     D3D11_SAMPLER_DESC samplerDesc{};
     samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
     samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
@@ -876,6 +946,7 @@ class WallpaperHostWin final : public IWallpaperHost {
 
   void ReleaseVideoPipeline() {
     videoPipelineReady_ = false;
+    SafeRelease(&videoPixelShaderConstantsBuffer_);
     SafeRelease(&videoSampler_);
     SafeRelease(&videoVertexBuffer_);
     SafeRelease(&videoInputLayout_);
@@ -910,6 +981,36 @@ class WallpaperHostWin final : public IWallpaperHost {
     SafeRelease(&videoNv12UvTexture_);
     videoNv12Width_ = 0;
     videoNv12Height_ = 0;
+  }
+
+  bool UpdateVideoPixelShaderConstants(const UINT sourceWidth, const UINT sourceHeight,
+                                       const RenderViewport& viewportRect,
+                                       const VideoColorSpace colorSpace) {
+    if (context_ == nullptr || videoPixelShaderConstantsBuffer_ == nullptr || sourceWidth == 0 ||
+        sourceHeight == 0 || viewportRect.width <= 0 || viewportRect.height <= 0) {
+      return false;
+    }
+
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    if (FAILED(context_->Map(videoPixelShaderConstantsBuffer_, 0, D3D11_MAP_WRITE_DISCARD, 0,
+                             &mapped)) ||
+        mapped.pData == nullptr) {
+      return false;
+    }
+
+    const bool useHighQualityUpscale = ShouldUseHighQualityUpscale(
+        static_cast<int>(sourceWidth), static_cast<int>(sourceHeight), viewportRect.width,
+        viewportRect.height);
+    auto* constants = static_cast<VideoPixelShaderConstants*>(mapped.pData);
+    constants->sourceTexelSizeX = 1.0f / static_cast<float>(sourceWidth);
+    constants->sourceTexelSizeY = 1.0f / static_cast<float>(sourceHeight);
+    constants->sharpenStrength =
+        useHighQualityUpscale ? kHighQualityUpscaleSharpenStrength : 0.0f;
+    constants->useBt709 = colorSpace == VideoColorSpace::kBt709Limited ? 1.0f : 0.0f;
+    context_->Unmap(videoPixelShaderConstantsBuffer_, 0);
+
+    context_->PSSetConstantBuffers(0, 1, &videoPixelShaderConstantsBuffer_);
+    return true;
   }
 
   bool EnsureVideoTextureForCpu(const UINT width, const UINT height) {
@@ -1197,11 +1298,12 @@ class WallpaperHostWin final : public IWallpaperHost {
   }
 
   bool DrawVideoResources(ID3D11PixelShader* pixelShader, ID3D11ShaderResourceView* const* srvs,
-                          const UINT srvCount) {
+                          const UINT srvCount, const UINT sourceWidth, const UINT sourceHeight,
+                          const VideoColorSpace colorSpace) {
     if (!videoPipelineReady_ || context_ == nullptr || renderTargetView_ == nullptr ||
         pixelShader == nullptr || srvs == nullptr || srvCount == 0 || videoSampler_ == nullptr ||
         videoInputLayout_ == nullptr || videoVertexBuffer_ == nullptr ||
-        videoVertexShader_ == nullptr) {
+        videoVertexShader_ == nullptr || sourceWidth == 0 || sourceHeight == 0) {
       return false;
     }
 
@@ -1233,6 +1335,9 @@ class WallpaperHostWin final : public IWallpaperHost {
       if (viewportRect.width <= 0 || viewportRect.height <= 0) {
         continue;
       }
+      if (!UpdateVideoPixelShaderConstants(sourceWidth, sourceHeight, viewportRect, colorSpace)) {
+        continue;
+      }
 
       D3D11_VIEWPORT viewport{};
       viewport.TopLeftX = static_cast<float>(viewportRect.left);
@@ -1247,6 +1352,11 @@ class WallpaperHostWin final : public IWallpaperHost {
       drewAnyViewport = true;
     }
     if (!drewAnyViewport) {
+      const RenderViewport fallbackRect =
+          BuildFullscreenViewport(renderViewportWidth_, renderViewportHeight_);
+      if (!UpdateVideoPixelShaderConstants(sourceWidth, sourceHeight, fallbackRect, colorSpace)) {
+        return false;
+      }
       D3D11_VIEWPORT fallbackViewport{};
       fallbackViewport.Width = static_cast<float>(renderViewportWidth_);
       fallbackViewport.Height = static_cast<float>(renderViewportHeight_);
@@ -1258,16 +1368,23 @@ class WallpaperHostWin final : public IWallpaperHost {
 
     ID3D11ShaderResourceView* nullSrvs[2] = {nullptr, nullptr};
     context_->PSSetShaderResources(0, srvCount, nullSrvs);
+    ID3D11Buffer* nullConstants = nullptr;
+    context_->PSSetConstantBuffers(0, 1, &nullConstants);
     return true;
   }
 
   bool DrawVideoTexture() {
-    return DrawVideoResources(videoPixelShader_, &videoSrv_, 1);
+    return DrawVideoResources(videoPixelShader_, &videoSrv_, 1, videoTexWidth_, videoTexHeight_,
+                              SelectVideoColorSpace(static_cast<int>(videoTexWidth_),
+                                                    static_cast<int>(videoTexHeight_)));
   }
 
   bool DrawVideoNv12Texture() {
     ID3D11ShaderResourceView* nv12Srvs[] = {videoNv12YSrv_, videoNv12UvSrv_};
-    return DrawVideoResources(videoNv12PixelShader_, nv12Srvs, 2);
+    return DrawVideoResources(videoNv12PixelShader_, nv12Srvs, 2, videoNv12Width_,
+                              videoNv12Height_,
+                              SelectVideoColorSpace(static_cast<int>(videoNv12Width_),
+                                                    static_cast<int>(videoNv12Height_)));
   }
 
   bool DrawCachedVideoTexture() {
@@ -1347,6 +1464,7 @@ class WallpaperHostWin final : public IWallpaperHost {
   ID3D11PixelShader* videoNv12PixelShader_ = nullptr;
   ID3D11InputLayout* videoInputLayout_ = nullptr;
   ID3D11Buffer* videoVertexBuffer_ = nullptr;
+  ID3D11Buffer* videoPixelShaderConstantsBuffer_ = nullptr;
   ID3D11SamplerState* videoSampler_ = nullptr;
   ID3D11Texture2D* videoTexture_ = nullptr;
   ID3D11ShaderResourceView* videoSrv_ = nullptr;
