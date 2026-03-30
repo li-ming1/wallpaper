@@ -1714,3 +1714,43 @@
   - CMakeLists.txt
   - scripts/run_tests.ps1
   - scripts/build_app.ps1
+
+### Phase 68: 任务管理器占用差异复盘
+- **Status:** complete
+- **Started:** 2026-03-30 15:00:00
+- Actions taken:
+  - 核对当前常驻实例，确认旧进程实际来自 `build_tmp/wallpaper_app.exe`，且其同目录无 `config.json`。
+  - 核对用户实际使用链路为 `build/wallpaper_app.exe + build/config.json`，配置指向 `kuroha_1080p30_h264.mp4`。
+  - 读取 `build/metrics_20260330.csv` 最近样本，确认 active 动态播放时 `decode_path=cpu_nv12_fallback`，working set 约 `50MB`，private bytes 约 `108~110MB`。
+  - 停掉旧实例后，对 `build/wallpaper_app.exe` 做受控动态播放采样，得到 CPU 平均 `1.3982%` / 峰值 `5.4281%`、working set 平均 `44.47MB` / 峰值 `47.61MB`、private bytes 平均 `103.36MB` / 峰值 `104.80MB`。
+- Conclusion:
+  - 用户在任务管理器里看到的 `~3% CPU / ~50MB` 内存是合理观测。
+  - 之前那组“极低占用”数字来自错误进程/错误状态，不能再作为 active 动态播放态结论。
+- Files modified:
+  - findings.md
+  - progress.md
+
+### Phase 69: DXVA 源帧率提示收敛
+- **Status:** complete
+- **Started:** 2026-03-30 18:10:00
+- Actions taken:
+  - Red: 在 `tests/source_frame_rate_policy_tests.cpp` 增加 `NormalizeSourceFrameRateHint` 与 `ApplySourceFrameRateHint` 行为测试，并先触发缺失实现失败。
+  - Green: 在 `source_frame_rate_policy` 实现帧率提示归一化与立即应用逻辑（支持 24/25/30/60，兼容 29.97->30）。
+  - Green: `FrameToken` 新增 `sourceFrameRateHint` 字段，`decode_pipeline_stub` 从 MF 输出媒体类型读取 `MF_MT_FRAME_RATE` 并透传。
+  - Green: `App::Tick` 在 MF token 路径优先应用帧率提示，再保留时间戳启发式更新。
+  - Real run: 使用 `build/wallpaper_app.exe` 实测并检查 `build/metrics_20260330.csv` 最新会话指标。
+- Verification:
+  - `./scripts/run_tests.ps1 -BuildDir build_tmp/phase71_fps_red` -> fail as expected（缺少新 API）
+  - `./scripts/run_tests.ps1 -BuildDir build_tmp/phase71_fps_hint_green` -> pass（188/188）
+  - `./scripts/build_app.ps1 -BuildDir build` -> pass
+  - 真实会话 `sess_1774858536442_7340`：`decode_path=dxva_zero_copy`，`effective_fps=30`（30fps 素材），tail working set `14.54~19.89MB`
+- Files modified:
+  - include/wallpaper/interfaces.h
+  - include/wallpaper/source_frame_rate_policy.h
+  - src/source_frame_rate_policy.cpp
+  - src/win/decode_pipeline_stub.cpp
+  - src/app.cpp
+  - tests/source_frame_rate_policy_tests.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md

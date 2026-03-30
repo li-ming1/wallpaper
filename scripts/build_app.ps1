@@ -58,6 +58,7 @@ $sources = @(
   "src/desktop_context_policy.cpp",
   "src/desktop_attach_policy.cpp",
   "src/decode_output_policy.cpp",
+  "src/decode_output_subtype_policy.cpp",
   "src/frame_buffer_policy.cpp",
   "src/frame_latency_policy.cpp",
   "src/foreground_policy.cpp",
@@ -80,9 +81,11 @@ $sources = @(
   "src/metrics_sampler.cpp",
   "src/frame_bridge.cpp",
   "src/startup_policy.cpp",
+  "src/video_present_policy.cpp",
   "src/video_render_policy.cpp",
   "src/video_surface_cache_policy.cpp",
-  "src/video_path_probe_policy.cpp"
+  "src/video_path_probe_policy.cpp",
+  "src/working_set_trim_policy.cpp"
 )
 
 Write-Host "Compiling Windows resources with $($windres.Source)..."

@@ -5,6 +5,7 @@
 #include "wallpaper/desktop_attach_policy.h"
 #include "wallpaper/frame_latency_policy.h"
 #include "wallpaper/monitor_layout_policy.h"
+#include "wallpaper/video_present_policy.h"
 #include "wallpaper/video_render_policy.h"
 
 #ifdef _WIN32
@@ -526,6 +527,7 @@ class WallpaperHostWin final : public IWallpaperHost {
     }
     desktopParent_ = nullptr;
     renderWindowVisible_ = false;
+    backBufferVideoReady_ = false;
     renderViewportWidth_ = 0;
     renderViewportHeight_ = 0;
     monitorViewports_.clear();
@@ -596,13 +598,23 @@ class WallpaperHostWin final : public IWallpaperHost {
       // 非视频解码模式下清理旧视频纹理，避免切换源后显示冻结旧帧。
       ReleaseVideoTexture();
       lastVideoSequence_ = 0;
+      backBufferVideoReady_ = false;
     }
 
     bool drewVideo = false;
+    bool hasNewVideoFrame = false;
     bool hasVideoTexture = HasAnyVideoTexture();
     frame_bridge::LatestFrame latestFrame;
     if (frame_bridge::TryGetLatestFrameIfNewer(lastVideoSequence_, &latestFrame)) {
       if (latestFrame.gpuBacked && latestFrame.gpuTexture != nullptr &&
+          static_cast<DXGI_FORMAT>(latestFrame.dxgiFormat) == DXGI_FORMAT_NV12 &&
+          EnsureVideoTextureForGpuNv12(latestFrame) && DrawVideoNv12Texture()) {
+        lastVideoSequence_ = latestFrame.sequence;
+        frame_bridge::ReleaseLatestFrameIfSequenceConsumed(lastVideoSequence_);
+        hasVideoTexture = true;
+        drewVideo = true;
+        hasNewVideoFrame = true;
+      } else if (latestFrame.gpuBacked && latestFrame.gpuTexture != nullptr &&
           EnsureVideoTextureForGpu(static_cast<UINT>(latestFrame.width),
                                    static_cast<UINT>(latestFrame.height),
                                    static_cast<DXGI_FORMAT>(latestFrame.dxgiFormat)) &&
@@ -611,6 +623,7 @@ class WallpaperHostWin final : public IWallpaperHost {
         frame_bridge::ReleaseLatestFrameIfSequenceConsumed(lastVideoSequence_);
         hasVideoTexture = true;
         drewVideo = true;
+        hasNewVideoFrame = true;
       } else if (latestFrame.pixelFormat == frame_bridge::PixelFormat::kNv12 &&
                  latestFrame.yPlaneData != nullptr && latestFrame.uvPlaneData != nullptr &&
                  EnsureVideoTextureForNv12(static_cast<UINT>(latestFrame.width),
@@ -620,6 +633,7 @@ class WallpaperHostWin final : public IWallpaperHost {
         frame_bridge::ReleaseLatestFrameIfSequenceConsumed(lastVideoSequence_);
         hasVideoTexture = true;
         drewVideo = true;
+        hasNewVideoFrame = true;
       } else if (latestFrame.rgbaData != nullptr &&
                  EnsureVideoTextureForCpu(static_cast<UINT>(latestFrame.width),
                                           static_cast<UINT>(latestFrame.height)) &&
@@ -628,7 +642,13 @@ class WallpaperHostWin final : public IWallpaperHost {
         frame_bridge::ReleaseLatestFrameIfSequenceConsumed(lastVideoSequence_);
         hasVideoTexture = true;
         drewVideo = true;
+        hasNewVideoFrame = true;
       }
+    }
+
+    if (!drewVideo &&
+        ShouldSkipRedundantVideoPresent(hasNewVideoFrame, backBufferVideoReady_)) {
+      return;
     }
 
     if (!drewVideo && hasVideoTexture && DrawCachedVideoTexture()) {
@@ -657,6 +677,7 @@ class WallpaperHostWin final : public IWallpaperHost {
       swapChainOccluded_ = false;
       nextOcclusionProbeAtTick_ = 0;
       frameLatencyGateArmed_ = true;
+      backBufferVideoReady_ = true;
     }
   }
 
@@ -967,8 +988,8 @@ class WallpaperHostWin final : public IWallpaperHost {
   }
 
   [[nodiscard]] bool HasNv12VideoTexture() const {
-    return videoNv12YTexture_ != nullptr && videoNv12UvTexture_ != nullptr &&
-           videoNv12YSrv_ != nullptr && videoNv12UvSrv_ != nullptr;
+    return videoNv12YSrv_ != nullptr && videoNv12UvSrv_ != nullptr &&
+           videoNv12Width_ != 0 && videoNv12Height_ != 0;
   }
 
   [[nodiscard]] bool HasAnyVideoTexture() const {
@@ -986,6 +1007,9 @@ class WallpaperHostWin final : public IWallpaperHost {
     SafeRelease(&videoNv12UvSrv_);
     SafeRelease(&videoNv12YTexture_);
     SafeRelease(&videoNv12UvTexture_);
+    videoNv12GpuTextureHolder_.reset();
+    videoNv12GpuSourceTexture_ = nullptr;
+    videoNv12GpuSubresourceIndex_ = 0;
     videoNv12Width_ = 0;
     videoNv12Height_ = 0;
   }
@@ -1115,12 +1139,68 @@ class WallpaperHostWin final : public IWallpaperHost {
     return true;
   }
 
+  bool EnsureVideoTextureForGpuNv12(const frame_bridge::LatestFrame& frame) {
+    if (!videoPipelineReady_ || device_ == nullptr || !frame.gpuBacked ||
+        frame.gpuTexture == nullptr ||
+        static_cast<DXGI_FORMAT>(frame.dxgiFormat) != DXGI_FORMAT_NV12 ||
+        frame.width <= 0 || frame.height <= 0) {
+      return false;
+    }
+
+    if (videoNv12YSrv_ != nullptr && videoNv12UvSrv_ != nullptr &&
+        videoNv12GpuSourceTexture_ == frame.gpuTexture &&
+        videoNv12GpuSubresourceIndex_ == frame.gpuSubresourceIndex &&
+        videoNv12Width_ == static_cast<UINT>(frame.width) &&
+        videoNv12Height_ == static_cast<UINT>(frame.height)) {
+      return true;
+    }
+
+    ReleaseVideoTexture();
+
+    D3D11_SHADER_RESOURCE_VIEW_DESC ySrvDesc{};
+    ySrvDesc.Format = DXGI_FORMAT_R8_UNORM;
+    ySrvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
+    ySrvDesc.Texture2DArray.MostDetailedMip = 0;
+    ySrvDesc.Texture2DArray.MipLevels = 1;
+    ySrvDesc.Texture2DArray.FirstArraySlice = frame.gpuSubresourceIndex;
+    ySrvDesc.Texture2DArray.ArraySize = 1;
+
+    HRESULT hr = device_->CreateShaderResourceView(frame.gpuTexture, &ySrvDesc, &videoNv12YSrv_);
+    if (FAILED(hr) || videoNv12YSrv_ == nullptr) {
+      ReleaseVideoTexture();
+      return false;
+    }
+
+    D3D11_SHADER_RESOURCE_VIEW_DESC uvSrvDesc{};
+    uvSrvDesc.Format = DXGI_FORMAT_R8G8_UNORM;
+    uvSrvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
+    uvSrvDesc.Texture2DArray.MostDetailedMip = 0;
+    uvSrvDesc.Texture2DArray.MipLevels = 1;
+    uvSrvDesc.Texture2DArray.FirstArraySlice = frame.gpuSubresourceIndex;
+    uvSrvDesc.Texture2DArray.ArraySize = 1;
+
+    hr = device_->CreateShaderResourceView(frame.gpuTexture, &uvSrvDesc, &videoNv12UvSrv_);
+    if (FAILED(hr) || videoNv12UvSrv_ == nullptr) {
+      ReleaseVideoTexture();
+      return false;
+    }
+
+    videoNv12GpuTextureHolder_ = frame.gpuTextureHolder;
+    videoNv12GpuSourceTexture_ = frame.gpuTexture;
+    videoNv12GpuSubresourceIndex_ = frame.gpuSubresourceIndex;
+    videoNv12Width_ = static_cast<UINT>(frame.width);
+    videoNv12Height_ = static_cast<UINT>(frame.height);
+    return true;
+  }
+
   bool EnsureVideoTextureForNv12(const UINT width, const UINT height) {
     if (!videoPipelineReady_ || device_ == nullptr || width == 0 || height == 0) {
       return false;
     }
 
-    if (HasNv12VideoTexture() && videoNv12Width_ == width && videoNv12Height_ == height) {
+    if (videoNv12YTexture_ != nullptr && videoNv12UvTexture_ != nullptr &&
+        videoNv12YSrv_ != nullptr && videoNv12UvSrv_ != nullptr &&
+        videoNv12Width_ == width && videoNv12Height_ == height) {
       return true;
     }
 
@@ -1409,6 +1489,7 @@ class WallpaperHostWin final : public IWallpaperHost {
       return;
     }
 
+    backBufferVideoReady_ = false;
     context_->OMSetRenderTargets(0, nullptr, nullptr);
     SafeRelease(&renderTargetView_);
     if (SUCCEEDED(swapChain_->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0))) {
@@ -1430,6 +1511,7 @@ class WallpaperHostWin final : public IWallpaperHost {
     renderViewportWidth_ = 0;
     renderViewportHeight_ = 0;
     monitorViewports_.clear();
+    backBufferVideoReady_ = false;
     if (frameLatencyWaitableObject_ != nullptr) {
       CloseHandle(frameLatencyWaitableObject_);
       frameLatencyWaitableObject_ = nullptr;
@@ -1448,6 +1530,7 @@ class WallpaperHostWin final : public IWallpaperHost {
   HWND renderWindow_ = nullptr;
   bool attached_ = false;
   bool renderWindowVisible_ = false;
+  bool backBufferVideoReady_ = false;
 
   ID3D11Device* device_ = nullptr;
   ID3D11DeviceContext* context_ = nullptr;
@@ -1483,6 +1566,9 @@ class WallpaperHostWin final : public IWallpaperHost {
   ID3D11Texture2D* videoNv12UvTexture_ = nullptr;
   ID3D11ShaderResourceView* videoNv12YSrv_ = nullptr;
   ID3D11ShaderResourceView* videoNv12UvSrv_ = nullptr;
+  std::shared_ptr<void> videoNv12GpuTextureHolder_{};
+  ID3D11Texture2D* videoNv12GpuSourceTexture_ = nullptr;
+  UINT videoNv12GpuSubresourceIndex_ = 0;
   UINT videoNv12Width_ = 0;
   UINT videoNv12Height_ = 0;
   std::uint64_t lastVideoSequence_ = 0;

@@ -31,6 +31,7 @@ enum class DecodePath {
 struct FrameToken final {
   std::uint64_t sequence = 0;
   std::int64_t timestamp100ns = 0;
+  int sourceFrameRateHint = 0;
   int width = 0;
   int height = 0;
   DecodeMode decodeMode = DecodeMode::kUnknown;

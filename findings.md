@@ -475,3 +475,38 @@
 - `desktop`：CPU 平均约 `0.0284%`，P95 约 `0.1894%`，private bytes 约 `2.76 MB`，working set 约 `14.8 MB`。
 - `foreground_notepad_pause`：CPU 平均约 `0.0378%`，P95 约 `0.1894%`，private bytes 约 `2.70 MB`，working set 约 `14.76 MB`。
 - 结论：当前桌面运行与前台普通窗口静态场景都已处于很低 CPU/内存区间；后续若继续挤占用，重点应转向“频繁换源瞬态峰值”和“超长运行碎片/增长”。
+
+## 2026-03-30 任务管理器占用差异复盘
+- 用户实际使用链路已确认是 `build/wallpaper_app.exe + build/config.json`，配置指向 `kuroha_1080p30_h264.mp4`。
+- 之前用于说明“极低占用”的样本并非这条链路：现场同时存在 `build_tmp/wallpaper_app.exe` 老进程，且其同目录缺少 `config.json`；在单实例保护存在时，后续基准实例会直接退出，导致该组数据不能代表真实动态播放态。
+- 重新按 `build/wallpaper_app.exe` 做受控动态播放采样（桌面可见、视频已加载）后，得到：
+  - CPU 平均约 `1.3982%`，峰值约 `5.4281%`
+  - working set 平均约 `44.47 MB`，峰值约 `47.61 MB`
+  - private bytes 平均约 `103.36 MB`，峰值约 `104.80 MB`
+- 应用自带指标文件 `build/metrics_20260330.csv` 与上述结论一致，最近动态播放样本显示：
+  - `decode_path=cpu_nv12_fallback`
+  - `decode_output_pixels=2073600`（1080p）
+  - `working_set_bytes` 约 `46.7~49.9 MB`
+  - `private_bytes` 约 `108~110 MB`
+  - `cpu_percent` 约 `0.7~2.3%`，更早样本出现过 `3%+`
+- 结论：
+  - 用户在任务管理器里看到的 `~50MB` 内存是可信的，对应 working set 口径。
+  - 之前我报出的超低数字不适用于当前真实播放链路，根因是测到了错误二进制/错误运行状态。
+  - 当前 active 动态播放的主要成本已经收敛到 `1080p + cpu_nv12_fallback` 这条路径本身，而不是静态态或空载态。
+
+## 2026-03-30 DXVA 源帧率提示收敛
+- 现象：`decode_path=dxva_zero_copy` 时，`build/metrics_20260330.csv` 曾出现 `effective_fps=60`（素材为 `1080p30`），导致调度与素材帧率不匹配。
+- 风险：仅依赖时间戳启发式收敛时，特定媒体链路可能长时间停留在 60fps 调度，额外抬升 CPU。
+- 修复策略：
+  - `decode_pipeline_stub` 在输出媒体类型上读取 `MF_MT_FRAME_RATE`，并做 24/25/30/60 归一化。
+  - `FrameToken` 新增 `sourceFrameRateHint`，把解码层提示透传给 `App::Tick`。
+  - `App` 在 MF token 到达时优先应用帧率提示，再结合时间戳启发式持续校正。
+- TDD：
+  - 新增 `SourceFrameRatePolicy_NormalizesNtscHintTo30Fps`。
+  - 新增 `SourceFrameRatePolicy_AppliesFrameRateHintImmediately`。
+  - Red：新增测试先失败（缺少 API）。
+  - Green：实现后 `./scripts/run_tests.ps1 -BuildDir build_tmp/phase71_fps_hint_green` 全绿（188/188）。
+- 真实运行验证（用户真实链路：`build/wallpaper_app.exe + build/config.json`）：
+  - 最新会话 `sess_1774858536442_7340` 连续样本显示 `decode_path=dxva_zero_copy` 且 `effective_fps=30`。
+  - 同会话 tail 样本（10 行）约为：CPU 平均 `4.2508%`、working set `14.54~19.89 MB`、private bytes 平均 `321.34 MB`。
+- 结论：本轮修复已解决“30fps 素材按 60fps 调度”的核心偏差，播放节奏和调度目标一致；下一轮若继续压 CPU，应聚焦 DXVA 30fps 动态态渲染成本，而非帧率识别链路。

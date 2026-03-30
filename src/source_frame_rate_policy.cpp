@@ -1,6 +1,7 @@
 #include "wallpaper/source_frame_rate_policy.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace wallpaper {
 namespace {
@@ -35,6 +36,26 @@ void BumpHint(int* value) noexcept {
     return;
   }
   *value = std::min(*value + 1, kMaxHintSamples);
+}
+
+int NormalizeHint(double fpsHint) noexcept {
+  if (fpsHint <= 0.0) {
+    return 0;
+  }
+  constexpr double kHintTolerance = 1.2;
+  if (std::abs(fpsHint - 24.0) <= kHintTolerance) {
+    return 24;
+  }
+  if (std::abs(fpsHint - 25.0) <= kHintTolerance) {
+    return 25;
+  }
+  if (std::abs(fpsHint - 30.0) <= kHintTolerance) {
+    return 30;
+  }
+  if (std::abs(fpsHint - 60.0) <= kHintTolerance) {
+    return 60;
+  }
+  return 0;
 }
 
 }  // namespace
@@ -87,6 +108,25 @@ int UpdateSourceFrameRateState(const std::int64_t previousTimestamp100ns,
     state->sourceFps = 60;
   }
 
+  return state->sourceFps;
+}
+
+int NormalizeSourceFrameRateHint(const double fpsHint) noexcept { return NormalizeHint(fpsHint); }
+
+int ApplySourceFrameRateHint(const int hintedSourceFps, SourceFrameRateState* const state) noexcept {
+  if (state == nullptr) {
+    return 60;
+  }
+  const int normalizedHint = NormalizeHint(static_cast<double>(hintedSourceFps));
+  if (normalizedHint <= 0) {
+    return state->sourceFps;
+  }
+
+  state->sourceFps = normalizedHint;
+  state->hint24 = normalizedHint == 24 ? kStableSampleThreshold : 0;
+  state->hint25 = normalizedHint == 25 ? kStableSampleThreshold : 0;
+  state->hint30 = normalizedHint == 30 ? kStableSampleThreshold : 0;
+  state->hint60 = normalizedHint == 60 ? kStableSampleThreshold : 0;
   return state->sourceFps;
 }
 

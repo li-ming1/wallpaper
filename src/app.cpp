@@ -14,6 +14,7 @@
 #include "wallpaper/video_surface_cache_policy.h"
 #include "wallpaper/video_path_probe_policy.h"
 #include "wallpaper/video_path_matcher.h"
+#include "wallpaper/working_set_trim_policy.h"
 
 #include <algorithm>
 #include <chrono>
@@ -579,6 +580,8 @@ void App::ResetPlaybackState(const bool resetLongRunState) {
   decodeThreadQos_.store(static_cast<int>(RuntimeThreadQos::kNormal));
   decodeWarmupActive_.store(false);
   decodeOpenLongRunLevel_ = 0;
+  activePlaybackStartedAt_ = RenderScheduler::Clock::time_point{};
+  activeWorkingSetTrimDone_ = false;
   {
     std::lock_guard<std::mutex> lock(decodedTokenMu_);
     hasLatestDecodedToken_ = false;
@@ -1270,6 +1273,12 @@ void App::Tick() {
           UpdateSourceFrameRateState(lastDecodedTimestamp100ns_, frame.timestamp100ns,
                                      &sourceFrameRateState_);
       (void)observedSourceFps;
+      if (frame.sourceFrameRateHint > 0) {
+        // 直接使用解码链路给出的源帧率提示，避免仅靠时间戳启发式收敛过慢。
+        const int hintedSourceFps =
+            ApplySourceFrameRateHint(frame.sourceFrameRateHint, &sourceFrameRateState_);
+        (void)hintedSourceFps;
+      }
       lastDecodedTimestamp100ns_ = frame.timestamp100ns;
     } else {
       ResetSourceFrameRateState(&sourceFrameRateState_);
@@ -1294,6 +1303,9 @@ void App::Tick() {
   const auto presentBegin = RenderScheduler::Clock::now();
   wallpaperHost_->Present(frame);
   const auto presentEnd = RenderScheduler::Clock::now();
+  if (activePlaybackStartedAt_ == RenderScheduler::Clock::time_point{}) {
+    activePlaybackStartedAt_ = presentEnd;
+  }
   const double presentMs =
       std::chrono::duration<double, std::milli>(presentEnd - presentBegin).count();
   MaybeSampleAndLogMetrics(true, false, presentMs);
@@ -1335,6 +1347,20 @@ void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameD
   // 每秒基于实时负载做一次帧率档位决策，避免在每帧路径引入额外分支和抖动。
   const int effectiveFps = qualityGovernor_.Update(metrics);
   const bool hasActiveVideo = wallpaperAttached_ && decodeOpened_.load() && decodeRunning_.load();
+  constexpr std::chrono::milliseconds kActiveWorkingSetTrimWarmup(8000);
+  std::chrono::milliseconds activePlaybackElapsed(0);
+  if (activePlaybackStartedAt_ != RenderScheduler::Clock::time_point{} &&
+      now >= activePlaybackStartedAt_) {
+    activePlaybackElapsed =
+        std::chrono::duration_cast<std::chrono::milliseconds>(now - activePlaybackStartedAt_);
+  }
+  if (ShouldTrimWorkingSetAfterActiveWarmup(activeWorkingSetTrimDone_, hasActiveVideo,
+                                            stablePauseForLoopSleep_, activePlaybackElapsed,
+                                            kActiveWorkingSetTrimWarmup)) {
+    TrimCurrentProcessWorkingSet();
+    activeWorkingSetTrimDone_ = true;
+    lastWorkingSetTrimAt_ = now;
+  }
   const LongRunLoadDecision longRunDecision =
       UpdateLongRunLoadPolicy(metrics, hasActiveVideo, stablePauseForLoopSleep_, lastDecodePath_,
                               &longRunLoadState_);
