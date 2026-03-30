@@ -51,6 +51,7 @@ class IWallpaperHost {
   virtual void DetachFromDesktop() = 0;
   virtual void ResizeForDisplays() = 0;
   virtual void Present(const FrameToken& frame) = 0;
+  virtual void TrimMemory() = 0;
   [[nodiscard]] virtual bool IsOccluded() const = 0;
 };
 

@@ -5,11 +5,13 @@
 #include "wallpaper/long_run_load_policy.h"
 #include "wallpaper/loop_sleep_policy.h"
 #include "wallpaper/metrics_log_line.h"
+#include "wallpaper/pause_resource_policy.h"
 #include "wallpaper/pause_suspend_policy.h"
 #include "wallpaper/pause_transition_policy.h"
 #include "wallpaper/probe_cadence_policy.h"
 #include "wallpaper/runtime_trim_policy.h"
 #include "wallpaper/startup_policy.h"
+#include "wallpaper/video_surface_cache_policy.h"
 #include "wallpaper/video_path_probe_policy.h"
 #include "wallpaper/video_path_matcher.h"
 
@@ -558,6 +560,7 @@ void App::ResetPlaybackState(const bool resetLongRunState) {
   stablePauseForLoopSleep_ = false;
   wasPaused_ = false;
   decodeCacheTrimmedByPause_ = false;
+  videoSurfaceCacheTrimmedByPause_ = false;
   resourcesReleasedByPause_ = false;
   resumePipelinePending_ = false;
   nextResumeAttemptAt_ = RenderScheduler::Clock::time_point{};
@@ -675,6 +678,10 @@ bool App::ApplyVideoPath(const std::string& newPath) {
   }
   if (IsSameVideoPath(newPath, config_.videoPath)) {
     return true;
+  }
+  if (wallpaperHost_ != nullptr &&
+      ShouldTrimVideoSurfaceCacheOnSourceChange(wallpaperAttached_, true)) {
+    wallpaperHost_->TrimMemory();
   }
 
   const std::string oldPath = config_.videoPath;
@@ -1049,6 +1056,7 @@ void App::Tick() {
       resourcesReleasedByPause_ = false;
       hardSuspendedByPause_ = false;
       decodeCacheTrimmedByPause_ = false;
+      videoSurfaceCacheTrimmedByPause_ = false;
       resumeWarmupOpened_ = false;
       resumeWarmupStarted_ = false;
       decodeWarmupActive_.store(false);
@@ -1069,6 +1077,16 @@ void App::Tick() {
         // 轻暂停持续一段时间后释放 CPU 侧帧缓存，降低内存驻留峰值。
         decodePipeline_->TrimMemory();
         decodeCacheTrimmedByPause_ = true;
+      }
+      const bool keepWallpaperLayer =
+          ShouldKeepWallpaperLayerDuringPause(wallpaperAttached_, hasLastPresentedFrame_);
+      if (wallpaperHost_ != nullptr &&
+          ShouldTrimVideoSurfaceCacheDuringStaticPause(
+              keepWallpaperLayer, videoSurfaceCacheTrimmedByPause_, pausedDuration,
+              pauseSuspendProfile.trimDecodeCacheAfter)) {
+        // 静态壁纸阶段仅保留交换链上的最后一帧，主动回收渲染侧视频纹理。
+        wallpaperHost_->TrimMemory();
+        videoSurfaceCacheTrimmedByPause_ = true;
       }
       const bool allowAggressiveSuspend = arbiter_.ShouldAllowHardSuspend();
       const auto hardSuspendThreshold =
@@ -1175,6 +1193,7 @@ void App::Tick() {
     resourcesReleasedByPause_ = false;
     hardSuspendedByPause_ = false;
     decodeCacheTrimmedByPause_ = false;
+    videoSurfaceCacheTrimmedByPause_ = false;
     resumeWarmupOpened_ = false;
     resumeWarmupStarted_ = false;
     decodeWarmupActive_.store(false);

@@ -10,6 +10,7 @@ class WallpaperHostStub final : public IWallpaperHost {
   void DetachFromDesktop() override {}
   void ResizeForDisplays() override {}
   void Present(const FrameToken&) override {}
+  void TrimMemory() override {}
   [[nodiscard]] bool IsOccluded() const override { return false; }
 };
 

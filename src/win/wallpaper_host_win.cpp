@@ -660,6 +660,13 @@ class WallpaperHostWin final : public IWallpaperHost {
     }
   }
 
+  void TrimMemory() override {
+    ReleaseVideoTexture();
+    if (context_ != nullptr) {
+      context_->Flush();
+    }
+  }
+
   [[nodiscard]] bool IsOccluded() const override { return swapChainOccluded_; }
 
  private:
@@ -1489,6 +1496,7 @@ class WallpaperHostWin final : public IWallpaperHost {
   void DetachFromDesktop() override {}
   void ResizeForDisplays() override {}
   void Present(const FrameToken&) override {}
+  void TrimMemory() override {}
 };
 
 #endif

@@ -109,6 +109,7 @@ class App final {
   bool stablePauseForLoopSleep_ = false;
   bool wasPaused_ = false;
   bool decodeCacheTrimmedByPause_ = false;
+  bool videoSurfaceCacheTrimmedByPause_ = false;
   bool resourcesReleasedByPause_ = false;
   bool resumePipelinePending_ = false;
   RenderScheduler::Clock::time_point nextResumeAttemptAt_{};
