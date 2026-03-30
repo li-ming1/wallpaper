@@ -73,8 +73,8 @@ void MarkDecodeAsyncReadSeekCompleted(DecodeAsyncReadState* state) {
 }
 
 bool ShouldIssueReadImmediatelyAfterConsume() noexcept {
-  // 立即续读可避免解码泵 sleep 把低帧率素材拖慢，优先保证 1x 时间轴推进。
-  return true;
+  // 保持 lazy read，可减少动态桌面常驻时“ready sample”占用的额外内存峰值。
+  return false;
 }
 
 }  // namespace wallpaper

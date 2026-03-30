@@ -649,11 +649,7 @@ void App::ApplyRenderFpsCap(const int governorFps) {
       dynamicBoostMs += 8;
     }
   }
-  const int requestedHotSleepMs = baseHotSleepMs + dynamicBoostMs;
-  // 1x 播放优先：CPU fallback 允许省电，但不能把解码消费节奏拖慢到低于素材时间轴。
-  const int nextHotSleepMs = std::clamp(
-      CapDecodePumpHotSleepMsToSourceBudget(requestedHotSleepMs, sourceFrameRateState_.sourceFps),
-      6, 64);
+  const int nextHotSleepMs = std::clamp(baseHotSleepMs + dynamicBoostMs, 6, 64);
   const int previousHotSleepMs = decodePumpHotSleepMs_.load();
   const int previousFpsCap = scheduler_.GetFpsCap();
 

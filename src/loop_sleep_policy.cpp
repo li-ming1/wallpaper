@@ -3,18 +3,6 @@
 #include <algorithm>
 
 namespace wallpaper {
-namespace {
-
-constexpr int kDecodeHotSleepSafetyMarginMs = 4;
-
-[[nodiscard]] int BuildSourceFrameIntervalMs(const int sourceFps) noexcept {
-  if (sourceFps <= 0) {
-    return 0;
-  }
-  return std::max(1, 1000 / sourceFps);
-}
-
-}  // namespace
 
 int ComputeMainLoopSleepMs(const bool shouldPause, const bool hasActiveVideo,
                            const std::chrono::milliseconds untilNextRender) noexcept {
@@ -75,20 +63,6 @@ int ComputeDecodePumpHotSleepMs(const int renderFpsCap, const int sourceFps) noe
     return 36;
   }
   return 40;
-}
-
-int CapDecodePumpHotSleepMsToSourceBudget(const int requestedSleepMs, const int sourceFps) noexcept {
-  if (requestedSleepMs <= 0 || sourceFps <= 0) {
-    return requestedSleepMs;
-  }
-
-  const int sourceFrameIntervalMs = BuildSourceFrameIntervalMs(sourceFps);
-  if (sourceFrameIntervalMs == 0) {
-    return requestedSleepMs;
-  }
-
-  const int maxSleepMs = std::max(2, sourceFrameIntervalMs - kDecodeHotSleepSafetyMarginMs);
-  return std::min(requestedSleepMs, maxSleepMs);
 }
 
 bool ShouldWakeDecodePumpForRenderCapUpdate(const int previousHotSleepMs, const int nextHotSleepMs,
