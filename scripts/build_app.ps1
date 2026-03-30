@@ -61,6 +61,7 @@ $sources = @(
   "src/decode_output_subtype_policy.cpp",
   "src/frame_buffer_policy.cpp",
   "src/frame_latency_policy.cpp",
+  "src/gpu_nv12_srv_cache_policy.cpp",
   "src/foreground_policy.cpp",
   "src/loop_sleep_policy.cpp",
   "src/long_run_load_policy.cpp",

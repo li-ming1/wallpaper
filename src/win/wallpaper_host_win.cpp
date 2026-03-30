@@ -4,6 +4,7 @@
 #include "wallpaper/frame_bridge.h"
 #include "wallpaper/desktop_attach_policy.h"
 #include "wallpaper/frame_latency_policy.h"
+#include "wallpaper/gpu_nv12_srv_cache_policy.h"
 #include "wallpaper/monitor_layout_policy.h"
 #include "wallpaper/video_present_policy.h"
 #include "wallpaper/video_render_policy.h"
@@ -983,6 +984,74 @@ class WallpaperHostWin final : public IWallpaperHost {
     SafeRelease(&videoVertexShader_);
   }
 
+  struct GpuNv12SrvCacheEntry final {
+    UINT subresourceIndex = 0;
+    ID3D11ShaderResourceView* ySrv = nullptr;
+    ID3D11ShaderResourceView* uvSrv = nullptr;
+  };
+
+  void ReleaseGpuNv12SrvCache() {
+    for (auto& entry : videoNv12GpuSrvCache_) {
+      SafeRelease(&entry.ySrv);
+      SafeRelease(&entry.uvSrv);
+    }
+    videoNv12GpuSrvCache_.clear();
+  }
+
+  bool TryUseGpuNv12SrvCache(const UINT subresourceIndex) {
+    for (const auto& entry : videoNv12GpuSrvCache_) {
+      if (entry.subresourceIndex == subresourceIndex &&
+          entry.ySrv != nullptr && entry.uvSrv != nullptr) {
+        videoNv12YSrv_ = entry.ySrv;
+        videoNv12UvSrv_ = entry.uvSrv;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool CreateGpuNv12SrvCacheEntry(ID3D11Texture2D* const sourceTexture,
+                                  const UINT subresourceIndex) {
+    if (sourceTexture == nullptr || device_ == nullptr) {
+      return false;
+    }
+
+    D3D11_SHADER_RESOURCE_VIEW_DESC ySrvDesc{};
+    ySrvDesc.Format = DXGI_FORMAT_R8_UNORM;
+    ySrvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
+    ySrvDesc.Texture2DArray.MostDetailedMip = 0;
+    ySrvDesc.Texture2DArray.MipLevels = 1;
+    ySrvDesc.Texture2DArray.FirstArraySlice = subresourceIndex;
+    ySrvDesc.Texture2DArray.ArraySize = 1;
+
+    ID3D11ShaderResourceView* ySrv = nullptr;
+    HRESULT hr = device_->CreateShaderResourceView(sourceTexture, &ySrvDesc, &ySrv);
+    if (FAILED(hr) || ySrv == nullptr) {
+      return false;
+    }
+
+    D3D11_SHADER_RESOURCE_VIEW_DESC uvSrvDesc{};
+    uvSrvDesc.Format = DXGI_FORMAT_R8G8_UNORM;
+    uvSrvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
+    uvSrvDesc.Texture2DArray.MostDetailedMip = 0;
+    uvSrvDesc.Texture2DArray.MipLevels = 1;
+    uvSrvDesc.Texture2DArray.FirstArraySlice = subresourceIndex;
+    uvSrvDesc.Texture2DArray.ArraySize = 1;
+
+    ID3D11ShaderResourceView* uvSrv = nullptr;
+    hr = device_->CreateShaderResourceView(sourceTexture, &uvSrvDesc, &uvSrv);
+    if (FAILED(hr) || uvSrv == nullptr) {
+      SafeRelease(&ySrv);
+      return false;
+    }
+
+    videoNv12GpuSrvCache_.push_back(
+        GpuNv12SrvCacheEntry{subresourceIndex, ySrv, uvSrv});
+    videoNv12YSrv_ = ySrv;
+    videoNv12UvSrv_ = uvSrv;
+    return true;
+  }
+
   [[nodiscard]] bool HasRgbaVideoTexture() const {
     return videoTexture_ != nullptr && videoSrv_ != nullptr;
   }
@@ -1003,8 +1072,14 @@ class WallpaperHostWin final : public IWallpaperHost {
     videoTexHeight_ = 0;
     videoTexFormat_ = DXGI_FORMAT_UNKNOWN;
     videoTextureCpuWritable_ = false;
-    SafeRelease(&videoNv12YSrv_);
-    SafeRelease(&videoNv12UvSrv_);
+    if (videoNv12GpuSourceTexture_ != nullptr) {
+      videoNv12YSrv_ = nullptr;
+      videoNv12UvSrv_ = nullptr;
+      ReleaseGpuNv12SrvCache();
+    } else {
+      SafeRelease(&videoNv12YSrv_);
+      SafeRelease(&videoNv12UvSrv_);
+    }
     SafeRelease(&videoNv12YTexture_);
     SafeRelease(&videoNv12UvTexture_);
     videoNv12GpuTextureHolder_.reset();
@@ -1146,50 +1221,33 @@ class WallpaperHostWin final : public IWallpaperHost {
         frame.width <= 0 || frame.height <= 0) {
       return false;
     }
-
-    if (videoNv12YSrv_ != nullptr && videoNv12UvSrv_ != nullptr &&
-        videoNv12GpuSourceTexture_ == frame.gpuTexture &&
-        videoNv12GpuSubresourceIndex_ == frame.gpuSubresourceIndex &&
-        videoNv12Width_ == static_cast<UINT>(frame.width) &&
-        videoNv12Height_ == static_cast<UINT>(frame.height)) {
-      return true;
+    const GpuNv12SrvCacheState cacheState{
+        videoNv12GpuSourceTexture_, videoNv12Width_, videoNv12Height_};
+    const bool shouldResetCache =
+        ShouldResetGpuNv12SrvCache(cacheState, frame.gpuTexture,
+                                   static_cast<std::uint32_t>(frame.width),
+                                   static_cast<std::uint32_t>(frame.height));
+    if (shouldResetCache) {
+      ReleaseVideoTexture();
+      videoNv12GpuTextureHolder_ = frame.gpuTextureHolder;
+      videoNv12GpuSourceTexture_ = frame.gpuTexture;
+      videoNv12Width_ = static_cast<UINT>(frame.width);
+      videoNv12Height_ = static_cast<UINT>(frame.height);
     }
 
-    ReleaseVideoTexture();
+    if (videoNv12GpuSourceTexture_ != frame.gpuTexture ||
+        videoNv12Width_ != static_cast<UINT>(frame.width) ||
+        videoNv12Height_ != static_cast<UINT>(frame.height)) {
+      return false;
+    }
 
-    D3D11_SHADER_RESOURCE_VIEW_DESC ySrvDesc{};
-    ySrvDesc.Format = DXGI_FORMAT_R8_UNORM;
-    ySrvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
-    ySrvDesc.Texture2DArray.MostDetailedMip = 0;
-    ySrvDesc.Texture2DArray.MipLevels = 1;
-    ySrvDesc.Texture2DArray.FirstArraySlice = frame.gpuSubresourceIndex;
-    ySrvDesc.Texture2DArray.ArraySize = 1;
-
-    HRESULT hr = device_->CreateShaderResourceView(frame.gpuTexture, &ySrvDesc, &videoNv12YSrv_);
-    if (FAILED(hr) || videoNv12YSrv_ == nullptr) {
+    if (!TryUseGpuNv12SrvCache(frame.gpuSubresourceIndex) &&
+        !CreateGpuNv12SrvCacheEntry(frame.gpuTexture, frame.gpuSubresourceIndex)) {
       ReleaseVideoTexture();
       return false;
     }
 
-    D3D11_SHADER_RESOURCE_VIEW_DESC uvSrvDesc{};
-    uvSrvDesc.Format = DXGI_FORMAT_R8G8_UNORM;
-    uvSrvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
-    uvSrvDesc.Texture2DArray.MostDetailedMip = 0;
-    uvSrvDesc.Texture2DArray.MipLevels = 1;
-    uvSrvDesc.Texture2DArray.FirstArraySlice = frame.gpuSubresourceIndex;
-    uvSrvDesc.Texture2DArray.ArraySize = 1;
-
-    hr = device_->CreateShaderResourceView(frame.gpuTexture, &uvSrvDesc, &videoNv12UvSrv_);
-    if (FAILED(hr) || videoNv12UvSrv_ == nullptr) {
-      ReleaseVideoTexture();
-      return false;
-    }
-
-    videoNv12GpuTextureHolder_ = frame.gpuTextureHolder;
-    videoNv12GpuSourceTexture_ = frame.gpuTexture;
     videoNv12GpuSubresourceIndex_ = frame.gpuSubresourceIndex;
-    videoNv12Width_ = static_cast<UINT>(frame.width);
-    videoNv12Height_ = static_cast<UINT>(frame.height);
     return true;
   }
 
@@ -1568,6 +1626,7 @@ class WallpaperHostWin final : public IWallpaperHost {
   ID3D11ShaderResourceView* videoNv12UvSrv_ = nullptr;
   std::shared_ptr<void> videoNv12GpuTextureHolder_{};
   ID3D11Texture2D* videoNv12GpuSourceTexture_ = nullptr;
+  std::vector<GpuNv12SrvCacheEntry> videoNv12GpuSrvCache_{};
   UINT videoNv12GpuSubresourceIndex_ = 0;
   UINT videoNv12Width_ = 0;
   UINT videoNv12Height_ = 0;

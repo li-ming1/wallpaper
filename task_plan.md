@@ -4,7 +4,7 @@
 Implement a Windows 10/11 dynamic wallpaper app from an empty repo with strict performance-first architecture (WorkerW + MF + D3D11), plus tests for core logic.
 
 ## Current Phase
-Phase 69
+Phase 70
 
 ## Phases
 ### Phase 1: Requirements & Discovery
@@ -606,4 +606,11 @@ Phase 69
 - [x] Green: 新增 `NormalizeSourceFrameRateHint/ApplySourceFrameRateHint` 并接入 App 调度
 - [x] Green: `decode_pipeline_stub` 从 MF 输出媒体类型读取 `MF_MT_FRAME_RATE`，透传到 `FrameToken`
 - [x] Verification: 单测通过（188/188）+ 构建通过 + 真实链路指标 `effective_fps=30`（30fps 素材）
+- **Status:** complete
+
+### Phase 70: DXVA NV12 子资源 SRV 复用（Completed）
+- [x] Red: 新增 `gpu_nv12_srv_cache_policy` 测试并先触发缺失头文件失败
+- [x] Green: 引入 `ShouldResetGpuNv12SrvCache`，接入 `wallpaper_host_win` 的 GPU NV12 SRV 缓存
+- [x] Green: 同一源纹理不同 `subresource` 场景下复用已创建 SRV，避免每帧重建
+- [x] Verification: 单测通过（191/191）+ `build/wallpaper_app.exe` 构建通过 + 真实链路复测
 - **Status:** complete

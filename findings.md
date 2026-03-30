@@ -510,3 +510,20 @@
   - 最新会话 `sess_1774858536442_7340` 连续样本显示 `decode_path=dxva_zero_copy` 且 `effective_fps=30`。
   - 同会话 tail 样本（10 行）约为：CPU 平均 `4.2508%`、working set `14.54~19.89 MB`、private bytes 平均 `321.34 MB`。
 - 结论：本轮修复已解决“30fps 素材按 60fps 调度”的核心偏差，播放节奏和调度目标一致；下一轮若继续压 CPU，应聚焦 DXVA 30fps 动态态渲染成本，而非帧率识别链路。
+
+## 2026-03-30 DXVA NV12 子资源 SRV 复用
+- 现象：DXVA NV12 零拷贝链路的 `gpuSubresourceIndex` 在样本间会变化；原实现将“子资源变化”视为缓存失效并调用 `ReleaseVideoTexture()`，导致 SRV 频繁重建。
+- 风险：在 30fps 动态桌面下，每帧重建 `CreateShaderResourceView` 会抬升 CPU 并增加 D3D 资源管理开销。
+- 修复策略：
+  - 新增 `gpu_nv12_srv_cache_policy`，按“源纹理 + 输出尺寸”决定是否重置缓存。
+  - `wallpaper_host_win` 增加 GPU NV12 SRV 缓存池（按 `subresourceIndex` 建立条目），命中时直接复用 Y/UV SRV。
+  - 仅在源纹理或输出尺寸变化时清理缓存，保留现有渲染路径与画质逻辑。
+- TDD：
+  - 新增 `GpuNv12SrvCachePolicy_ResetsWhenSourceTextureChanges`
+  - 新增 `GpuNv12SrvCachePolicy_ResetsWhenFrameSizeChanges`
+  - 新增 `GpuNv12SrvCachePolicy_KeepsCacheForSameTextureAndSize`
+  - 验证：`./scripts/run_tests.ps1 -BuildDir build_tmp/phase72_gpu_nv12_cache_green` -> 191/191 全绿
+- 真实链路验证（`build/wallpaper_app.exe + build/config.json`）：
+  - 最新会话 `sess_1774859453779_4276` 仍保持 `decode_path=dxva_zero_copy` 与 `effective_fps=30`。
+  - `working_set_bytes` 稳态仍在 `~18-20MB` 区间（trim 后），`decode_copy_bytes_per_sec=0` 持续成立。
+- 结论：本轮改动主要消除了 DXVA NV12 子资源切换下的 SRV 重建热点，属于“稳态 CPU 压降与抖动收敛”优化，且不牺牲画质与 1x 节奏。
