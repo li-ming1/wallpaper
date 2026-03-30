@@ -1684,3 +1684,25 @@
   - src/probe_cadence_policy.cpp
   - tests/probe_cadence_policy_tests.cpp
   - src/app.cpp
+
+### Phase 76: 指标采样状态感知降频优化
+- **Status:** complete
+- **Completed:** 2026-03-30 21:22:03
+- Actions taken:
+  - 先补 Red 测试：新增 `SelectMetricsSampleInterval` 的 3 组策略测试（活跃/暂停或非活跃/遮挡）。
+  - 在 `probe_cadence_policy` 新增 `SelectMetricsSampleInterval(hasActiveVideo, stablePaused, occluded)`。
+  - `App::MaybeSampleAndLogMetrics` 接入状态感知采样窗口：
+    - 活跃播放：`1000ms`
+    - 非活跃、暂停、遮挡：`2000ms`
+  - 采样门控前移，避免非采样周期执行 `GetProcessTimes/GetProcessMemoryInfo` 与 CSV 拼装写盘。
+- Verification:
+  - `./scripts/run_tests.ps1 -BuildDir build_tmp/phase76_green` -> pass (182/182)
+  - `./scripts/build_app.ps1 -BuildDir build_tmp/phase76_app` -> pass
+  - 受控同配置对比（`pauseWhenNotDesktopContext=false`）：
+    - phase75: `cpu_avg_percent=1.4988`（`desktop_20260330_212136_phase76_ab_phase75_forceactive.json`）
+    - phase76: `cpu_avg_percent=1.2087`（`desktop_20260330_212203_phase76_ab_phase76_forceactive_r2.json`）
+- Files modified:
+  - include/wallpaper/probe_cadence_policy.h
+  - src/probe_cadence_policy.cpp
+  - tests/probe_cadence_policy_tests.cpp
+  - src/app.cpp

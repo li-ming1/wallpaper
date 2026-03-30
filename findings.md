@@ -469,3 +469,16 @@
     - phase74: `cpu_avg_percent=1.4748`
     - phase75: `cpu_avg_percent=1.4038`
   - 结论：短窗样本下 CPU 平均占用小幅下降，且内存指标无异常增长。
+
+## 2026-03-30 21:22:03 指标采样状态感知降频结论
+- 问题：`MaybeSampleAndLogMetrics` 固定 1s 采样，即使在暂停/遮挡/无活跃视频状态，仍按活跃态频率调用 `GetProcessTimes/GetProcessMemoryInfo` 并拼装 CSV。
+- 决策：新增 `SelectMetricsSampleInterval`，将采样节奏状态化：
+  - 活跃视频且未暂停且未遮挡：`1000ms`
+  - 非活跃/暂停/遮挡：`2000ms`
+- 落地：在 `App::MaybeSampleAndLogMetrics` 中先做状态化时间门控，再执行系统采样与日志写盘。
+- 验证结果：
+  - `run_tests` 182/182 全绿，`build_app` 通过。
+  - 受控同配置对比（`pauseWhenNotDesktopContext=false`，同视频路径）：
+    - phase75: `cpu_avg_percent=1.4988`
+    - phase76: `cpu_avg_percent=1.2087`
+  - 结论：在持续播放场景下仍观察到下降（短窗样本），且内存无异常抬升。

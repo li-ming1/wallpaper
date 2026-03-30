@@ -39,4 +39,8 @@ struct RuntimeProbeIntervals final {
     std::chrono::milliseconds baseInterval, bool sessionInteractive, bool batterySaverActive,
     bool remoteSessionActive) noexcept;
 
+// 指标采样节奏：活跃播放维持 1s；非活跃/暂停/遮挡降频，减少系统采样与写盘开销。
+[[nodiscard]] std::chrono::milliseconds SelectMetricsSampleInterval(
+    bool hasActiveVideo, bool stablePaused, bool occluded) noexcept;
+
 }  // namespace wallpaper

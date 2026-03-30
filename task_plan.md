@@ -592,3 +592,14 @@ Phase 61
   - phase74: CPU avg `1.4748%`（`desktop_20260330_205746_phase74_desktop_with_video_r3`）
   - phase75: CPU avg `1.4038%`（`desktop_20260330_205717_phase75_desktop_with_video`）
 - **Status:** complete
+
+### Phase 76: 指标采样状态感知降频优化（Completed）
+- [x] Red: 新增 `probe_cadence_policy` 指标采样间隔策略测试并验证失败
+- [x] Green: 新增 `SelectMetricsSampleInterval`（活跃 `1000ms`，非活跃/暂停/遮挡 `2000ms`）
+- [x] Green: `App::MaybeSampleAndLogMetrics` 接入状态感知采样门控，减少无效系统采样和写盘频率
+- [x] Verification: `scripts/run_tests.ps1 -BuildDir build_tmp/phase76_green`（182/182 PASS）
+- [x] Verification: `scripts/build_app.ps1 -BuildDir build_tmp/phase76_app`（PASS）
+- [x] Verification: 受控同配置对比（`pauseWhenNotDesktopContext=false`，同视频路径）
+  - phase75: CPU avg `1.4988%`（`desktop_20260330_212136_phase76_ab_phase75_forceactive`）
+  - phase76: CPU avg `1.2087%`（`desktop_20260330_212203_phase76_ab_phase76_forceactive_r2`）
+- **Status:** complete

@@ -95,3 +95,16 @@ TEST_CASE(ProbeCadencePolicy_SessionIntervalKeepsBaseWhenPowerOrSessionNotNormal
 TEST_CASE(ProbeCadencePolicy_SessionIntervalIsCappedForPausedBase) {
   EXPECT_EQ(wallpaper::SelectSessionProbeIntervalForState(1200ms, true, false, false), 1200ms);
 }
+
+TEST_CASE(ProbeCadencePolicy_MetricsSampleIntervalIsOneSecondWhenActive) {
+  EXPECT_EQ(wallpaper::SelectMetricsSampleInterval(true, false, false), 1000ms);
+}
+
+TEST_CASE(ProbeCadencePolicy_MetricsSampleIntervalIsRelaxedWhenPausedOrInactive) {
+  EXPECT_EQ(wallpaper::SelectMetricsSampleInterval(false, false, false), 2000ms);
+  EXPECT_EQ(wallpaper::SelectMetricsSampleInterval(true, true, false), 2000ms);
+}
+
+TEST_CASE(ProbeCadencePolicy_MetricsSampleIntervalIsRelaxedWhenOccluded) {
+  EXPECT_EQ(wallpaper::SelectMetricsSampleInterval(true, false, true), 2000ms);
+}

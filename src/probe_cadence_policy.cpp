@@ -80,4 +80,13 @@ std::chrono::milliseconds SelectSessionProbeIntervalForState(
   return relaxed > kRelaxedCap ? kRelaxedCap : relaxed;
 }
 
+std::chrono::milliseconds SelectMetricsSampleInterval(const bool hasActiveVideo,
+                                                      const bool stablePaused,
+                                                      const bool occluded) noexcept {
+  if (hasActiveVideo && !stablePaused && !occluded) {
+    return std::chrono::milliseconds(1000);
+  }
+  return std::chrono::milliseconds(2000);
+}
+
 }  // namespace wallpaper

@@ -1319,8 +1319,12 @@ void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameD
   }
 
   const auto now = RenderScheduler::Clock::now();
+  const bool hasActiveVideo = wallpaperAttached_ && decodeOpened_.load() && decodeRunning_.load();
+  const bool occluded = wallpaperHost_ != nullptr && wallpaperHost_->IsOccluded();
+  const auto metricsSampleInterval =
+      SelectMetricsSampleInterval(hasActiveVideo, stablePauseForLoopSleep_, occluded);
   if (lastMetricsAt_ != RenderScheduler::Clock::time_point{} &&
-      now - lastMetricsAt_ < std::chrono::seconds(1)) {
+      now - lastMetricsAt_ < metricsSampleInterval) {
     return;
   }
   lastMetricsAt_ = now;
@@ -1329,7 +1333,7 @@ void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameD
   metrics.decodeOutputPixels = lastDecodeOutputPixels_;
   metrics.threadQos =
       static_cast<RuntimeThreadQos>(decodeThreadQos_.load());
-  metrics.occluded = wallpaperHost_ != nullptr && wallpaperHost_->IsOccluded();
+  metrics.occluded = occluded;
   metrics.powerState = arbiter_.CurrentPowerState();
   metrics.cpuPercent = QueryProcessCpuPercent();
   const ProcessMemoryUsage memoryUsage = QueryProcessMemoryUsage();
@@ -1342,7 +1346,6 @@ void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameD
   metrics_.PushSample(metrics);
   // 每秒基于实时负载做一次帧率档位决策，避免在每帧路径引入额外分支和抖动。
   const int effectiveFps = qualityGovernor_.Update(metrics);
-  const bool hasActiveVideo = wallpaperAttached_ && decodeOpened_.load() && decodeRunning_.load();
   const LongRunLoadDecision longRunDecision =
       UpdateLongRunLoadPolicy(metrics, hasActiveVideo, stablePauseForLoopSleep_, lastDecodePath_,
                               &longRunLoadState_);
