@@ -13,4 +13,20 @@ bool ShouldExecuteLongRunDecodeTrim(const bool trimRequested, const bool decodeR
   return !IsCpuFallbackDecodePath(decodePath);
 }
 
+bool ShouldRequestWorkingSetTrim(const bool hasActiveVideo, const DecodePath decodePath,
+                                 const std::size_t workingSetBytes,
+                                 const int longRunLoadLevel) noexcept {
+  if (!hasActiveVideo || !IsCpuFallbackDecodePath(decodePath)) {
+    return false;
+  }
+
+  std::size_t thresholdBytes = 64U * 1024U * 1024U;
+  if (longRunLoadLevel >= 2) {
+    thresholdBytes = 32U * 1024U * 1024U;
+  } else if (longRunLoadLevel >= 1) {
+    thresholdBytes = 40U * 1024U * 1024U;
+  }
+  return workingSetBytes >= thresholdBytes;
+}
+
 }  // namespace wallpaper

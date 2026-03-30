@@ -266,8 +266,21 @@ class DecodePipelineStub final : public IDecodePipeline {
       return false;
     }
 
+    UINT32 desktopHintWidth = 0;
+    UINT32 desktopHintHeight = 0;
+    QueryDesktopFrameHint(&desktopHintWidth, &desktopHintHeight);
+
+    DecodeOutputOptions cpuFallbackOutputOptions;
+    cpuFallbackOutputOptions.desktopWidth = desktopHintWidth;
+    cpuFallbackOutputOptions.desktopHeight = desktopHintHeight;
+    cpuFallbackOutputOptions.adaptiveQualityEnabled = openProfile_.adaptiveQualityEnabled;
+    cpuFallbackOutputOptions.cpuFallbackPath = true;
+    cpuFallbackOutputOptions.longRunLoadLevel = openProfile_.longRunLoadLevel;
+    const bool enableAdvancedVideoProcessing =
+        ShouldEnableAdvancedVideoProcessing(cpuFallbackOutputOptions, true);
+
     const auto createReader = [&](const bool enableVideoProcessing,
-                                  const bool tryD3DInterop,
+                                  const bool tryD3DInterop, const bool enableAdvancedProcessing,
                                   IMFSourceReader** const outReader) -> bool {
       if (outReader == nullptr) {
         return false;
@@ -276,7 +289,7 @@ class DecodePipelineStub final : public IDecodePipeline {
 
       bool useD3DInterop = false;
       IMFAttributes* readerAttributes = nullptr;
-      HRESULT hr = MFCreateAttributes(&readerAttributes, 5);
+      HRESULT hr = MFCreateAttributes(&readerAttributes, 6);
       if (SUCCEEDED(hr) && readerAttributes != nullptr) {
         // 低延迟模式可减少解码链路内部排队帧数，从而降低内存峰值。
         hr = readerAttributes->SetUINT32(MF_LOW_LATENCY, TRUE);
@@ -297,6 +310,14 @@ class DecodePipelineStub final : public IDecodePipeline {
         // 回退路径：在无法直接协商输出时再开启软件视频处理。
         hr = readerAttributes->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, TRUE);
       }
+#if defined(MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING)
+      if (SUCCEEDED(hr) && readerAttributes != nullptr && enableAdvancedProcessing) {
+        // advanced video processing 能更稳定地执行尺寸 hint（MF_MT_FRAME_SIZE）。
+        hr = readerAttributes->SetUINT32(MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, TRUE);
+      }
+#else
+      (void)enableAdvancedProcessing;
+#endif
       if (SUCCEEDED(hr) && readerAttributes != nullptr && tryD3DInterop) {
         ID3D11Device* sharedDevice = d3d11_interop::AcquireSharedDevice();
         if (sharedDevice != nullptr) {
@@ -335,7 +356,8 @@ class DecodePipelineStub final : public IDecodePipeline {
     };
 
     const auto configureReader = [&](IMFSourceReader* const reader, UINT32* const outWidth,
-                                     UINT32* const outHeight) -> bool {
+                                     UINT32* const outHeight,
+                                     bool* const outRetryWithVideoProcessing) -> bool {
       if (reader == nullptr || outWidth == nullptr || outHeight == nullptr) {
         return false;
       }
@@ -358,15 +380,12 @@ class DecodePipelineStub final : public IDecodePipeline {
           localHr = outType->SetGUID(MF_MT_SUBTYPE, subtype);
         }
         if (SUCCEEDED(localHr) && withDesktopHint) {
-          UINT32 hintWidth = 0;
-          UINT32 hintHeight = 0;
-          QueryDesktopFrameHint(&hintWidth, &hintHeight);
-          if (hintWidth > 0 && hintHeight > 0) {
+          if (desktopHintWidth > 0 && desktopHintHeight > 0) {
             const bool cpuFallbackPath =
                 !(mfD3DInteropEnabled_ && IsEqualGUID(subtype, MFVideoFormat_ARGB32));
             DecodeOutputOptions outputOptions;
-            outputOptions.desktopWidth = hintWidth;
-            outputOptions.desktopHeight = hintHeight;
+            outputOptions.desktopWidth = desktopHintWidth;
+            outputOptions.desktopHeight = desktopHintHeight;
             outputOptions.adaptiveQualityEnabled = openProfile_.adaptiveQualityEnabled;
             outputOptions.cpuFallbackPath = cpuFallbackPath;
             outputOptions.longRunLoadLevel = openProfile_.longRunLoadLevel;
@@ -423,22 +442,54 @@ class DecodePipelineStub final : public IDecodePipeline {
       }
       hr = MFGetAttributeSize(outType, MF_MT_FRAME_SIZE, outWidth, outHeight);
       outType->Release();
-      return SUCCEEDED(hr) && *outWidth > 0 && *outHeight > 0;
+      if (!SUCCEEDED(hr) || *outWidth == 0 || *outHeight == 0) {
+        return false;
+      }
+
+      if (outRetryWithVideoProcessing != nullptr) {
+        *outRetryWithVideoProcessing = false;
+        if (desktopHintWidth > 0 && desktopHintHeight > 0) {
+          const bool cpuFallbackPath =
+              !(mfD3DInteropEnabled_ && IsEqualGUID(selectedOutputSubtype_, MFVideoFormat_ARGB32));
+          DecodeOutputOptions outputOptions;
+          outputOptions.desktopWidth = desktopHintWidth;
+          outputOptions.desktopHeight = desktopHintHeight;
+          outputOptions.adaptiveQualityEnabled = openProfile_.adaptiveQualityEnabled;
+          outputOptions.cpuFallbackPath = cpuFallbackPath;
+          outputOptions.longRunLoadLevel = openProfile_.longRunLoadLevel;
+          *outRetryWithVideoProcessing = ShouldRetryDecodeOpenWithVideoProcessing(
+              outputOptions, *outWidth, *outHeight);
+        }
+      }
+      return true;
     };
 
     UINT32 width = 0;
     UINT32 height = 0;
     IMFSourceReader* reader = nullptr;
-    bool opened = createReader(false, openProfile_.preferHardwareTransforms, &reader) &&
-                  configureReader(reader, &width, &height);
+    bool retryWithVideoProcessing = false;
+    bool attemptedSoftwareFallback = false;
+    bool opened =
+        createReader(false, openProfile_.preferHardwareTransforms, false, &reader) &&
+        configureReader(reader, &width, &height, &retryWithVideoProcessing);
+    if (opened && retryWithVideoProcessing && !openProfile_.requireHardwareTransforms) {
+      if (reader != nullptr) {
+        reader->Release();
+        reader = nullptr;
+      }
+      attemptedSoftwareFallback = true;
+      opened = createReader(true, false, enableAdvancedVideoProcessing, &reader) &&
+               configureReader(reader, &width, &height, nullptr);
+    }
     if (!opened) {
       if (reader != nullptr) {
         reader->Release();
         reader = nullptr;
       }
-      if (!openProfile_.requireHardwareTransforms) {
+      if (!openProfile_.requireHardwareTransforms && !attemptedSoftwareFallback) {
         // 某些设备/编码器必须启用软件视频处理才能协商到 RGB32。
-        opened = createReader(true, false, &reader) && configureReader(reader, &width, &height);
+        opened = createReader(true, false, enableAdvancedVideoProcessing, &reader) &&
+                 configureReader(reader, &width, &height, nullptr);
       }
     }
     if (!opened || reader == nullptr) {

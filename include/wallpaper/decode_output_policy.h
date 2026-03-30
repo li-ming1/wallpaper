@@ -23,4 +23,14 @@ struct DecodeOutputOptions final {
 // - CPU 回退路径 + 自适应开启：常态限制到 720p，高压长期运行再降到 540p。
 [[nodiscard]] DecodeOutputHint SelectDecodeOutputHint(const DecodeOutputOptions& options) noexcept;
 
+// 当 CPU 回退路径在自适应开启时协商结果高于目标 hint，建议切到 video processing 重试一次。
+[[nodiscard]] bool ShouldRetryDecodeOpenWithVideoProcessing(
+    const DecodeOutputOptions& options, std::uint32_t negotiatedWidth,
+    std::uint32_t negotiatedHeight) noexcept;
+
+// 仅在 CPU 回退 + 自适应质量场景下开启 advanced video processing，
+// 用于提升输出尺寸 hint 命中率（MF_MT_FRAME_SIZE）。
+[[nodiscard]] bool ShouldEnableAdvancedVideoProcessing(const DecodeOutputOptions& options,
+                                                       bool softwareVideoProcessing) noexcept;
+
 }  // namespace wallpaper

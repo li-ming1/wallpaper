@@ -1355,10 +1355,9 @@ void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameD
                                      lastDecodePath_)) {
     decodePipeline_->TrimMemory();
   }
-  if (hasActiveVideo && IsCpuFallbackDecodePath(lastDecodePath_) &&
-      longRunLoadState_.level >= 1 &&
-      metrics.workingSetBytes >= (100U * 1024U * 1024U)) {
-    constexpr std::chrono::seconds kWorkingSetTrimInterval(15);
+  if (ShouldRequestWorkingSetTrim(hasActiveVideo, lastDecodePath_, metrics.workingSetBytes,
+                                  longRunLoadState_.level)) {
+    constexpr std::chrono::seconds kWorkingSetTrimInterval(8);
     if (lastWorkingSetTrimAt_ == RenderScheduler::Clock::time_point{} ||
         (now - lastWorkingSetTrimAt_) >= kWorkingSetTrimInterval) {
       TrimCurrentProcessWorkingSet();

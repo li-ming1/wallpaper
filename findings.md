@@ -482,3 +482,34 @@
     - phase75: `cpu_avg_percent=1.4988`
     - phase76: `cpu_avg_percent=1.2087`
   - 结论：在持续播放场景下仍观察到下降（短窗样本），且内存无异常抬升。
+
+## 2026-03-30 21:59:42 Phase 77 结论（CPU 回退输出协商重试）
+- 新增 `ShouldRetryDecodeOpenWithVideoProcessing(...)`：
+  - 条件：`adaptiveQuality=true` + `cpuFallbackPath=true` + 协商尺寸高于策略 hint。
+  - 行为：仅触发一次 software video processing 重开，避免重复重链路。
+- `decode_pipeline_stub` 落地：
+  - 第一次打开走原路径；
+  - 命中策略时重开一次 software video processing；
+  - 若重试后仍失败，按原逻辑进入最终回退。
+- 价值：减少“明知协商超标却继续常态运行”的无效路径，给后续降分辨率提供稳定钩子。
+
+## 2026-03-30 22:20:31 Phase 78 结论（Working-Set 精细回收）
+- 新增 `ShouldRequestWorkingSetTrim(...)` 策略：
+  - 仅在 `hasActiveVideo` + `CPU fallback decode path` 下允许 working-set 回收。
+  - long-run 分档阈值：`L0=64MB`、`L1=40MB`、`L2+=32MB`。
+- `App::MaybeSampleAndLogMetrics` 接入策略，并将回收间隔从 `15s` 收紧到 `8s`。
+- 受控基准（phase77 vs phase78，desktop 12s）：
+  - phase77: CPU avg `1.3472%`, WS `[46.62MB, 53.28MB]`
+  - phase78: CPU avg `1.3824%`, WS `[34.71MB, 47.45MB]`
+- 结论：working set 明显下降，CPU 平均值基本同量级（轻微波动）。
+
+## 2026-03-30 22:31:06 Phase 79 结论（Advanced Video Processing 协商增强）
+- 新增 `ShouldEnableAdvancedVideoProcessing(...)` 策略：
+  - 条件：software processing + adaptive + CPU fallback + 有效 desktop hint。
+- `decode_pipeline_stub` 在 software fallback 路径启用 `MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING`（若 SDK 可用），并把同轮 `desktop hint` 复用到所有协商决策，减少重复探测。
+- 受控基准（phase78 vs phase79，desktop 12s）：
+  - phase78: CPU avg `1.4874%`, CPU p95 `2.3036%`, WS delta `-11.07MB`
+  - phase79: CPU avg `1.4225%`, CPU p95 `2.1101%`, WS delta `-15.67MB`
+- 关键风险仍在：
+  - `build_tmp/phase79_app/metrics_20260330.csv` 中 `decode_output_pixels` 仍为 `2073600`（1080p），说明 CPU fallback 输出尺寸 hint 尚未真正生效。
+  - 下一轮应优先增加“协商尺寸链路诊断字段”并验证具体失败点（hint 写入、media type 选择、reader 输出回读）。

@@ -1706,3 +1706,66 @@
   - src/probe_cadence_policy.cpp
   - tests/probe_cadence_policy_tests.cpp
   - src/app.cpp
+
+### Phase 77: CPU 回退输出尺寸协商重试
+- **Status:** complete
+- **Completed:** 2026-03-30 21:59:42
+- Actions taken:
+  - 新增 `decode_output_policy` 测试，锁定“CPU fallback + adaptive 且协商超 hint 时应重试 software video processing”行为。
+  - 新增 `ShouldRetryDecodeOpenWithVideoProcessing(...)` 并接入 `decode_pipeline_stub`。
+  - 将 SourceReader 打开流程改为“首次协商 + 命中策略时一次性重开 + 最终兜底回退”，避免重复无效 reopen。
+- Verification:
+  - `./scripts/run_tests.ps1 -BuildDir build_tmp/phase77_green` -> pass (185/185)
+  - `./scripts/build_app.ps1 -BuildDir build_tmp/phase77_app` -> pass
+- Files modified:
+  - include/wallpaper/decode_output_policy.h
+  - src/decode_output_policy.cpp
+  - src/win/decode_pipeline_stub.cpp
+  - tests/decode_output_policy_tests.cpp
+
+### Phase 78: Working-Set 精细回收门控
+- **Status:** complete
+- **Completed:** 2026-03-30 22:20:31
+- Actions taken:
+  - 新增 `runtime_trim_policy` 测试，锁定 working-set 回收在活跃视频 CPU fallback 场景的阈值规则。
+  - 新增 `ShouldRequestWorkingSetTrim(...)`（L0=64MB/L1=40MB/L2+=32MB）。
+  - `App::MaybeSampleAndLogMetrics` 改为策略门控，并将 working-set 回收冷却缩短到 `8s`。
+- Verification:
+  - `./scripts/run_tests.ps1 -BuildDir build_tmp/phase78_green` -> pass (188/188)
+  - `./scripts/build_app.ps1 -BuildDir build_tmp/phase78_app` -> pass
+  - `./scripts/bench_perf.ps1 -ExePath build_tmp/phase77_app/wallpaper_app.exe -Scenario desktop -DurationSec 12 -WarmupSec 6 -SampleMs 500 -Tag phase78_ab_phase77`
+    - CPU avg `1.3472%`, WS min `46624768`, WS max `53280768`
+  - `./scripts/bench_perf.ps1 -ExePath build_tmp/phase78_app/wallpaper_app.exe -Scenario desktop -DurationSec 12 -WarmupSec 6 -SampleMs 500 -Tag phase78_ab_phase78`
+    - CPU avg `1.3824%`, WS min `34709504`, WS max `47448064`
+- Files modified:
+  - include/wallpaper/runtime_trim_policy.h
+  - src/runtime_trim_policy.cpp
+  - src/app.cpp
+  - tests/runtime_trim_policy_tests.cpp
+
+### Phase 79: Advanced Video Processing 协商增强
+- **Status:** complete
+- **Completed:** 2026-03-30 22:31:06
+- Actions taken:
+  - Red: 在 `tests/decode_output_policy_tests.cpp` 新增 advanced video processing 启用策略测试，确认缺失实现导致红灯。
+  - Green: 新增 `ShouldEnableAdvancedVideoProcessing(...)`。
+  - Green: `decode_pipeline_stub` software processing 路径接入 `MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING`（编译可用时）。
+  - Green: `QueryDesktopFrameHint` 在 Open 流程内改为单次读取，多处策略复用同一 hint，减少重复系统调用。
+- Verification:
+  - `./scripts/run_tests.ps1 -BuildDir build_tmp/phase79_red` -> expected fail（缺少新策略函数）
+  - `./scripts/run_tests.ps1 -BuildDir build_tmp/phase79_green` -> pass (190/190)
+  - `./scripts/build_app.ps1 -BuildDir build_tmp/phase79_app` -> pass
+  - `./scripts/bench_perf.ps1 -ExePath build_tmp/phase78_app/wallpaper_app.exe -Scenario desktop -DurationSec 12 -WarmupSec 6 -SampleMs 500 -Tag phase79_ab_phase78`
+    - CPU avg `1.4874%`, CPU p95 `2.3036%`, WS delta `-11071488`
+  - `./scripts/bench_perf.ps1 -ExePath build_tmp/phase79_app/wallpaper_app.exe -Scenario desktop -DurationSec 12 -WarmupSec 6 -SampleMs 500 -Tag phase79_ab_phase79`
+    - CPU avg `1.4225%`, CPU p95 `2.1101%`, WS delta `-15671296`
+- Notes:
+  - `build_tmp/phase79_app/metrics_20260330.csv` 的 `decode_output_pixels` 仍为 `2073600`，输出尺寸 hint 仍未真正落到 CPU fallback 结果。
+- Files modified:
+  - include/wallpaper/decode_output_policy.h
+  - src/decode_output_policy.cpp
+  - src/win/decode_pipeline_stub.cpp
+  - tests/decode_output_policy_tests.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md

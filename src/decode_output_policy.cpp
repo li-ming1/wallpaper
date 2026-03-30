@@ -45,4 +45,26 @@ DecodeOutputHint SelectDecodeOutputHint(const DecodeOutputOptions& options) noex
   return hint;
 }
 
+bool ShouldRetryDecodeOpenWithVideoProcessing(const DecodeOutputOptions& options,
+                                              const std::uint32_t negotiatedWidth,
+                                              const std::uint32_t negotiatedHeight) noexcept {
+  if (!options.adaptiveQualityEnabled || !options.cpuFallbackPath || negotiatedWidth == 0 ||
+      negotiatedHeight == 0) {
+    return false;
+  }
+  const DecodeOutputHint hint = SelectDecodeOutputHint(options);
+  if (hint.width == 0 || hint.height == 0) {
+    return false;
+  }
+  return negotiatedWidth > hint.width || negotiatedHeight > hint.height;
+}
+
+bool ShouldEnableAdvancedVideoProcessing(const DecodeOutputOptions& options,
+                                         const bool softwareVideoProcessing) noexcept {
+  if (!softwareVideoProcessing || !options.adaptiveQualityEnabled || !options.cpuFallbackPath) {
+    return false;
+  }
+  return options.desktopWidth > 0 && options.desktopHeight > 0;
+}
+
 }  // namespace wallpaper

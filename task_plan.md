@@ -4,7 +4,7 @@
 Implement a Windows 10/11 dynamic wallpaper app from an empty repo with strict performance-first architecture (WorkerW + MF + D3D11), plus tests for core logic.
 
 ## Current Phase
-Phase 61
+Phase 79
 
 ## Phases
 ### Phase 1: Requirements & Discovery
@@ -602,4 +602,35 @@ Phase 61
 - [x] Verification: 受控同配置对比（`pauseWhenNotDesktopContext=false`，同视频路径）
   - phase75: CPU avg `1.4988%`（`desktop_20260330_212136_phase76_ab_phase75_forceactive`）
   - phase76: CPU avg `1.2087%`（`desktop_20260330_212203_phase76_ab_phase76_forceactive_r2`）
+- **Status:** complete
+
+### Phase 77: CPU 回退输出尺寸协商与重试策略（Completed）
+- [x] Red: 新增 `decode_output_policy` 重试策略测试并验证失败
+- [x] Green: 新增 `ShouldRetryDecodeOpenWithVideoProcessing(...)`，仅在 CPU fallback + adaptive 且协商尺寸超出 hint 时触发重开
+- [x] Green: `decode_pipeline_stub` 接入一次性 software video processing 重开，避免每次都走重链路
+- [x] Verification: `scripts/run_tests.ps1 -BuildDir build_tmp/phase77_green`（185/185 PASS）
+- [x] Verification: `scripts/build_app.ps1 -BuildDir build_tmp/phase77_app`（PASS）
+- **Status:** complete
+
+### Phase 78: Working-Set 精细回收门控（Completed）
+- [x] Red: 新增 `runtime_trim_policy` working-set 回收阈值测试并验证失败
+- [x] Green: 新增 `ShouldRequestWorkingSetTrim(...)`（阈值：L0=64MB/L1=40MB/L2+=32MB）
+- [x] Green: `App::MaybeSampleAndLogMetrics` 改为策略门控 + 回收间隔 `15s -> 8s`
+- [x] Verification: `scripts/run_tests.ps1 -BuildDir build_tmp/phase78_green`（188/188 PASS）
+- [x] Verification: `scripts/build_app.ps1 -BuildDir build_tmp/phase78_app`（PASS）
+- [x] Verification: `phase77_app` vs `phase78_app`（desktop, 12s, warmup 6s）
+  - phase77: CPU avg `1.3472%`, WS min `46.62MB`, WS max `53.28MB`
+  - phase78: CPU avg `1.3824%`, WS min `34.71MB`, WS max `47.45MB`
+- **Status:** complete
+
+### Phase 79: Advanced Video Processing 协商增强（Completed）
+- [x] Red: 新增 `ShouldEnableAdvancedVideoProcessing(...)` 策略测试并验证失败
+- [x] Green: software video processing 回退路径接入 `MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING`（可用时）
+- [x] Green: 合并 `QueryDesktopFrameHint` 重复查询，复用同轮 hint 输入策略
+- [x] Verification: `scripts/run_tests.ps1 -BuildDir build_tmp/phase79_green`（190/190 PASS）
+- [x] Verification: `scripts/build_app.ps1 -BuildDir build_tmp/phase79_app`（PASS）
+- [x] Verification: `phase78_app` vs `phase79_app`（desktop, 12s, warmup 6s）
+  - phase78: CPU avg `1.4874%`, CPU p95 `2.3036%`, WS delta `-11.07MB`
+  - phase79: CPU avg `1.4225%`, CPU p95 `2.1101%`, WS delta `-15.67MB`
+- [ ] Remaining risk: 当前 `decode_output_pixels` 仍稳定在 `2073600`，说明 CPU fallback 链路尺寸 hint 仍未真正下探
 - **Status:** complete
