@@ -20,11 +20,11 @@ bool ShouldRequestWorkingSetTrim(const bool hasActiveVideo, const DecodePath dec
     return false;
   }
 
-  std::size_t thresholdBytes = 64U * 1024U * 1024U;
+  std::size_t thresholdBytes = 20U * 1024U * 1024U;
   if (longRunLoadLevel >= 2) {
-    thresholdBytes = 32U * 1024U * 1024U;
+    thresholdBytes = 16U * 1024U * 1024U;
   } else if (longRunLoadLevel >= 1) {
-    thresholdBytes = 40U * 1024U * 1024U;
+    thresholdBytes = 18U * 1024U * 1024U;
   }
   return workingSetBytes >= thresholdBytes;
 }

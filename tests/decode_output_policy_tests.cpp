@@ -172,3 +172,25 @@ TEST_CASE(DecodeOutputPolicy_DisablesAdvancedVideoProcessingWhenConditionsNotMet
   zeroSize.cpuFallbackPath = true;
   EXPECT_TRUE(!wallpaper::ShouldEnableAdvancedVideoProcessing(zeroSize, true));
 }
+
+TEST_CASE(DecodeOutputPolicy_PreservesD3DInteropOnAdaptiveCpuRetryWhenHardwarePreferred) {
+  wallpaper::DecodeOutputOptions options;
+  options.desktopWidth = 1920;
+  options.desktopHeight = 1080;
+  options.adaptiveQualityEnabled = true;
+  options.cpuFallbackPath = true;
+  options.longRunLoadLevel = 0;
+
+  EXPECT_TRUE(wallpaper::ShouldPreserveD3DInteropOnVideoProcessingRetry(options, true));
+}
+
+TEST_CASE(DecodeOutputPolicy_DoesNotForceD3DInteropWhenHardwareNotPreferred) {
+  wallpaper::DecodeOutputOptions options;
+  options.desktopWidth = 1920;
+  options.desktopHeight = 1080;
+  options.adaptiveQualityEnabled = true;
+  options.cpuFallbackPath = true;
+  options.longRunLoadLevel = 0;
+
+  EXPECT_TRUE(!wallpaper::ShouldPreserveD3DInteropOnVideoProcessingRetry(options, false));
+}

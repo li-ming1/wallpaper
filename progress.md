@@ -1769,3 +1769,71 @@
   - task_plan.md
   - findings.md
   - progress.md
+
+### Phase 80: CPU/内存硬指标攻坚（进行中）
+- **Status:** in_progress
+- **Started:** 2026-03-31 09:33
+- Actions taken:
+  - 复盘 `task_plan/findings` 并锁定上一阶段剩余风险：CPU fallback 输出尺寸 hint 未生效。
+  - 读取 `app.cpp`、`decode_pipeline_stub.cpp`、`loop_sleep_policy.cpp`、`runtime_trim_policy.cpp` 关键路径，定位调度与回收门控现状。
+  - 重新执行基准：
+    - `./scripts/bench_perf.ps1 -ExePath build_tmp/phase79_app/wallpaper_app.exe -Scenario desktop -DurationSec 12 -WarmupSec 6 -SampleMs 500 -Tag phase80_baseline`
+    - 输出：`CPU avg 1.5125%`、`CPU p95 2.8729%`、`WS max 47.49MB`
+  - 抽查 `build_tmp/phase79_app/metrics_20260331.csv`，确认运行主路径仍为 `mf + cpu_nv12_fallback + 1080p`（`decode_output_pixels=2073600`）。
+- Next:
+  - 进入方案提审并锁定默认实现路径。
+  - 按 TDD 先补失败测试，再做实现与回归。
+- Files modified:
+  - task_plan.md
+  - findings.md
+  - progress.md
+
+### Phase 80: 无损降载与互操作修正
+- **Status:** complete
+- **Completed:** 2026-03-31 10:02
+- Actions taken:
+  - Red: 增加 `decode_output_policy` 与 `loop_sleep_policy` 新策略测试并验证红灯。
+  - Green: 新增 `ShouldPreserveD3DInteropOnVideoProcessingRetry` 并接入 `decode_pipeline_stub`，避免 video-processing 重试时丢失 D3D interop 优先级。
+  - Green: 新增 `ShouldPreferEventDrivenDecodePumpWait` 并接入解码泵分支，notifier 可用时统一事件驱动等待。
+  - Green: D3D 初始化增加 `VIDEO_SUPPORT/BGRA_SUPPORT`，WARP 路径保留稳态回退。
+  - Green: `decode_pipeline_stub` 补 `MF_SOURCE_READER_DISABLE_DXVA=FALSE`（可用时）、RGB32 互操作路径识别与重试策略收敛。
+- Verification:
+  - `./scripts/run_tests.ps1 -BuildDir build_tmp/phase80_red` -> expected fail
+  - `./scripts/run_tests.ps1 -BuildDir build_tmp/phase80_green` -> pass (194/194)
+  - `./scripts/build_app.ps1 -BuildDir build_tmp/phase80_app` -> pass
+  - `./scripts/bench_perf.ps1 -ExePath build_tmp/phase80_app/wallpaper_app.exe -Scenario desktop -DurationSec 12 -WarmupSec 6 -SampleMs 500 -Tag phase80_ab_phase80_cfg_r1`
+    - CPU avg `1.0409%`, CPU p95 `2.2542%`, WS max `46.77MB`
+  - `./scripts/bench_perf.ps1 -ExePath build_tmp/phase80_app/wallpaper_app.exe -Scenario desktop -DurationSec 12 -WarmupSec 6 -SampleMs 500 -Tag phase80_ab_phase80_cfg_r2`
+    - CPU avg `0.6801%`, CPU p95 `1.5378%`, WS max `44.67MB`
+- Files modified:
+  - tests/decode_output_policy_tests.cpp
+  - tests/loop_sleep_policy_tests.cpp
+  - include/wallpaper/decode_output_policy.h
+  - src/decode_output_policy.cpp
+  - include/wallpaper/loop_sleep_policy.h
+  - src/loop_sleep_policy.cpp
+  - src/app.cpp
+  - src/win/decode_pipeline_stub.cpp
+  - src/win/wallpaper_host_win.cpp
+
+### Phase 81: Working-Set 激进回收门控
+- **Status:** complete
+- **Completed:** 2026-03-31 10:13
+- Actions taken:
+  - Red: 下探 `runtime_trim_policy` 单测阈值到目标导向档位（20/18/16MB）。
+  - Green: 回收阈值下探并将 `App` 的 working-set trim 冷却从 `8s` 收紧到 `2s`。
+  - Green: 补 `ID3D10Multithread::SetMultithreadProtected(TRUE)` 到 D3D 设备初始化路径。
+- Verification:
+  - `./scripts/run_tests.ps1 -BuildDir build_tmp/phase81_red` -> expected fail（阈值断言）
+  - `./scripts/run_tests.ps1 -BuildDir build_tmp/phase81_green` -> pass (194/194)
+  - `./scripts/build_app.ps1 -BuildDir build_tmp/phase81_app` -> pass
+  - `./scripts/bench_perf.ps1 -ExePath build_tmp/phase81_app/wallpaper_app.exe -Scenario desktop -DurationSec 12 -WarmupSec 6 -SampleMs 500 -Tag phase81_ab_phase81_r2`
+    - CPU avg `1.2180%`, CPU p95 `2.7628%`, WS min `19.81MB`, WS max `41.39MB`
+  - `./scripts/build_app.ps1 -BuildDir build_tmp/phase82_app` -> pass
+  - `./scripts/bench_perf.ps1 -ExePath build_tmp/phase82_app/wallpaper_app.exe -Scenario desktop -DurationSec 12 -WarmupSec 6 -SampleMs 500 -Tag phase82_ab_phase82_r1`
+    - CPU avg `0.9490%`, CPU p95 `1.6957%`, WS max `43.03MB`
+- Files modified:
+  - tests/runtime_trim_policy_tests.cpp
+  - src/runtime_trim_policy.cpp
+  - src/app.cpp
+  - src/win/wallpaper_host_win.cpp

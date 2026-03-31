@@ -67,4 +67,15 @@ bool ShouldEnableAdvancedVideoProcessing(const DecodeOutputOptions& options,
   return options.desktopWidth > 0 && options.desktopHeight > 0;
 }
 
+bool ShouldPreserveD3DInteropOnVideoProcessingRetry(
+    const DecodeOutputOptions& options, const bool preferHardwareTransforms) noexcept {
+  if (!preferHardwareTransforms) {
+    return false;
+  }
+  if (!options.adaptiveQualityEnabled || !options.cpuFallbackPath) {
+    return false;
+  }
+  return options.desktopWidth > 0 && options.desktopHeight > 0;
+}
+
 }  // namespace wallpaper

@@ -44,17 +44,17 @@ TEST_CASE(RuntimeTrimPolicy_WorkingSetTrimDisabledForGpuDecodePath) {
 
 TEST_CASE(RuntimeTrimPolicy_WorkingSetTrimThresholdUsesLongRunLevel) {
   EXPECT_TRUE(!wallpaper::ShouldRequestWorkingSetTrim(
-      true, wallpaper::DecodePath::kCpuNv12Fallback, 63U * 1024U * 1024U, 0));
+      true, wallpaper::DecodePath::kCpuNv12Fallback, 19U * 1024U * 1024U, 0));
   EXPECT_TRUE(wallpaper::ShouldRequestWorkingSetTrim(
-      true, wallpaper::DecodePath::kCpuNv12Fallback, 64U * 1024U * 1024U, 0));
+      true, wallpaper::DecodePath::kCpuNv12Fallback, 20U * 1024U * 1024U, 0));
 
   EXPECT_TRUE(!wallpaper::ShouldRequestWorkingSetTrim(
-      true, wallpaper::DecodePath::kCpuNv12Fallback, 39U * 1024U * 1024U, 1));
+      true, wallpaper::DecodePath::kCpuNv12Fallback, 17U * 1024U * 1024U, 1));
   EXPECT_TRUE(wallpaper::ShouldRequestWorkingSetTrim(
-      true, wallpaper::DecodePath::kCpuNv12Fallback, 40U * 1024U * 1024U, 1));
+      true, wallpaper::DecodePath::kCpuNv12Fallback, 18U * 1024U * 1024U, 1));
 
   EXPECT_TRUE(!wallpaper::ShouldRequestWorkingSetTrim(
-      true, wallpaper::DecodePath::kCpuNv12Fallback, 31U * 1024U * 1024U, 2));
+      true, wallpaper::DecodePath::kCpuNv12Fallback, 15U * 1024U * 1024U, 2));
   EXPECT_TRUE(wallpaper::ShouldRequestWorkingSetTrim(
-      true, wallpaper::DecodePath::kCpuNv12Fallback, 32U * 1024U * 1024U, 2));
+      true, wallpaper::DecodePath::kCpuNv12Fallback, 16U * 1024U * 1024U, 2));
 }

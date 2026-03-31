@@ -31,6 +31,11 @@ namespace wallpaper {
 // 唤醒标记已置位时跳过重复通知，避免多次无效 condition_variable 唤醒。
 [[nodiscard]] bool ShouldNotifyDecodePumpWake(bool wakeAlreadyRequested) noexcept;
 
+// notifier 可用时优先事件驱动等待，减少“有帧也周期轮询”的无效唤醒。
+[[nodiscard]] bool ShouldPreferEventDrivenDecodePumpWait(bool frameReadyNotifierAvailable,
+                                                         bool decodeReady,
+                                                         bool frameAcquired) noexcept;
+
 // 高精度计时器仅在“桌面动态 + 60fps + 低压力”场景启用，避免长期系统功耗抬升。
 [[nodiscard]] bool ShouldUseHighResolutionTimer(bool hasActiveVideo, bool stablePaused,
                                                 int appliedFpsCap, int longRunLoadLevel,

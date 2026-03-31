@@ -107,6 +107,16 @@ TEST_CASE(LoopSleepPolicy_DecodePumpWakeNotificationUsesDedupe) {
   EXPECT_TRUE(!wallpaper::ShouldNotifyDecodePumpWake(true));
 }
 
+TEST_CASE(LoopSleepPolicy_DecodePumpPrefersEventDrivenWaitWhenNotifierAvailable) {
+  EXPECT_TRUE(wallpaper::ShouldPreferEventDrivenDecodePumpWait(true, true, true));
+  EXPECT_TRUE(wallpaper::ShouldPreferEventDrivenDecodePumpWait(true, true, false));
+}
+
+TEST_CASE(LoopSleepPolicy_DecodePumpDoesNotPreferEventDrivenWaitWithoutNotifierOrDecode) {
+  EXPECT_TRUE(!wallpaper::ShouldPreferEventDrivenDecodePumpWait(false, true, true));
+  EXPECT_TRUE(!wallpaper::ShouldPreferEventDrivenDecodePumpWait(true, false, false));
+}
+
 TEST_CASE(DecodeTokenGatePolicy_SkipsWhenNoDecodedSequence) {
   EXPECT_TRUE(!wallpaper::ShouldAttemptDecodedTokenConsume(false, 0, 0));
   EXPECT_TRUE(!wallpaper::ShouldAttemptDecodedTokenConsume(true, 11, 0));

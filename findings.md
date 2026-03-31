@@ -513,3 +513,35 @@
 - 关键风险仍在：
   - `build_tmp/phase79_app/metrics_20260330.csv` 中 `decode_output_pixels` 仍为 `2073600`（1080p），说明 CPU fallback 输出尺寸 hint 尚未真正生效。
   - 下一轮应优先增加“协商尺寸链路诊断字段”并验证具体失败点（hint 写入、media type 选择、reader 输出回读）。
+
+## 2026-03-31 09:40:11 Phase 80 发现（硬指标复测与瓶颈定位）
+- 复测基线（`build_tmp/phase79_app/wallpaper_app.exe`，desktop，12s，warmup 6s）：
+  - `cpu_avg_percent = 1.5125`
+  - `cpu_p95_percent = 2.8729`
+  - `working_set_bytes_max = 47.49MB`
+  - `private_bytes_max = 101.51MB`
+- 最新运行日志（`build_tmp/phase79_app/metrics_20260331.csv`）持续显示：
+  - `decode_mode = mf`
+  - `decode_path = cpu_nv12_fallback`
+  - `decode_output_pixels = 2073600`（1920x1080）
+  - `decode_hot_sleep_ms = 64`（已在长时负载档）
+- 结论：
+  - 当前主路径并未进入 DXVA 零拷贝，仍是 CPU NV12 回退链路。
+  - 输出像素仍为 1080p，说明既有 hint/重试策略没有把 CPU 回退链路真正压到 720p/540p。
+  - 在该路径下，CPU 与 working set 很难自然落到 `1.5%/20MB` 以下，需要策略级强制降载与更激进回收门控。
+
+## 2026-03-31 10:15:39 无损优化迭代结论（Phase 80/81）
+- 变更摘要（不降分辨率、不降目标帧率）：
+  - 解码重试策略：`video processing retry` 优先保留 D3D interop，不再直接强制 software-only。
+  - 解码线程等待策略：notifier 可用时统一走事件驱动等待，减少“有帧场景的周期轮询”。
+  - D3D 初始化：新增 `D3D11_CREATE_DEVICE_VIDEO_SUPPORT | D3D11_CREATE_DEVICE_BGRA_SUPPORT`，并开启 `ID3D10Multithread::SetMultithreadProtected(TRUE)`。
+  - 内存回收策略：working-set trim 阈值下探到 `20/18/16MB`，回收冷却 `8s -> 2s`。
+- 受控基准（desktop, 12s, warmup 6s, 同视频 config）：
+  - phase79 baseline：`CPU avg 1.5125%`, `CPU p95 2.8729%`, `WS max 47.49MB`
+  - phase80 r2：`CPU avg 0.6801%`, `CPU p95 1.5378%`, `WS max 44.67MB`
+  - phase82 r1：`CPU avg 0.9490%`, `CPU p95 1.6957%`, `WS max 43.03MB`
+  - phase81（激进 trim）：`CPU avg 1.2180%`, `CPU p95 2.7628%`, `WS min 19.81MB`, `WS max 41.39MB`
+- 关键事实：
+  - 运行链路仍然稳定在 `decode_path=cpu_nv12_fallback`。
+  - `decode_output_pixels` 仍是 `2073600`（1080p），CPU 回退链路像素规模没有真正下降。
+  - 无损路线已显著压低平均 CPU，但内存峰值仍远高于 20MB。

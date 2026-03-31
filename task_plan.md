@@ -634,3 +634,38 @@ Phase 79
   - phase79: CPU avg `1.4225%`, CPU p95 `2.1101%`, WS delta `-15.67MB`
 - [ ] Remaining risk: 当前 `decode_output_pixels` 仍稳定在 `2073600`，说明 CPU fallback 链路尺寸 hint 仍未真正下探
 - **Status:** complete
+
+### Phase 80: CPU<1.5 / 内存<20MB 卡点攻坚（In Progress）
+- [x] Discovery: 复测 `phase79_app` desktop（12s, warmup 6s）确认未达标
+- [x] Discovery: 指标锁定 `decode_path=cpu_nv12_fallback` 且 `decode_output_pixels=2073600`（1080p）
+- [x] Discovery: 关键样本 `CPU avg=1.5125%`, `CPU p95=2.8729%`, `WS max=47.49MB`
+- [ ] Brainstorming: 方案提审（两到三种路径 + 推荐路径）
+- [ ] TDD Red: 为策略新增失败测试（CPU fallback 强降档/trim 门控）
+- [ ] Green: 实施选定优化方案并接入主循环/解码策略
+- [ ] Verification: `run_tests` + `build_app` + `bench_perf` 回归对比
+- **Status:** in_progress
+
+### Phase 80: 无损降载与互操作修正（Completed）
+- [x] Red: 新增策略测试（`ShouldPreserveD3DInteropOnVideoProcessingRetry`、`ShouldPreferEventDrivenDecodePumpWait`）
+- [x] Green: 解码重试路径保留 D3D 互操作优先，避免一次重试直接退化纯 CPU 路径
+- [x] Green: decode pump 在 notifier 可用时统一事件驱动等待，减少有帧轮询唤醒
+- [x] Green: D3D 设备创建升级（`VIDEO_SUPPORT|BGRA_SUPPORT` + WARP 回退）并补 `ID3D10Multithread` 保护
+- [x] Verification: `scripts/run_tests.ps1 -BuildDir build_tmp/phase80_green`（194/194 PASS）
+- [x] Verification: `scripts/build_app.ps1 -BuildDir build_tmp/phase80_app`（PASS）
+- [x] Verification: `phase79_app` vs `phase80_app`（desktop, 12s, warmup 6s, 同 config）
+  - phase79 baseline: CPU avg `1.5125%`, CPU p95 `2.8729%`, WS max `47.49MB`
+  - phase80 r1: CPU avg `1.0409%`, CPU p95 `2.2542%`, WS max `44.61MB`
+  - phase80 r2: CPU avg `0.6801%`, CPU p95 `1.5378%`, WS max `44.67MB`
+- [ ] Remaining risk: `decode_path` 仍为 `cpu_nv12_fallback`，`decode_output_pixels` 仍为 `2073600`
+- **Status:** complete
+
+### Phase 81: Working-Set 激进回收门控（Completed）
+- [x] Red: 调整 `runtime_trim_policy` 阈值测试到目标导向档位（L0=20MB/L1=18MB/L2+=16MB）
+- [x] Green: 接入更激进 `ShouldRequestWorkingSetTrim` 阈值
+- [x] Green: 回收冷却窗口 `8s -> 2s`
+- [x] Verification: `scripts/run_tests.ps1 -BuildDir build_tmp/phase81_green`（194/194 PASS）
+- [x] Verification: `scripts/build_app.ps1 -BuildDir build_tmp/phase81_app`（PASS）
+- [x] Verification: `phase81_app`（desktop, 12s, warmup 6s）
+  - CPU avg `1.2180%`, CPU p95 `2.7628%`, WS min `19.81MB`, WS max `41.39MB`
+- [ ] Remaining risk: 低谷可触达 20MB 附近，但峰值仍远高于目标
+- **Status:** complete

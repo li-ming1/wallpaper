@@ -75,6 +75,13 @@ bool ShouldNotifyDecodePumpWake(const bool wakeAlreadyRequested) noexcept {
   return !wakeAlreadyRequested;
 }
 
+bool ShouldPreferEventDrivenDecodePumpWait(const bool frameReadyNotifierAvailable,
+                                           const bool decodeReady,
+                                           const bool frameAcquired) noexcept {
+  (void)frameAcquired;
+  return frameReadyNotifierAvailable && decodeReady;
+}
+
 bool ShouldUseHighResolutionTimer(const bool hasActiveVideo, const bool stablePaused,
                                   const int appliedFpsCap, const int longRunLoadLevel,
                                   const DecodePath decodePath,

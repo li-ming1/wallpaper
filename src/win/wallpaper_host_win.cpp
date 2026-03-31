@@ -654,7 +654,7 @@ class WallpaperHostWin final : public IWallpaperHost {
 
   bool InitializeD3D() {
     // 设备同时用于渲染与解码互操作，需保持线程安全能力。
-    UINT createFlags = 0;
+    UINT createFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_VIDEO_SUPPORT;
 
     D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_0;
     const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0,
@@ -664,11 +664,20 @@ class WallpaperHostWin final : public IWallpaperHost {
     HRESULT hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createFlags, levels,
                                    levelCount, D3D11_SDK_VERSION, &device_, &featureLevel, &context_);
     if (FAILED(hr)) {
-      hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, createFlags, levels,
-                             levelCount, D3D11_SDK_VERSION, &device_, &featureLevel, &context_);
+      const UINT warpFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
+      hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, warpFlags, levels, levelCount,
+                             D3D11_SDK_VERSION, &device_, &featureLevel, &context_);
       if (FAILED(hr)) {
         return false;
       }
+    }
+
+    ID3D10Multithread* multithread = nullptr;
+    if (SUCCEEDED(device_->QueryInterface(__uuidof(ID3D10Multithread),
+                                          reinterpret_cast<void**>(&multithread))) &&
+        multithread != nullptr) {
+      multithread->SetMultithreadProtected(TRUE);
+      SafeRelease(&multithread);
     }
 
     // 解码与渲染共享同一 D3D11 设备，供 MF SourceReader 走 D3D 互操作零拷贝路径。

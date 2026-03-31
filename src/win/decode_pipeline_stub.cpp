@@ -289,7 +289,7 @@ class DecodePipelineStub final : public IDecodePipeline {
 
       bool useD3DInterop = false;
       IMFAttributes* readerAttributes = nullptr;
-      HRESULT hr = MFCreateAttributes(&readerAttributes, 6);
+      HRESULT hr = MFCreateAttributes(&readerAttributes, 8);
       if (SUCCEEDED(hr) && readerAttributes != nullptr) {
         // 低延迟模式可减少解码链路内部排队帧数，从而降低内存峰值。
         hr = readerAttributes->SetUINT32(MF_LOW_LATENCY, TRUE);
@@ -301,6 +301,12 @@ class DecodePipelineStub final : public IDecodePipeline {
         // 优先启用硬件变换路径，降低色彩转换的 CPU 占用。
         hr = readerAttributes->SetUINT32(MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, TRUE);
       }
+#if defined(MF_SOURCE_READER_DISABLE_DXVA)
+      if (SUCCEEDED(hr) && readerAttributes != nullptr && tryD3DInterop) {
+        // 显式声明不禁用 DXVA，避免某些驱动配置下退回系统内存路径。
+        hr = readerAttributes->SetUINT32(MF_SOURCE_READER_DISABLE_DXVA, FALSE);
+      }
+#endif
 #if defined(MF_READWRITE_USE_ONLY_HARDWARE_TRANSFORMS)
       if (SUCCEEDED(hr) && readerAttributes != nullptr && openProfile_.requireHardwareTransforms) {
         hr = readerAttributes->SetUINT32(MF_READWRITE_USE_ONLY_HARDWARE_TRANSFORMS, TRUE);
@@ -381,8 +387,11 @@ class DecodePipelineStub final : public IDecodePipeline {
         }
         if (SUCCEEDED(localHr) && withDesktopHint) {
           if (desktopHintWidth > 0 && desktopHintHeight > 0) {
+            const bool gpuInteropSubtype =
+                IsEqualGUID(subtype, MFVideoFormat_ARGB32) ||
+                IsEqualGUID(subtype, MFVideoFormat_RGB32);
             const bool cpuFallbackPath =
-                !(mfD3DInteropEnabled_ && IsEqualGUID(subtype, MFVideoFormat_ARGB32));
+                !(mfD3DInteropEnabled_ && gpuInteropSubtype);
             DecodeOutputOptions outputOptions;
             outputOptions.desktopWidth = desktopHintWidth;
             outputOptions.desktopHeight = desktopHintHeight;
@@ -449,8 +458,11 @@ class DecodePipelineStub final : public IDecodePipeline {
       if (outRetryWithVideoProcessing != nullptr) {
         *outRetryWithVideoProcessing = false;
         if (desktopHintWidth > 0 && desktopHintHeight > 0) {
+          const bool gpuInteropSubtype =
+              IsEqualGUID(selectedOutputSubtype_, MFVideoFormat_ARGB32) ||
+              IsEqualGUID(selectedOutputSubtype_, MFVideoFormat_RGB32);
           const bool cpuFallbackPath =
-              !(mfD3DInteropEnabled_ && IsEqualGUID(selectedOutputSubtype_, MFVideoFormat_ARGB32));
+              !(mfD3DInteropEnabled_ && gpuInteropSubtype);
           DecodeOutputOptions outputOptions;
           outputOptions.desktopWidth = desktopHintWidth;
           outputOptions.desktopHeight = desktopHintHeight;
@@ -478,7 +490,9 @@ class DecodePipelineStub final : public IDecodePipeline {
         reader = nullptr;
       }
       attemptedSoftwareFallback = true;
-      opened = createReader(true, false, enableAdvancedVideoProcessing, &reader) &&
+      const bool preserveD3DInterop = ShouldPreserveD3DInteropOnVideoProcessingRetry(
+          cpuFallbackOutputOptions, openProfile_.preferHardwareTransforms);
+      opened = createReader(true, preserveD3DInterop, enableAdvancedVideoProcessing, &reader) &&
                configureReader(reader, &width, &height, nullptr);
     }
     if (!opened) {
@@ -488,8 +502,18 @@ class DecodePipelineStub final : public IDecodePipeline {
       }
       if (!openProfile_.requireHardwareTransforms && !attemptedSoftwareFallback) {
         // 某些设备/编码器必须启用软件视频处理才能协商到 RGB32。
-        opened = createReader(true, false, enableAdvancedVideoProcessing, &reader) &&
+        opened = createReader(true, openProfile_.preferHardwareTransforms,
+                              enableAdvancedVideoProcessing, &reader) &&
                  configureReader(reader, &width, &height, nullptr);
+        if (!opened && openProfile_.preferHardwareTransforms) {
+          if (reader != nullptr) {
+            reader->Release();
+            reader = nullptr;
+          }
+          // 最后再退回纯软件路径，避免过早放弃 D3D 互操作。
+          opened = createReader(true, false, enableAdvancedVideoProcessing, &reader) &&
+                   configureReader(reader, &width, &height, nullptr);
+        }
       }
     }
     if (!opened || reader == nullptr) {
@@ -507,7 +531,9 @@ class DecodePipelineStub final : public IDecodePipeline {
     frameHeight_ = height;
     frameStride_ = IsEqualGUID(selectedOutputSubtype_, MFVideoFormat_NV12) ? width : width * 4;
     mfGpuZeroCopyActive_ =
-        mfD3DInteropEnabled_ && IsEqualGUID(selectedOutputSubtype_, MFVideoFormat_ARGB32);
+        mfD3DInteropEnabled_ &&
+        (IsEqualGUID(selectedOutputSubtype_, MFVideoFormat_ARGB32) ||
+         IsEqualGUID(selectedOutputSubtype_, MFVideoFormat_RGB32));
     mfBaseOffset100ns_ = 0;
     mfLastRawTimestamp100ns_ = -1;
     mfLastOutputTimestamp100ns_ = -1;

@@ -33,4 +33,9 @@ struct DecodeOutputOptions final {
 [[nodiscard]] bool ShouldEnableAdvancedVideoProcessing(const DecodeOutputOptions& options,
                                                        bool softwareVideoProcessing) noexcept;
 
+// 自适应 CPU 回退链路触发 software retry 时，优先保留 D3D 互操作尝试，
+// 避免因为一次重试直接退化到纯系统内存路径。
+[[nodiscard]] bool ShouldPreserveD3DInteropOnVideoProcessingRetry(
+    const DecodeOutputOptions& options, bool preferHardwareTransforms) noexcept;
+
 }  // namespace wallpaper

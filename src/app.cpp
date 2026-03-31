@@ -797,7 +797,10 @@ void App::StartDecodePump() {
       if (!decodeReady) {
         decodeIdleSleepMs = ComputeDecodePumpSleepMs(false, false, decodeIdleSleepMs,
                                                      decodeFrameReadyNotifierAvailable_);
-        sleepInterruptible(decodeIdleSleepMs, false);
+        sleepInterruptible(
+            decodeIdleSleepMs,
+            ShouldPreferEventDrivenDecodePumpWait(decodeFrameReadyNotifierAvailable_, decodeReady,
+                                                  false));
         continue;
       }
       if (decodeIdleSleepMs > 2) {
@@ -816,11 +819,17 @@ void App::StartDecodePump() {
         if (hotSleepMs > decodeIdleSleepMs) {
           decodeIdleSleepMs = hotSleepMs;
         }
-        sleepInterruptible(decodeIdleSleepMs, false);
+        sleepInterruptible(
+            decodeIdleSleepMs,
+            ShouldPreferEventDrivenDecodePumpWait(decodeFrameReadyNotifierAvailable_, decodeReady,
+                                                  true));
       } else {
         decodeIdleSleepMs = ComputeDecodePumpSleepMs(true, false, decodeIdleSleepMs,
                                                      decodeFrameReadyNotifierAvailable_);
-        sleepInterruptible(decodeIdleSleepMs, decodeFrameReadyNotifierAvailable_);
+        sleepInterruptible(
+            decodeIdleSleepMs,
+            ShouldPreferEventDrivenDecodePumpWait(decodeFrameReadyNotifierAvailable_, decodeReady,
+                                                  false));
       }
     }
   });
@@ -1357,7 +1366,7 @@ void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameD
   }
   if (ShouldRequestWorkingSetTrim(hasActiveVideo, lastDecodePath_, metrics.workingSetBytes,
                                   longRunLoadState_.level)) {
-    constexpr std::chrono::seconds kWorkingSetTrimInterval(8);
+    constexpr std::chrono::seconds kWorkingSetTrimInterval(2);
     if (lastWorkingSetTrimAt_ == RenderScheduler::Clock::time_point{} ||
         (now - lastWorkingSetTrimAt_) >= kWorkingSetTrimInterval) {
       TrimCurrentProcessWorkingSet();
