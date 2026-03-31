@@ -1970,3 +1970,20 @@
   - `scripts/run_tests.ps1 -BuildDir build_tmp/test_speed_boost_green2` -> 204/204 PASS
   - `scripts/build_app.ps1 -BuildDir build_tmp/app_speed_boost` -> PASS
   - `scripts/bench_perf.ps1` -> cpu_avg 0.7534%, cpu_p95 1.7334%, decode_hot_sleep_ms=29
+
+### Phase 93: Playback Speed Boost to 25ms Hot-Sleep
+- **Status:** complete
+- Actions taken:
+  - Tightened realtime clamp policy further (frame-interval headroom 8ms).
+  - Updated clamp tests for 30/24/60fps targets and validated full suite.
+  - Built `app_speed_boost2` and measured desktop runtime with active video.
+- Files created/modified:
+  - src/loop_sleep_policy.cpp
+  - tests/loop_sleep_policy_tests.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md
+- Verification summary:
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/test_speed_boost2_green_final` -> 204/204 PASS
+  - `scripts/build_app.ps1 -BuildDir build_tmp/app_speed_boost2` -> PASS
+  - `scripts/bench_perf.ps1` -> cpu_avg 0.7035%, cpu_p95 1.3516%, decode_hot_sleep_ms=25

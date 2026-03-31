@@ -596,3 +596,6 @@
 - 2026-03-31 追加速度迭代：将 realtime hot-sleep 裁剪裕量从 2ms 提高到 4ms，30fps 素材稳定上限从 31ms 下调到 29ms（24fps 从 39ms 下调到 37ms）。
 - 验证：`app_speed_boost` 样本中 `decode_hot_sleep_ms` 长段稳定在 `29`，`decode_mode=mf` 保持稳定，未再出现 `fallback_ticker`。
 - 性能观测：`cpu_avg` 下降到 `0.7534`，`cpu_p95` 有波动（`1.7334`）但仍在可控范围。
+- 2026-03-31 继续提速：realtime clamp 裕量提高到 8ms，30fps 素材运行态 `decode_hot_sleep_ms` 从 29 进一步降到 25。
+- 验证结果（`app_speed_boost2`）：`cpu_avg=0.7035`、`cpu_p95=1.3516`，`decode_mode=mf` 且无 `fallback_ticker` 回归。
+- 速度结论：在当前架构下已把 decode cadence 推到更激进档位，体感应明显快于前两版。

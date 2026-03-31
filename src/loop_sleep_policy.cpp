@@ -69,8 +69,8 @@ int ClampDecodePumpHotSleepForRealtime(const int requestedHotSleepMs, const int 
                                        const int sourceFps) noexcept {
   const int effectiveSourceFps = std::clamp(sourceFps > 0 ? sourceFps : renderFpsCap, 1, 240);
   const int frameIntervalMs = std::max(1, 1000 / effectiveSourceFps);
-  // 预留 4ms 安全余量，进一步降低“边界撞帧”导致的慢放风险。
-  const int realtimeSafeMaxSleepMs = std::max(6, frameIntervalMs - 4);
+  // 预留 8ms 安全余量，进一步提升解码节拍，优先保证体感速度接近真实 1x。
+  const int realtimeSafeMaxSleepMs = std::max(6, frameIntervalMs - 8);
   return std::clamp(requestedHotSleepMs, 6, realtimeSafeMaxSleepMs);
 }
 

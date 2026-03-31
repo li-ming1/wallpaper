@@ -741,3 +741,14 @@ Phase 79
   - speed_boost: `cpu_avg=0.7534`, `cpu_p95=1.7334`, `decode_hot_sleep_ms=29`
   - `decode_mode=mf`, `decode_path=cpu_nv12_fallback`，未出现 fallback_ticker 回归
 - **Status:** complete
+
+### Phase 93: 播放速度再提速（25ms 档）（Completed）
+- [x] Red: 收紧 clamp 目标（30fps: `29ms -> 25ms`，24fps: `37ms -> 33ms`，60fps: `8ms`）并验证失败
+- [x] Green: `ClampDecodePumpHotSleepForRealtime` 裕量 `4ms -> 8ms`，进一步压低 decode hot-sleep 上限
+- [x] Verification: `scripts/run_tests.ps1 -BuildDir build_tmp/test_speed_boost2_green_final`（204/204 PASS）
+- [x] Verification: `scripts/build_app.ps1 -BuildDir build_tmp/app_speed_boost2`（PASS）
+- [x] Verification: `bench_perf`（desktop 12s/warmup 6s，pauseWhenNotDesktopContext=false）
+  - speed_boost: `cpu_avg=0.7534`, `cpu_p95=1.7334`, `decode_hot_sleep_ms=29`
+  - speed_boost2: `cpu_avg=0.7035`, `cpu_p95=1.3516`, `decode_hot_sleep_ms=25`
+  - `decode_mode=mf`, `decode_path=cpu_nv12_fallback`，未出现 fallback_ticker 回归
+- **Status:** complete

@@ -68,9 +68,9 @@ TEST_CASE(LoopSleepPolicy_DecodePumpHotSleepUsesSourceFpsForLowFpsVideo) {
 }
 
 TEST_CASE(LoopSleepPolicy_ClampDecodePumpHotSleepForRealtimeProtectsPlaybackSpeed) {
-  EXPECT_EQ(wallpaper::ClampDecodePumpHotSleepForRealtime(42, 30, 30), 29);
-  EXPECT_EQ(wallpaper::ClampDecodePumpHotSleepForRealtime(50, 30, 24), 37);
-  EXPECT_EQ(wallpaper::ClampDecodePumpHotSleepForRealtime(24, 60, 60), 12);
+  EXPECT_EQ(wallpaper::ClampDecodePumpHotSleepForRealtime(42, 30, 30), 25);
+  EXPECT_EQ(wallpaper::ClampDecodePumpHotSleepForRealtime(50, 30, 24), 33);
+  EXPECT_EQ(wallpaper::ClampDecodePumpHotSleepForRealtime(24, 60, 60), 8);
 }
 
 TEST_CASE(LoopSleepPolicy_ClampDecodePumpHotSleepForRealtimePreservesSmallerSleep) {
