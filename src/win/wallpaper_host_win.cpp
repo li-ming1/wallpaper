@@ -5,6 +5,8 @@
 #include "wallpaper/desktop_attach_policy.h"
 #include "wallpaper/frame_latency_policy.h"
 #include "wallpaper/monitor_layout_policy.h"
+#include "wallpaper/upload_copy_policy.h"
+#include "wallpaper/upload_scale_policy.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -76,6 +78,110 @@ void CopyLinearRows(const std::span<const std::uint8_t> srcBytes, const UINT src
     const auto srcRow = srcBytes.subspan(srcOffset, rowCopyBytes);
     auto dstRow = dstBytes.subspan(dstOffset, rowCopyBytes);
     std::memcpy(dstRow.data(), srcRow.data(), rowCopyBytes);
+  }
+}
+
+struct ResolvedUploadScalePlan final {
+  UINT targetWidth = 0;
+  UINT targetHeight = 0;
+  bool scaled = false;
+};
+
+[[nodiscard]] ResolvedUploadScalePlan ResolveUploadScalePlan(
+    const FrameToken& frame, const frame_bridge::LatestFrame& latestFrame) noexcept {
+  if (latestFrame.width <= 0 || latestFrame.height <= 0) {
+    return {};
+  }
+
+  ResolvedUploadScalePlan plan;
+  plan.targetWidth = static_cast<UINT>(latestFrame.width);
+  plan.targetHeight = static_cast<UINT>(latestFrame.height);
+  if (!IsCpuFallbackDecodePath(frame.decodePath)) {
+    return plan;
+  }
+
+  const UploadScalePlan selected =
+      SelectUploadScalePlanForCpuUpload(latestFrame.width, latestFrame.height);
+  if (selected.targetWidth <= 0 || selected.targetHeight <= 0) {
+    return plan;
+  }
+
+  plan.targetWidth = static_cast<UINT>(selected.targetWidth);
+  plan.targetHeight = static_cast<UINT>(selected.targetHeight);
+  plan.scaled = plan.targetWidth != static_cast<UINT>(latestFrame.width) ||
+                plan.targetHeight != static_cast<UINT>(latestFrame.height);
+  return plan;
+}
+
+void DownscaleRgbaNearest(const std::uint8_t* const srcBase, const UINT srcRowPitch,
+                          const int srcWidth, const int srcHeight, std::uint8_t* const dstBase,
+                          const UINT dstRowPitch, const UINT targetWidth,
+                          const UINT targetHeight) {
+  if (srcBase == nullptr || dstBase == nullptr || srcRowPitch == 0 || dstRowPitch == 0 ||
+      srcWidth <= 0 || srcHeight <= 0 || targetWidth == 0 || targetHeight == 0) {
+    return;
+  }
+
+  // CPU 回退上传缩放使用最近邻采样：实现简单、可预测，优先守住上传带宽与驻留预算。
+  for (UINT y = 0; y < targetHeight; ++y) {
+    const int srcY = static_cast<int>((static_cast<std::uint64_t>(y) * srcHeight) / targetHeight);
+    const auto* srcRow = srcBase + static_cast<std::size_t>(srcY) * srcRowPitch;
+    auto* dstRow = dstBase + static_cast<std::size_t>(y) * dstRowPitch;
+    for (UINT x = 0; x < targetWidth; ++x) {
+      const int srcX =
+          static_cast<int>((static_cast<std::uint64_t>(x) * srcWidth) / targetWidth);
+      const auto* srcPixel = srcRow + static_cast<std::size_t>(srcX) * 4U;
+      auto* dstPixel = dstRow + static_cast<std::size_t>(x) * 4U;
+      std::memcpy(dstPixel, srcPixel, 4U);
+    }
+  }
+}
+
+void DownscalePlaneNearest(const std::uint8_t* const srcBase, const UINT srcRowPitch,
+                           const int srcWidth, const int srcHeight, std::uint8_t* const dstBase,
+                           const UINT dstRowPitch, const UINT targetWidth,
+                           const UINT targetHeight) {
+  if (srcBase == nullptr || dstBase == nullptr || srcRowPitch == 0 || dstRowPitch == 0 ||
+      srcWidth <= 0 || srcHeight <= 0 || targetWidth == 0 || targetHeight == 0) {
+    return;
+  }
+
+  for (UINT y = 0; y < targetHeight; ++y) {
+    const int srcY = static_cast<int>((static_cast<std::uint64_t>(y) * srcHeight) / targetHeight);
+    const auto* srcRow = srcBase + static_cast<std::size_t>(srcY) * srcRowPitch;
+    auto* dstRow = dstBase + static_cast<std::size_t>(y) * dstRowPitch;
+    for (UINT x = 0; x < targetWidth; ++x) {
+      const int srcX =
+          static_cast<int>((static_cast<std::uint64_t>(x) * srcWidth) / targetWidth);
+      dstRow[x] = srcRow[srcX];
+    }
+  }
+}
+
+void DownscaleInterleavedUvNearest(const std::uint8_t* const srcBase, const UINT srcRowPitch,
+                                   const int srcWidthSamples, const int srcHeightSamples,
+                                   std::uint8_t* const dstBase, const UINT dstRowPitch,
+                                   const UINT targetWidthSamples,
+                                   const UINT targetHeightSamples) {
+  if (srcBase == nullptr || dstBase == nullptr || srcRowPitch == 0 || dstRowPitch == 0 ||
+      srcWidthSamples <= 0 || srcHeightSamples <= 0 || targetWidthSamples == 0 ||
+      targetHeightSamples == 0) {
+    return;
+  }
+
+  for (UINT y = 0; y < targetHeightSamples; ++y) {
+    const int srcY =
+        static_cast<int>((static_cast<std::uint64_t>(y) * srcHeightSamples) / targetHeightSamples);
+    const auto* srcRow = srcBase + static_cast<std::size_t>(srcY) * srcRowPitch;
+    auto* dstRow = dstBase + static_cast<std::size_t>(y) * dstRowPitch;
+    for (UINT x = 0; x < targetWidthSamples; ++x) {
+      const int srcX = static_cast<int>(
+          (static_cast<std::uint64_t>(x) * srcWidthSamples) / targetWidthSamples);
+      const auto* srcPixel = srcRow + static_cast<std::size_t>(srcX) * 2U;
+      auto* dstPixel = dstRow + static_cast<std::size_t>(x) * 2U;
+      dstPixel[0] = srcPixel[0];
+      dstPixel[1] = srcPixel[1];
+    }
   }
 }
 
@@ -542,6 +648,7 @@ class WallpaperHostWin final : public IWallpaperHost {
     bool hasVideoTexture = HasAnyVideoTexture();
     frame_bridge::LatestFrame latestFrame;
     if (frame_bridge::TryGetLatestFrameIfNewer(lastVideoSequence_, &latestFrame)) {
+      const ResolvedUploadScalePlan uploadScalePlan = ResolveUploadScalePlan(frame, latestFrame);
       if (latestFrame.gpuBacked && latestFrame.gpuTexture != nullptr &&
           EnsureVideoTextureForGpu(static_cast<UINT>(latestFrame.width),
                                    static_cast<UINT>(latestFrame.height),
@@ -553,17 +660,17 @@ class WallpaperHostWin final : public IWallpaperHost {
         drewVideo = true;
       } else if (latestFrame.pixelFormat == frame_bridge::PixelFormat::kNv12 &&
                  latestFrame.yPlaneData != nullptr && latestFrame.uvPlaneData != nullptr &&
-                 EnsureVideoTextureForNv12(static_cast<UINT>(latestFrame.width),
-                                           static_cast<UINT>(latestFrame.height)) &&
-                 UploadVideoFrameNv12(latestFrame) && DrawVideoNv12Texture()) {
+                 EnsureVideoTextureForNv12(uploadScalePlan.targetWidth,
+                                           uploadScalePlan.targetHeight) &&
+                 UploadVideoFrameNv12(latestFrame, uploadScalePlan) && DrawVideoNv12Texture()) {
         lastVideoSequence_ = latestFrame.sequence;
         frame_bridge::ReleaseLatestFrameIfSequenceConsumed(lastVideoSequence_);
         hasVideoTexture = true;
         drewVideo = true;
       } else if (latestFrame.rgbaData != nullptr &&
-                 EnsureVideoTextureForCpu(static_cast<UINT>(latestFrame.width),
-                                          static_cast<UINT>(latestFrame.height)) &&
-                 UploadVideoFrame(latestFrame) && DrawVideoTexture()) {
+                 EnsureVideoTextureForCpu(uploadScalePlan.targetWidth,
+                                          uploadScalePlan.targetHeight) &&
+                 UploadVideoFrame(latestFrame, uploadScalePlan) && DrawVideoTexture()) {
         lastVideoSequence_ = latestFrame.sequence;
         frame_bridge::ReleaseLatestFrameIfSequenceConsumed(lastVideoSequence_);
         hasVideoTexture = true;
@@ -1102,12 +1209,21 @@ class WallpaperHostWin final : public IWallpaperHost {
     return true;
   }
 
-  bool UploadVideoFrame(const frame_bridge::LatestFrame& frame) {
+  bool UploadVideoFrame(const frame_bridge::LatestFrame& frame,
+                        const ResolvedUploadScalePlan& uploadScalePlan) {
     if (context_ == nullptr || videoTexture_ == nullptr || frame.rgbaData == nullptr) {
       return false;
     }
 
     if (frame.width <= 0 || frame.height <= 0 || frame.strideBytes <= 0) {
+      return false;
+    }
+
+    const UINT targetWidth =
+        uploadScalePlan.targetWidth > 0 ? uploadScalePlan.targetWidth : static_cast<UINT>(frame.width);
+    const UINT targetHeight = uploadScalePlan.targetHeight > 0 ? uploadScalePlan.targetHeight
+                                                               : static_cast<UINT>(frame.height);
+    if (targetWidth == 0 || targetHeight == 0) {
       return false;
     }
 
@@ -1128,19 +1244,33 @@ class WallpaperHostWin final : public IWallpaperHost {
     const auto* src = frame.rgbaData;
     auto* dst = static_cast<std::uint8_t*>(mapped.pData);
     const UINT srcRowPitch = static_cast<UINT>(frame.strideBytes);
-    const UINT copyBytes = srcRowPitch < mapped.RowPitch ? srcRowPitch : mapped.RowPitch;
-    const std::size_t srcBytesTotal = static_cast<std::size_t>(srcRowPitch) *
-                                      static_cast<std::size_t>(frame.height);
-    const std::size_t dstBytesTotal = static_cast<std::size_t>(mapped.RowPitch) *
-                                      static_cast<std::size_t>(frame.height);
-    CopyLinearRows(std::span<const std::uint8_t>(src, srcBytesTotal), srcRowPitch,
-                   std::span<std::uint8_t>(dst, dstBytesTotal), mapped.RowPitch, frame.height,
-                   copyBytes);
+    const UINT rowCopyBytes =
+        SelectRgbaUploadRowCopyBytes(static_cast<int>(targetWidth), srcRowPitch, mapped.RowPitch);
+    if (!uploadScalePlan.scaled) {
+      const std::size_t srcBytesTotal = static_cast<std::size_t>(srcRowPitch) *
+                                        static_cast<std::size_t>(frame.height);
+      const std::size_t dstBytesTotal = static_cast<std::size_t>(mapped.RowPitch) *
+                                        static_cast<std::size_t>(targetHeight);
+      if (ShouldCopyRowsAsSingleContiguousBlock(frame.height, srcRowPitch, mapped.RowPitch,
+                                                rowCopyBytes)) {
+        std::memcpy(dst, src, static_cast<std::size_t>(rowCopyBytes) *
+                                  static_cast<std::size_t>(frame.height));
+      } else {
+        CopyLinearRows(std::span<const std::uint8_t>(src, srcBytesTotal), srcRowPitch,
+                       std::span<std::uint8_t>(dst, dstBytesTotal), mapped.RowPitch, frame.height,
+                       rowCopyBytes);
+      }
+    } else {
+      const UINT writablePixels = rowCopyBytes / 4U;
+      DownscaleRgbaNearest(src, srcRowPitch, frame.width, frame.height, dst, mapped.RowPitch,
+                           std::min(targetWidth, writablePixels), targetHeight);
+    }
     context_->Unmap(videoTexture_, 0);
     return true;
   }
 
-  bool UploadVideoFrameNv12(const frame_bridge::LatestFrame& frame) {
+  bool UploadVideoFrameNv12(const frame_bridge::LatestFrame& frame,
+                            const ResolvedUploadScalePlan& uploadScalePlan) {
     if (context_ == nullptr || videoNv12YTexture_ == nullptr || videoNv12UvTexture_ == nullptr ||
         frame.pixelFormat != frame_bridge::PixelFormat::kNv12 ||
         frame.yPlaneData == nullptr || frame.uvPlaneData == nullptr) {
@@ -1149,6 +1279,15 @@ class WallpaperHostWin final : public IWallpaperHost {
 
     if (frame.width <= 0 || frame.height <= 0 || frame.yPlaneStrideBytes <= 0 ||
         frame.uvPlaneStrideBytes <= 0) {
+      return false;
+    }
+
+    const UINT targetWidth =
+        uploadScalePlan.targetWidth > 0 ? uploadScalePlan.targetWidth : static_cast<UINT>(frame.width);
+    const UINT targetHeight = uploadScalePlan.targetHeight > 0 ? uploadScalePlan.targetHeight
+                                                               : static_cast<UINT>(frame.height);
+    if (targetWidth == 0 || targetHeight == 0 || (targetWidth & 1U) != 0U ||
+        (targetHeight & 1U) != 0U) {
       return false;
     }
 
@@ -1172,14 +1311,26 @@ class WallpaperHostWin final : public IWallpaperHost {
     const auto* ySrc = frame.yPlaneData;
     auto* yDst = static_cast<std::uint8_t*>(yMapped.pData);
     const UINT ySrcRowPitch = static_cast<UINT>(frame.yPlaneStrideBytes);
-    const UINT yCopyBytes = ySrcRowPitch < yMapped.RowPitch ? ySrcRowPitch : yMapped.RowPitch;
-    const std::size_t ySrcBytesTotal = static_cast<std::size_t>(ySrcRowPitch) *
-                                       static_cast<std::size_t>(frame.height);
-    const std::size_t yDstBytesTotal = static_cast<std::size_t>(yMapped.RowPitch) *
-                                       static_cast<std::size_t>(frame.height);
-    CopyLinearRows(std::span<const std::uint8_t>(ySrc, ySrcBytesTotal), ySrcRowPitch,
-                   std::span<std::uint8_t>(yDst, yDstBytesTotal), yMapped.RowPitch, frame.height,
-                   yCopyBytes);
+    const UINT yCopyBytes =
+        SelectNv12UploadRowCopyBytes(static_cast<int>(targetWidth), ySrcRowPitch, yMapped.RowPitch);
+    if (!uploadScalePlan.scaled) {
+      const std::size_t ySrcBytesTotal = static_cast<std::size_t>(ySrcRowPitch) *
+                                         static_cast<std::size_t>(frame.height);
+      const std::size_t yDstBytesTotal = static_cast<std::size_t>(yMapped.RowPitch) *
+                                         static_cast<std::size_t>(targetHeight);
+      if (ShouldCopyRowsAsSingleContiguousBlock(frame.height, ySrcRowPitch, yMapped.RowPitch,
+                                                yCopyBytes)) {
+        std::memcpy(yDst, ySrc, static_cast<std::size_t>(yCopyBytes) *
+                                  static_cast<std::size_t>(frame.height));
+      } else {
+        CopyLinearRows(std::span<const std::uint8_t>(ySrc, ySrcBytesTotal), ySrcRowPitch,
+                       std::span<std::uint8_t>(yDst, yDstBytesTotal), yMapped.RowPitch, frame.height,
+                       yCopyBytes);
+      }
+    } else {
+      DownscalePlaneNearest(ySrc, ySrcRowPitch, frame.width, frame.height, yDst, yMapped.RowPitch,
+                            std::min(targetWidth, yCopyBytes), targetHeight);
+    }
     context_->Unmap(videoNv12YTexture_, 0);
 
     D3D11_MAPPED_SUBRESOURCE uvMapped{};
@@ -1193,14 +1344,27 @@ class WallpaperHostWin final : public IWallpaperHost {
     const auto* uvSrc = frame.uvPlaneData;
     auto* uvDst = static_cast<std::uint8_t*>(uvMapped.pData);
     const UINT uvSrcRowPitch = static_cast<UINT>(frame.uvPlaneStrideBytes);
-    const UINT uvCopyBytes = uvSrcRowPitch < uvMapped.RowPitch ? uvSrcRowPitch : uvMapped.RowPitch;
-    const std::size_t uvSrcBytesTotal =
-        static_cast<std::size_t>(uvSrcRowPitch) * static_cast<std::size_t>(uvRows);
-    const std::size_t uvDstBytesTotal =
-        static_cast<std::size_t>(uvMapped.RowPitch) * static_cast<std::size_t>(uvRows);
-    CopyLinearRows(std::span<const std::uint8_t>(uvSrc, uvSrcBytesTotal), uvSrcRowPitch,
-                   std::span<std::uint8_t>(uvDst, uvDstBytesTotal), uvMapped.RowPitch, uvRows,
-                   uvCopyBytes);
+    const UINT uvCopyBytes = SelectNv12UploadRowCopyBytes(static_cast<int>(targetWidth),
+                                                          uvSrcRowPitch, uvMapped.RowPitch);
+    if (!uploadScalePlan.scaled) {
+      const std::size_t uvSrcBytesTotal =
+          static_cast<std::size_t>(uvSrcRowPitch) * static_cast<std::size_t>(uvRows);
+      const std::size_t uvDstBytesTotal =
+          static_cast<std::size_t>(uvMapped.RowPitch) * static_cast<std::size_t>(targetHeight / 2U);
+      if (ShouldCopyRowsAsSingleContiguousBlock(uvRows, uvSrcRowPitch, uvMapped.RowPitch,
+                                                uvCopyBytes)) {
+        std::memcpy(uvDst, uvSrc, static_cast<std::size_t>(uvCopyBytes) *
+                                    static_cast<std::size_t>(uvRows));
+      } else {
+        CopyLinearRows(std::span<const std::uint8_t>(uvSrc, uvSrcBytesTotal), uvSrcRowPitch,
+                       std::span<std::uint8_t>(uvDst, uvDstBytesTotal), uvMapped.RowPitch, uvRows,
+                       uvCopyBytes);
+      }
+    } else {
+      const UINT targetChromaCols = std::min(targetWidth / 2U, uvCopyBytes / 2U);
+      DownscaleInterleavedUvNearest(uvSrc, uvSrcRowPitch, frame.width / 2, uvRows, uvDst,
+                                    uvMapped.RowPitch, targetChromaCols, targetHeight / 2U);
+    }
     context_->Unmap(videoNv12UvTexture_, 0);
     return true;
   }

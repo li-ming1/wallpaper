@@ -54,6 +54,7 @@ $sources = @(
   "src/win/decode_pipeline_stub.cpp",
   "src/win/tray_controller_win.cpp",
   "src/config_store.cpp",
+  "src/cpu_frame_downscale.cpp",
   "src/decode_async_read_policy.cpp",
   "src/desktop_context_policy.cpp",
   "src/desktop_attach_policy.cpp",

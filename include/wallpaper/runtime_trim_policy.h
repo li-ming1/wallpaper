@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstddef>
 
 #include "wallpaper/interfaces.h"
@@ -20,5 +21,12 @@ namespace wallpaper {
 [[nodiscard]] bool ShouldRequestWorkingSetTrim(bool hasActiveVideo, DecodePath decodePath,
                                                std::size_t workingSetBytes,
                                                int longRunLoadLevel) noexcept;
+
+// 仅当 CPU fallback 活跃播放已经被压到 540p 级别时，才允许进入高频 working-set trim。
+[[nodiscard]] std::chrono::milliseconds SelectActiveWorkingSetTrimInterval(
+    bool hasActiveVideo, DecodePath decodePath, std::size_t decodeOutputPixels) noexcept;
+
+[[nodiscard]] bool ShouldUseAggressiveMemoryPriority(bool hasActiveVideo, DecodePath decodePath,
+                                                     std::size_t decodeOutputPixels) noexcept;
 
 }  // namespace wallpaper

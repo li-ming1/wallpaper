@@ -58,3 +58,33 @@ TEST_CASE(RuntimeTrimPolicy_WorkingSetTrimThresholdUsesLongRunLevel) {
   EXPECT_TRUE(wallpaper::ShouldRequestWorkingSetTrim(
       true, wallpaper::DecodePath::kCpuNv12Fallback, 16U * 1024U * 1024U, 2));
 }
+
+TEST_CASE(RuntimeTrimPolicy_EnablesFastActiveTrimOnlyForCompactCpuFallbackFrames) {
+  EXPECT_EQ(wallpaper::SelectActiveWorkingSetTrimInterval(
+                true, wallpaper::DecodePath::kCpuNv12Fallback, 960U * 540U)
+                .count(),
+            250);
+  EXPECT_EQ(wallpaper::SelectActiveWorkingSetTrimInterval(
+                true, wallpaper::DecodePath::kCpuNv12Fallback, 1920U * 1080U)
+                .count(),
+            0);
+  EXPECT_EQ(wallpaper::SelectActiveWorkingSetTrimInterval(
+                true, wallpaper::DecodePath::kDxvaZeroCopy, 960U * 540U)
+                .count(),
+            0);
+  EXPECT_EQ(wallpaper::SelectActiveWorkingSetTrimInterval(
+                false, wallpaper::DecodePath::kCpuNv12Fallback, 960U * 540U)
+                .count(),
+            0);
+}
+
+TEST_CASE(RuntimeTrimPolicy_UsesAggressiveMemoryPriorityOnlyForCompactCpuFallbackFrames) {
+  EXPECT_TRUE(wallpaper::ShouldUseAggressiveMemoryPriority(
+      true, wallpaper::DecodePath::kCpuNv12Fallback, 960U * 540U));
+  EXPECT_TRUE(!wallpaper::ShouldUseAggressiveMemoryPriority(
+      true, wallpaper::DecodePath::kCpuNv12Fallback, 1920U * 1080U));
+  EXPECT_TRUE(!wallpaper::ShouldUseAggressiveMemoryPriority(
+      true, wallpaper::DecodePath::kDxvaZeroCopy, 960U * 540U));
+  EXPECT_TRUE(!wallpaper::ShouldUseAggressiveMemoryPriority(
+      false, wallpaper::DecodePath::kCpuNv12Fallback, 960U * 540U));
+}

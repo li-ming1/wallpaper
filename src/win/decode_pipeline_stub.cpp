@@ -1,8 +1,10 @@
 #include "wallpaper/interfaces.h"
+#include "wallpaper/cpu_frame_downscale.h"
 #include "wallpaper/decode_async_read_policy.h"
 #include "wallpaper/decode_output_policy.h"
 #include "wallpaper/d3d11_interop_device.h"
 #include "wallpaper/nv12_layout_policy.h"
+#include "wallpaper/upload_scale_policy.h"
 
 #include "wallpaper/frame_bridge.h"
 
@@ -676,6 +678,8 @@ class DecodePipelineStub final : public IDecodePipeline {
     bool ok = false;
     bool gpuBacked = false;
     std::size_t cpuCopyBytes = 0;
+    std::uint32_t outputWidth = 0;
+    std::uint32_t outputHeight = 0;
   };
 
   void ClearAsyncReadySampleLocked() {
@@ -858,7 +862,7 @@ class DecodePipelineStub final : public IDecodePipeline {
                 std::move(textureHolder));
             dxgiBuffer->Release();
             indexedBuffer->Release();
-            return PublishResult{true, true, 0};
+            return PublishResult{true, true, 0, snapshot.frameWidth, snapshot.frameHeight};
           }
           if (texture != nullptr) {
             texture->Release();
@@ -868,6 +872,70 @@ class DecodePipelineStub final : public IDecodePipeline {
         indexedBuffer->Release();
       }
     }
+
+    const UploadScalePlan bridgeScalePlan =
+        SelectUploadScalePlanForCpuUpload(static_cast<int>(snapshot.frameWidth),
+                                          static_cast<int>(snapshot.frameHeight));
+    const bool shouldScaleForBridge =
+        bridgeScalePlan.targetWidth > 0 && bridgeScalePlan.targetHeight > 0 &&
+        (bridgeScalePlan.targetWidth != static_cast<int>(snapshot.frameWidth) ||
+         bridgeScalePlan.targetHeight != static_cast<int>(snapshot.frameHeight));
+
+    const auto publishScaledNv12Frame = [&](const std::uint8_t* const yPlaneData,
+                                            const int yStrideBytes,
+                                            const std::uint8_t* const uvPlaneData,
+                                            const int uvStrideBytes) -> PublishResult {
+      CompactCpuFrameBuffer scaledBuffer;
+      if (!TryDownscaleNv12FrameNearest(
+              yPlaneData, yStrideBytes, uvPlaneData, uvStrideBytes,
+              static_cast<int>(snapshot.frameWidth), static_cast<int>(snapshot.frameHeight),
+              bridgeScalePlan.targetWidth, bridgeScalePlan.targetHeight, &scaledBuffer)) {
+        return {};
+      }
+
+      auto scaledBytes =
+          std::make_shared<std::vector<std::uint8_t>>(std::move(scaledBuffer.bytes));
+      if (scaledBytes == nullptr || scaledBytes->empty()) {
+        return {};
+      }
+
+      const std::size_t yPlaneBytes = scaledBuffer.secondaryPlaneOffsetBytes;
+      const std::size_t uvPlaneBytes = scaledBytes->size() - scaledBuffer.secondaryPlaneOffsetBytes;
+      std::shared_ptr<void> bufferHolder(scaledBytes, scaledBytes->data());
+      frame_bridge::PublishLatestNv12FrameView(
+          scaledBuffer.width, scaledBuffer.height, scaledBuffer.primaryStrideBytes,
+          scaledBuffer.secondaryStrideBytes, snapshot.outputTimestamp100ns, snapshot.sequence,
+          scaledBytes->data() + scaledBuffer.primaryPlaneOffsetBytes, yPlaneBytes,
+          scaledBytes->data() + scaledBuffer.secondaryPlaneOffsetBytes, uvPlaneBytes,
+          std::move(bufferHolder));
+      return PublishResult{true, false, scaledBytes->size(),
+                           static_cast<std::uint32_t>(scaledBuffer.width),
+                           static_cast<std::uint32_t>(scaledBuffer.height)};
+    };
+
+    const auto publishScaledRgbaFrame =
+        [&](const std::uint8_t* const rgbaData, const int strideBytes) -> PublishResult {
+      CompactCpuFrameBuffer scaledBuffer;
+      if (!TryDownscaleRgbaFrameNearest(
+              rgbaData, static_cast<int>(snapshot.frameWidth),
+              static_cast<int>(snapshot.frameHeight), strideBytes, bridgeScalePlan.targetWidth,
+              bridgeScalePlan.targetHeight, &scaledBuffer)) {
+        return {};
+      }
+
+      std::shared_ptr<const std::vector<std::uint8_t>> scaledBytes =
+          std::make_shared<std::vector<std::uint8_t>>(std::move(scaledBuffer.bytes));
+      if (scaledBytes == nullptr || scaledBytes->empty()) {
+        return {};
+      }
+
+      frame_bridge::PublishLatestFrame(
+          scaledBuffer.width, scaledBuffer.height, scaledBuffer.primaryStrideBytes,
+          snapshot.outputTimestamp100ns, snapshot.sequence, scaledBytes);
+      return PublishResult{true, false, scaledBytes->size(),
+                           static_cast<std::uint32_t>(scaledBuffer.width),
+                           static_cast<std::uint32_t>(scaledBuffer.height)};
+    };
 
     if (IsSelectedOutputNv12(snapshot.selectedOutputSubtype)) {
       DWORD sampleBufferCount = 0;
@@ -891,6 +959,20 @@ class DecodePipelineStub final : public IDecodePipeline {
                 ComputeNv12Layout(snapshot.frameHeight, static_cast<std::uint32_t>(pitch),
                                   static_cast<std::size_t>(sampleTotalLength));
             if (layout.yPlaneBytes != 0 && layout.uvPlaneBytes != 0) {
+              if (shouldScaleForBridge) {
+                const PublishResult scaledResult = publishScaledNv12Frame(
+                    static_cast<const std::uint8_t*>(scanline0 + layout.yPlaneOffsetBytes),
+                    static_cast<int>(pitch),
+                    static_cast<const std::uint8_t*>(scanline0 + layout.uvPlaneOffsetBytes),
+                    static_cast<int>(pitch));
+                if (scaledResult.ok) {
+                  buffer2d->Unlock2D();
+                  buffer2d->Release();
+                  indexedBuffer->Release();
+                  return scaledResult;
+                }
+              }
+
               std::shared_ptr<void> bufferHolder(
                   indexedBuffer, [buffer2d](void* ptr) {
                     if (buffer2d != nullptr) {
@@ -909,7 +991,8 @@ class DecodePipelineStub final : public IDecodePipeline {
                   layout.yPlaneBytes,
                   static_cast<const std::uint8_t*>(scanline0 + layout.uvPlaneOffsetBytes),
                   layout.uvPlaneBytes, std::move(bufferHolder));
-              return PublishResult{true, false, layout.yPlaneBytes + layout.uvPlaneBytes};
+              return PublishResult{true, false, layout.yPlaneBytes + layout.uvPlaneBytes,
+                                   snapshot.frameWidth, snapshot.frameHeight};
             }
 
             buffer2d->Unlock2D();
@@ -944,6 +1027,19 @@ class DecodePipelineStub final : public IDecodePipeline {
         return {};
       }
 
+      if (shouldScaleForBridge) {
+        const PublishResult scaledResult = publishScaledNv12Frame(
+            static_cast<const std::uint8_t*>(rawData + layout.yPlaneOffsetBytes),
+            static_cast<int>(snapshot.frameWidth),
+            static_cast<const std::uint8_t*>(rawData + layout.uvPlaneOffsetBytes),
+            static_cast<int>(snapshot.frameWidth));
+        if (scaledResult.ok) {
+          mediaBuffer->Unlock();
+          mediaBuffer->Release();
+          return scaledResult;
+        }
+      }
+
       std::shared_ptr<void> bufferHolder(
           mediaBuffer, [](void* ptr) {
             if (ptr != nullptr) {
@@ -960,7 +1056,7 @@ class DecodePipelineStub final : public IDecodePipeline {
           static_cast<const std::uint8_t*>(rawData + layout.yPlaneOffsetBytes), layout.yPlaneBytes,
           static_cast<const std::uint8_t*>(rawData + layout.uvPlaneOffsetBytes), layout.uvPlaneBytes,
           std::move(bufferHolder));
-      return PublishResult{true, false, requiredBytes};
+      return PublishResult{true, false, requiredBytes, snapshot.frameWidth, snapshot.frameHeight};
     }
 
     IMFMediaBuffer* mediaBuffer = nullptr;
@@ -980,6 +1076,16 @@ class DecodePipelineStub final : public IDecodePipeline {
 
     const std::size_t requiredBytes = static_cast<std::size_t>(currentLength);
 
+    if (shouldScaleForBridge) {
+      const PublishResult scaledResult = publishScaledRgbaFrame(
+          static_cast<const std::uint8_t*>(rawData), static_cast<int>(snapshot.frameStride));
+      if (scaledResult.ok) {
+        mediaBuffer->Unlock();
+        mediaBuffer->Release();
+        return scaledResult;
+      }
+    }
+
     std::shared_ptr<void> bufferHolder(
         mediaBuffer, [](void* ptr) {
           if (ptr != nullptr) {
@@ -994,7 +1100,7 @@ class DecodePipelineStub final : public IDecodePipeline {
         static_cast<int>(snapshot.frameStride), snapshot.outputTimestamp100ns, snapshot.sequence,
         static_cast<const std::uint8_t*>(rawData), requiredBytes,
         std::move(bufferHolder));
-    return PublishResult{true, false, requiredBytes};
+    return PublishResult{true, false, requiredBytes, snapshot.frameWidth, snapshot.frameHeight};
   }
 
   bool TryAcquireMediaFoundationFrame(FrameToken* frame) {
@@ -1020,8 +1126,8 @@ class DecodePipelineStub final : public IDecodePipeline {
     }
 
     frame->sequence = snapshot.sequence;
-    frame->width = static_cast<int>(snapshot.frameWidth);
-    frame->height = static_cast<int>(snapshot.frameHeight);
+    frame->width = static_cast<int>(publishResult.outputWidth);
+    frame->height = static_cast<int>(publishResult.outputHeight);
     frame->decodeMode = DecodeMode::kMediaFoundation;
     frame->timestamp100ns = snapshot.outputTimestamp100ns;
     frame->gpuBacked = publishResult.gpuBacked;

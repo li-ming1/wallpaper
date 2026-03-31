@@ -130,6 +130,7 @@ class App final {
   bool hardSuspendedByPause_ = false;
   PauseTransitionState pauseTransitionState_{};
   RenderScheduler::Clock::time_point lastWorkingSetTrimAt_{};
+  unsigned long processMemoryPriority_ = 5;
   std::size_t droppedFrames_ = 0;
   std::size_t totalFrames_ = 0;
   std::size_t decodeCopyBytesInWindow_ = 0;

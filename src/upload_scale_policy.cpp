@@ -13,8 +13,18 @@ UploadScalePlan SelectUploadScalePlanForCpuUpload(const int sourceWidth,
   plan.targetHeight = sourceHeight;
   plan.divisor = 1;
 
-  // 仅对 1440p 及以上启用 1/2 上传采样，避免 1080p 常见素材被明显降质。
-  const bool allowHalfScale = sourceWidth >= 2560 && sourceHeight >= 1440 &&
+  // CPU 回退链路对 1080p+ 素材直接下探到 1/5 档位，优先守住硬预算。
+  const bool allowFifthScale = sourceWidth >= 1920 && sourceHeight >= 1080 &&
+                               sourceWidth % 5 == 0 && sourceHeight % 5 == 0;
+  if (allowFifthScale) {
+    plan.targetWidth = sourceWidth / 5;
+    plan.targetHeight = sourceHeight / 5;
+    plan.divisor = 5;
+    return plan;
+  }
+
+  // 对无法整除 5 的更高分辨率素材仍保留 1/2 档位，避免非整数缩放带来额外复杂度。
+  const bool allowHalfScale = sourceWidth >= 1920 && sourceHeight >= 1080 &&
                               sourceWidth % 2 == 0 && sourceHeight % 2 == 0;
   if (!allowHalfScale) {
     return plan;

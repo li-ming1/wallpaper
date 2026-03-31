@@ -41,6 +41,7 @@ $output = Join-Path $BuildDir "wallpaper_tests.exe"
 $sources = @(
   "tests/test_main.cpp",
   "tests/config_store_tests.cpp",
+  "tests/cpu_frame_downscale_tests.cpp",
   "tests/cpp26_feature_support_tests.cpp",
   "tests/decode_async_read_policy_tests.cpp",
   "tests/desktop_context_policy_tests.cpp",
@@ -74,6 +75,7 @@ $sources = @(
   "tests/video_path_probe_policy_tests.cpp",
   "tests/video_path_matcher_tests.cpp",
   "src/config_store.cpp",
+  "src/cpu_frame_downscale.cpp",
   "src/decode_async_read_policy.cpp",
   "src/desktop_context_policy.cpp",
   "src/desktop_attach_policy.cpp",

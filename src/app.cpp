@@ -216,6 +216,13 @@ bool TrimCurrentProcessWorkingSet() {
   return EmptyWorkingSet(GetCurrentProcess()) != FALSE;
 }
 
+bool SetCurrentProcessMemoryPriority(const ULONG priority) {
+  MEMORY_PRIORITY_INFORMATION memoryInfo{};
+  memoryInfo.MemoryPriority = priority;
+  return SetProcessInformation(GetCurrentProcess(), ProcessMemoryPriority, &memoryInfo,
+                               sizeof(memoryInfo)) != FALSE;
+}
+
 bool SetAutoStartEnabled(const bool enabled) {
   constexpr wchar_t kRunPath[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
   constexpr wchar_t kValueName[] = L"WallpaperDynamicDesktop";
@@ -275,6 +282,7 @@ bool IsSessionInteractive() { return true; }
 bool IsBatterySaverActive() { return false; }
 bool IsRemoteSessionActive() { return false; }
 bool TrimCurrentProcessWorkingSet() { return false; }
+bool SetCurrentProcessMemoryPriority(unsigned long) { return false; }
 bool SetAutoStartEnabled(bool) { return true; }
 std::uintptr_t QueryForegroundWindowHandle() { return 0; }
 bool TryDetectDesktopContextActive(std::uintptr_t, bool* outActive) {
@@ -1006,7 +1014,20 @@ bool App::HandleTrayActions() {
 }
 
 void App::Tick() {
+  const auto applyProcessMemoryPriority = [this](const bool aggressive) {
+#ifdef _WIN32
+    const ULONG desiredPriority = aggressive ? MEMORY_PRIORITY_VERY_LOW : MEMORY_PRIORITY_NORMAL;
+    if (processMemoryPriority_ != desiredPriority &&
+        SetCurrentProcessMemoryPriority(desiredPriority)) {
+      processMemoryPriority_ = desiredPriority;
+    }
+#else
+    (void)aggressive;
+#endif
+  };
+
   if (!decodePipeline_ || !wallpaperHost_ || !wallpaperAttached_) {
+    applyProcessMemoryPriority(false);
     stablePauseForLoopSleep_ = false;
     MaybeSampleAndLogMetrics(false, false, 0.0);
     return;
@@ -1082,6 +1103,7 @@ void App::Tick() {
   stablePauseForLoopSleep_ = shouldPause;
 
   if (shouldPause) {
+    applyProcessMemoryPriority(false);
     if (!wasPaused_) {
       // 先做轻量暂停，保留解码上下文，减少短时切换的恢复顿挫。
       if (decodeRunning_.load()) {
@@ -1257,6 +1279,19 @@ void App::Tick() {
         WakeDecodePump();
       }
     }
+  }
+
+  const auto activeWorkingSetTrimInterval = SelectActiveWorkingSetTrimInterval(
+      wallpaperAttached_ && decodeOpened_.load() && decodeRunning_.load(), lastDecodePath_,
+      lastDecodeOutputPixels_);
+  applyProcessMemoryPriority(ShouldUseAggressiveMemoryPriority(
+      wallpaperAttached_ && decodeOpened_.load() && decodeRunning_.load(), lastDecodePath_,
+      lastDecodeOutputPixels_));
+  if (activeWorkingSetTrimInterval.count() > 0 &&
+      (lastWorkingSetTrimAt_ == RenderScheduler::Clock::time_point{} ||
+       (now - lastWorkingSetTrimAt_) >= activeWorkingSetTrimInterval)) {
+    TrimCurrentProcessWorkingSet();
+    lastWorkingSetTrimAt_ = now;
   }
 
   if (!scheduler_.ShouldRender(RenderScheduler::Clock::now())) {

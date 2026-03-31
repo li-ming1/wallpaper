@@ -2,6 +2,12 @@
 
 namespace wallpaper {
 
+namespace {
+
+constexpr std::size_t kCompactCpuFallbackPixels = 960U * 540U;
+
+}  // namespace
+
 bool ShouldExecuteLongRunDecodeTrim(const bool trimRequested, const bool decodeRunning,
                                     const DecodePath decodePath) noexcept {
   if (!trimRequested) {
@@ -27,6 +33,21 @@ bool ShouldRequestWorkingSetTrim(const bool hasActiveVideo, const DecodePath dec
     thresholdBytes = 18U * 1024U * 1024U;
   }
   return workingSetBytes >= thresholdBytes;
+}
+
+std::chrono::milliseconds SelectActiveWorkingSetTrimInterval(const bool hasActiveVideo,
+                                                             const DecodePath decodePath,
+                                                             const std::size_t decodeOutputPixels) noexcept {
+  if (!ShouldUseAggressiveMemoryPriority(hasActiveVideo, decodePath, decodeOutputPixels)) {
+    return std::chrono::milliseconds(0);
+  }
+  return std::chrono::milliseconds(250);
+}
+
+bool ShouldUseAggressiveMemoryPriority(const bool hasActiveVideo, const DecodePath decodePath,
+                                       const std::size_t decodeOutputPixels) noexcept {
+  return hasActiveVideo && IsCpuFallbackDecodePath(decodePath) && decodeOutputPixels != 0 &&
+         decodeOutputPixels <= kCompactCpuFallbackPixels;
 }
 
 }  // namespace wallpaper
