@@ -1906,3 +1906,30 @@
   - task_plan.md
   - findings.md
   - progress.md
+
+## Session: 2026-03-31
+
+### Phase 90: CPU Fallback 重开策略接线与回滚保护
+- **Status:** complete
+- Actions taken:
+  - 按 TDD 先改 `decode_output_policy` 测试（level1 硬件偏好）并确认 Red。
+  - `App` 接入按输出像素决策的 decode reopen 档位（`SelectDecodeOpenLongRunLevel`）。
+  - `StartVideoPipelineForPath` 增加 `preferHardwareTransforms`，并在 warm resume / resume retry 复用当前偏好。
+  - 新增降档重开失败回滚到旧档位，避免停播或 `unknown` 回归。
+  - 运行 `run_tests`（Red + Green）、`build_app` 与 `bench_perf`。
+- Files created/modified:
+  - include/wallpaper/app.h
+  - src/app.cpp
+  - include/wallpaper/decode_output_policy.h
+  - src/decode_output_policy.cpp
+  - tests/decode_output_policy_tests.cpp
+  - include/wallpaper/interfaces.h
+  - include/wallpaper/metrics_log_line.h
+  - src/metrics_log_line.cpp
+  - tests/metrics_log_line_tests.cpp
+  - src/win/decode_pipeline_stub.cpp
+- Verification summary:
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/test_red_iter` -> 1 failing case (expected Red)
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/test_green_iter` -> 202/202 PASS
+  - `scripts/build_app.ps1 -BuildDir build_tmp/app_iter` -> PASS
+  - `scripts/bench_perf.ps1` + metrics tail: 当前机型上 `decode_output_pixels` 仍 1080p，未达最终目标

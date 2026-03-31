@@ -227,6 +227,8 @@ class DecodePipelineStub final : public IDecodePipeline {
     frame->height = 0;
     frame->decodeMode = DecodeMode::kFallbackTicker;
     frame->decodePath = DecodePath::kFallbackTicker;
+    frame->decodeInteropStage = DecodeInteropStage::kNotAttempted;
+    frame->decodeInteropHresult = 0;
     frame->gpuBacked = false;
     frame->cpuCopyBytes = 0;
     // 100ns 单位，便于未来与 MF 时间戳对齐。
@@ -278,6 +280,8 @@ class DecodePipelineStub final : public IDecodePipeline {
     cpuFallbackOutputOptions.longRunLoadLevel = openProfile_.longRunLoadLevel;
     const bool enableAdvancedVideoProcessing =
         ShouldEnableAdvancedVideoProcessing(cpuFallbackOutputOptions, true);
+    DecodeInteropStage lastInteropStage = DecodeInteropStage::kNotAttempted;
+    std::int32_t lastInteropHresult = 0;
 
     const auto createReader = [&](const bool enableVideoProcessing,
                                   const bool tryD3DInterop, const bool enableAdvancedProcessing,
@@ -331,9 +335,14 @@ class DecodePipelineStub final : public IDecodePipeline {
       if (SUCCEEDED(hr) && readerAttributes != nullptr && tryD3DInterop) {
         ID3D11Device* sharedDevice = d3d11_interop::AcquireSharedDevice();
         if (sharedDevice != nullptr) {
-          if (dxgiDeviceManager_ == nullptr &&
-              FAILED(MFCreateDXGIDeviceManager(&dxgiDeviceResetToken_, &dxgiDeviceManager_))) {
-            dxgiDeviceManager_ = nullptr;
+          if (dxgiDeviceManager_ == nullptr) {
+            const HRESULT managerHr =
+                MFCreateDXGIDeviceManager(&dxgiDeviceResetToken_, &dxgiDeviceManager_);
+            if (FAILED(managerHr)) {
+              lastInteropStage = DecodeInteropStage::kDeviceManagerCreateFailed;
+              lastInteropHresult = static_cast<std::int32_t>(managerHr);
+              dxgiDeviceManager_ = nullptr;
+            }
           }
           if (dxgiDeviceManager_ != nullptr) {
             const HRESULT resetHr =
@@ -343,10 +352,21 @@ class DecodePipelineStub final : public IDecodePipeline {
                   readerAttributes->SetUnknown(MF_SOURCE_READER_D3D_MANAGER, dxgiDeviceManager_);
               if (SUCCEEDED(bindHr)) {
                 useD3DInterop = true;
+                lastInteropStage = DecodeInteropStage::kEnabled;
+                lastInteropHresult = 0;
+              } else {
+                lastInteropStage = DecodeInteropStage::kD3DManagerBindFailed;
+                lastInteropHresult = static_cast<std::int32_t>(bindHr);
               }
+            } else {
+              lastInteropStage = DecodeInteropStage::kDeviceManagerResetFailed;
+              lastInteropHresult = static_cast<std::int32_t>(resetHr);
             }
           }
           sharedDevice->Release();
+        } else {
+          lastInteropStage = DecodeInteropStage::kSharedDeviceMissing;
+          lastInteropHresult = static_cast<std::int32_t>(E_POINTER);
         }
         if (requireD3DInteropBinding && !useD3DInterop) {
           if (readerAttributes != nullptr) {
@@ -568,6 +588,16 @@ class DecodePipelineStub final : public IDecodePipeline {
       callback->Release();
       return false;
     }
+    if (mfD3DInteropEnabled_) {
+      interopStage_ = DecodeInteropStage::kEnabled;
+      interopHresult_ = 0;
+    } else if (lastInteropStage == DecodeInteropStage::kEnabled) {
+      interopStage_ = DecodeInteropStage::kNotAttempted;
+      interopHresult_ = 0;
+    } else {
+      interopStage_ = lastInteropStage;
+      interopHresult_ = lastInteropHresult;
+    }
 
     sourceReader_ = reader;
     sourceReaderCallback_ = callback;
@@ -624,6 +654,8 @@ class DecodePipelineStub final : public IDecodePipeline {
     mfLastRawTimestamp100ns_ = -1;
     mfLastOutputTimestamp100ns_ = -1;
     ResetDecodeAsyncRead(&decodeAsyncReadState_);
+    interopStage_ = DecodeInteropStage::kNotAttempted;
+    interopHresult_ = 0;
   }
 
   bool SeekReaderToStartLocked() {
@@ -994,6 +1026,9 @@ class DecodePipelineStub final : public IDecodePipeline {
     frame->timestamp100ns = snapshot.outputTimestamp100ns;
     frame->gpuBacked = publishResult.gpuBacked;
     frame->cpuCopyBytes = publishResult.cpuCopyBytes;
+    frame->decodeInteropStage =
+        publishResult.gpuBacked ? DecodeInteropStage::kEnabled : interopStage_;
+    frame->decodeInteropHresult = publishResult.gpuBacked ? 0 : interopHresult_;
     frame->decodePath = publishResult.gpuBacked
                             ? DecodePath::kDxvaZeroCopy
                             : DecodePathForSelectedSubtype(snapshot.selectedOutputSubtype);
@@ -1035,6 +1070,8 @@ class DecodePipelineStub final : public IDecodePipeline {
   bool mfStarted_ = false;
   bool mfD3DInteropEnabled_ = false;
   bool mfGpuZeroCopyActive_ = false;
+  DecodeInteropStage interopStage_ = DecodeInteropStage::kNotAttempted;
+  std::int32_t interopHresult_ = 0;
   GUID selectedOutputSubtype_ = GUID{};
   std::uint32_t frameWidth_ = 0;
   std::uint32_t frameHeight_ = 0;

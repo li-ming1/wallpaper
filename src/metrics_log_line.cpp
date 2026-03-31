@@ -34,6 +34,26 @@ const char* DecodePathToCsv(const DecodePath path) {
   }
 }
 
+const char* DecodeInteropStageToCsv(const DecodeInteropStage stage) {
+  switch (stage) {
+    case DecodeInteropStage::kNotAttempted:
+      return "not_attempted";
+    case DecodeInteropStage::kSharedDeviceMissing:
+      return "shared_device_missing";
+    case DecodeInteropStage::kDeviceManagerCreateFailed:
+      return "device_manager_create_failed";
+    case DecodeInteropStage::kDeviceManagerResetFailed:
+      return "device_manager_reset_failed";
+    case DecodeInteropStage::kD3DManagerBindFailed:
+      return "d3d_manager_bind_failed";
+    case DecodeInteropStage::kEnabled:
+      return "enabled";
+    case DecodeInteropStage::kUnknown:
+    default:
+      return "unknown";
+  }
+}
+
 const char* RuntimeThreadQosToCsv(const RuntimeThreadQos qos) {
   switch (qos) {
     case RuntimeThreadQos::kEco:
@@ -66,7 +86,8 @@ std::string BuildMetricsCsvHeader() {
   return "unix_ms,session_id,target_fps,effective_fps,adaptive_quality,decode_mode,decode_path,"
          "decode_output_pixels,thread_qos,occluded,power_state,"
          "cpu_percent,private_bytes,working_set_bytes,present_p95_ms,dropped_frame_ratio,"
-         "long_run_level,decode_hot_sleep_ms,decode_copy_bytes_per_sec\n";
+         "long_run_level,decode_hot_sleep_ms,decode_copy_bytes_per_sec,"
+         "decode_interop_stage,decode_interop_hr\n";
 }
 
 std::string BuildMetricsCsvLine(const std::int64_t unixMs, const RuntimeMetrics& metrics,
@@ -74,7 +95,9 @@ std::string BuildMetricsCsvLine(const std::int64_t unixMs, const RuntimeMetrics&
                                 const int effectiveFps, const bool adaptiveQualityEnabled,
                                 const DecodeMode decodeMode, const DecodePath decodePath,
                                 const int longRunLevel, const int decodeHotSleepMs,
-                                const std::size_t decodeCopyBytesPerSec) {
+                                const std::size_t decodeCopyBytesPerSec,
+                                const DecodeInteropStage decodeInteropStage,
+                                const std::int32_t decodeInteropHresult) {
   std::ostringstream out;
   out << unixMs << ',' << sessionId << ',' << targetFps << ',' << effectiveFps << ','
       << (adaptiveQualityEnabled ? 1 : 0) << ',' << DecodeModeToCsv(decodeMode) << ','
@@ -83,7 +106,8 @@ std::string BuildMetricsCsvLine(const std::int64_t unixMs, const RuntimeMetrics&
       << RuntimePowerStateToCsv(metrics.powerState) << ',' << std::fixed << std::setprecision(3)
       << metrics.cpuPercent << ',' << metrics.privateBytes << ',' << metrics.workingSetBytes
       << ',' << metrics.presentP95Ms << ',' << metrics.droppedFrameRatio << ',' << longRunLevel
-      << ',' << decodeHotSleepMs << ',' << decodeCopyBytesPerSec << '\n';
+      << ',' << decodeHotSleepMs << ',' << decodeCopyBytesPerSec << ','
+      << DecodeInteropStageToCsv(decodeInteropStage) << ',' << decodeInteropHresult << '\n';
   return out.str();
 }
 

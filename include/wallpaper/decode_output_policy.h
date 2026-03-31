@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 namespace wallpaper {
@@ -48,5 +49,19 @@ struct DecodeOutputOptions final {
 // 避免 SourceReader 回退到系统内存样本路径。
 [[nodiscard]] bool ShouldUseLegacySourceReaderVideoProcessing(
     bool tryD3DInterop, bool enableAdvancedVideoProcessing) noexcept;
+
+// 根据长期负载与当前输出像素选择下一轮 decode open 档位：
+// - CPU fallback 且输出像素仍高于 540p 时，至少进入 1 档（432p hint）；
+// - long-run >=2 时进入 2 档（360p hint）；
+// - 非 CPU fallback 维持原有两档（0/2）行为。
+[[nodiscard]] int SelectDecodeOpenLongRunLevel(int longRunLoadLevel, bool cpuFallbackPath,
+                                               std::size_t decodeOutputPixels) noexcept;
+
+// 是否在本轮 decode open 保持硬件变换优先：
+// - CPU fallback 在中压档（1）仍保持硬件优先，避免在部分设备上重开失败；
+// - 仅在高压档（>=2）关闭硬件偏好，优先保证降档落地；
+// - 其余场景保持硬件优先。
+[[nodiscard]] bool ShouldPreferHardwareTransformsForDecodeOpen(int decodeOpenLongRunLevel,
+                                                               bool cpuFallbackPath) noexcept;
 
 }  // namespace wallpaper

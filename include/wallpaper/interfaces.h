@@ -23,6 +23,16 @@ enum class DecodePath {
   kFallbackTicker = 4,
 };
 
+enum class DecodeInteropStage {
+  kUnknown = 0,
+  kNotAttempted = 1,
+  kSharedDeviceMissing = 2,
+  kDeviceManagerCreateFailed = 3,
+  kDeviceManagerResetFailed = 4,
+  kD3DManagerBindFailed = 5,
+  kEnabled = 6,
+};
+
 [[nodiscard]] inline bool IsCpuFallbackDecodePath(const DecodePath decodePath) noexcept {
   return decodePath == DecodePath::kCpuRgb32Fallback ||
          decodePath == DecodePath::kCpuNv12Fallback;
@@ -35,6 +45,8 @@ struct FrameToken final {
   int height = 0;
   DecodeMode decodeMode = DecodeMode::kUnknown;
   DecodePath decodePath = DecodePath::kUnknown;
+  DecodeInteropStage decodeInteropStage = DecodeInteropStage::kUnknown;
+  std::int32_t decodeInteropHresult = 0;
   bool gpuBacked = false;
   std::size_t cpuCopyBytes = 0;
   bool hasColor = false;

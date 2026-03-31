@@ -233,3 +233,27 @@ TEST_CASE(DecodeOutputPolicy_EnablesLegacyVideoProcessingWhenNotInD3DAdvancedPat
   EXPECT_TRUE(wallpaper::ShouldUseLegacySourceReaderVideoProcessing(false, true));
   EXPECT_TRUE(wallpaper::ShouldUseLegacySourceReaderVideoProcessing(true, false));
 }
+
+TEST_CASE(DecodeOutputPolicy_SelectsDecodeOpenLevelForCpuFallbackByOutputPixels) {
+  constexpr std::size_t kFhdPixels = 1920U * 1080U;
+  constexpr std::size_t kQhd540Pixels = 960U * 540U;
+
+  EXPECT_EQ(wallpaper::SelectDecodeOpenLongRunLevel(0, true, kFhdPixels), 1);
+  EXPECT_EQ(wallpaper::SelectDecodeOpenLongRunLevel(0, true, kQhd540Pixels), 0);
+  EXPECT_EQ(wallpaper::SelectDecodeOpenLongRunLevel(1, true, kFhdPixels), 1);
+  EXPECT_EQ(wallpaper::SelectDecodeOpenLongRunLevel(2, true, kFhdPixels), 2);
+}
+
+TEST_CASE(DecodeOutputPolicy_SelectsDecodeOpenLevelKeepsNonCpuPathBehavior) {
+  constexpr std::size_t kFhdPixels = 1920U * 1080U;
+  EXPECT_EQ(wallpaper::SelectDecodeOpenLongRunLevel(0, false, kFhdPixels), 0);
+  EXPECT_EQ(wallpaper::SelectDecodeOpenLongRunLevel(1, false, kFhdPixels), 0);
+  EXPECT_EQ(wallpaper::SelectDecodeOpenLongRunLevel(2, false, kFhdPixels), 2);
+}
+
+TEST_CASE(DecodeOutputPolicy_PrefersHardwareTransformsForCpuFallbackUntilHighPressure) {
+  EXPECT_TRUE(wallpaper::ShouldPreferHardwareTransformsForDecodeOpen(0, true));
+  EXPECT_TRUE(wallpaper::ShouldPreferHardwareTransformsForDecodeOpen(1, true));
+  EXPECT_TRUE(!wallpaper::ShouldPreferHardwareTransformsForDecodeOpen(2, true));
+  EXPECT_TRUE(wallpaper::ShouldPreferHardwareTransformsForDecodeOpen(1, false));
+}

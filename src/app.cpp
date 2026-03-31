@@ -1,5 +1,6 @@
 #include "wallpaper/app.h"
 #include "wallpaper/desktop_context_policy.h"
+#include "wallpaper/decode_output_policy.h"
 #include "wallpaper/decode_token_gate_policy.h"
 #include "wallpaper/frame_bridge.h"
 #include "wallpaper/long_run_load_policy.h"
@@ -551,6 +552,8 @@ void App::ResetPlaybackState(const bool resetLongRunState) {
   lastTrayInteractionAt_ = RenderScheduler::Clock::time_point{};
   lastDecodeMode_ = DecodeMode::kUnknown;
   lastDecodePath_ = DecodePath::kUnknown;
+  lastDecodeInteropStage_ = DecodeInteropStage::kUnknown;
+  lastDecodeInteropHresult_ = 0;
   decodeCopyBytesInWindow_ = 0;
   lastDecodeOutputPixels_ = 0;
   lastSessionProbeAt_ = RenderScheduler::Clock::time_point{};
@@ -586,6 +589,7 @@ void App::ResetPlaybackState(const bool resetLongRunState) {
   decodeThreadQos_.store(static_cast<int>(RuntimeThreadQos::kNormal));
   decodeWarmupActive_.store(false);
   decodeOpenLongRunLevel_ = 0;
+  decodeOpenPreferHardwareTransforms_ = true;
   {
     std::lock_guard<std::mutex> lock(decodedTokenMu_);
     hasLatestDecodedToken_ = false;
@@ -597,7 +601,8 @@ void App::ResetPlaybackState(const bool resetLongRunState) {
 bool App::StartVideoPipelineForPath(const std::string& path, const int longRunLoadLevel,
                                     const bool resetLongRunState,
                                     const bool startDecodeImmediately,
-                                    const bool allowCachedPathProbe) {
+                                    const bool allowCachedPathProbe,
+                                    const bool preferHardwareTransforms) {
   if (!decodePipeline_) {
     return false;
   }
@@ -612,7 +617,7 @@ bool App::StartVideoPipelineForPath(const std::string& path, const int longRunLo
   openProfile.codecPolicy = config_.codecPolicy;
   openProfile.adaptiveQualityEnabled = config_.adaptiveQuality;
   openProfile.longRunLoadLevel = longRunLoadLevel;
-  openProfile.preferHardwareTransforms = true;
+  openProfile.preferHardwareTransforms = preferHardwareTransforms;
   openProfile.requireHardwareTransforms = false;
   if (!decodePipeline_->Open(path, openProfile)) {
     decodeOpened_.store(false);
@@ -637,6 +642,7 @@ bool App::StartVideoPipelineForPath(const std::string& path, const int longRunLo
   }
   ResetPlaybackState(resetLongRunState);
   decodeOpenLongRunLevel_ = longRunLoadLevel;
+  decodeOpenPreferHardwareTransforms_ = preferHardwareTransforms;
   if (startDecodeImmediately) {
     WakeDecodePump();
   }
@@ -1127,7 +1133,8 @@ void App::Tick() {
             decodePipeline_->Open(config_.videoPath, DecodeOpenProfile{config_.codecPolicy,
                                                                        config_.adaptiveQuality,
                                                                        decodeOpenLongRunLevel_,
-                                                                       true, false})) {
+                                                                       decodeOpenPreferHardwareTransforms_,
+                                                                       false})) {
           // 在退出 pause 迟滞窗口内预热 Open，恢复时只需 Start，降低解冻卡顿。
           decodeOpened_.store(true);
           decodeRunning_.store(false);
@@ -1216,7 +1223,8 @@ void App::Tick() {
   }
 
   if (resumePipelinePending_ && now >= nextResumeAttemptAt_) {
-    if (StartVideoPipelineForPath(config_.videoPath, decodeOpenLongRunLevel_, false, true, true)) {
+    if (StartVideoPipelineForPath(config_.videoPath, decodeOpenLongRunLevel_, false, true, true,
+                                  decodeOpenPreferHardwareTransforms_)) {
       resumePipelinePending_ = false;
       resumePipelineRetryFailures_ = 0;
       nextResumeAttemptAt_ = RenderScheduler::Clock::time_point{};
@@ -1273,6 +1281,8 @@ void App::Tick() {
   if (hasNewDecodedToken) {
     lastDecodeMode_ = frame.decodeMode;
     lastDecodePath_ = frame.decodePath;
+    lastDecodeInteropStage_ = frame.decodeInteropStage;
+    lastDecodeInteropHresult_ = frame.decodeInteropHresult;
     decodeCopyBytesInWindow_ += frame.cpuCopyBytes;
     if (frame.width > 0 && frame.height > 0) {
       lastDecodeOutputPixels_ =
@@ -1375,14 +1385,26 @@ void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameD
   }
   if (hasActiveVideo && config_.adaptiveQuality &&
       IsCpuFallbackDecodePath(lastDecodePath_)) {
-    const int desiredDecodeOpenLevel = longRunLoadState_.level >= 2 ? 2 : 0;
-    if (desiredDecodeOpenLevel != decodeOpenLongRunLevel_) {
+    const int desiredDecodeOpenLevel =
+        SelectDecodeOpenLongRunLevel(longRunLoadState_.level, true, lastDecodeOutputPixels_);
+    const bool desiredPreferHardwareTransforms =
+        ShouldPreferHardwareTransformsForDecodeOpen(desiredDecodeOpenLevel, true);
+    if (desiredDecodeOpenLevel != decodeOpenLongRunLevel_ ||
+        desiredPreferHardwareTransforms != decodeOpenPreferHardwareTransforms_) {
+      const int previousDecodeOpenLevel = decodeOpenLongRunLevel_;
+      const bool previousPreferHardwareTransforms = decodeOpenPreferHardwareTransforms_;
       const std::string currentPath = config_.videoPath;
       if (ShouldActivateVideoPipelineCached(currentPath, false, now)) {
         decodePipeline_->Stop();
         decodeOpened_.store(false);
         decodeRunning_.store(false);
-        StartVideoPipelineForPath(currentPath, desiredDecodeOpenLevel, false);
+        const bool reopened = StartVideoPipelineForPath(
+            currentPath, desiredDecodeOpenLevel, false, true, true,
+            desiredPreferHardwareTransforms);
+        if (!reopened) {
+          StartVideoPipelineForPath(currentPath, previousDecodeOpenLevel, false, true, true,
+                                   previousPreferHardwareTransforms);
+        }
       }
     }
   }
@@ -1395,7 +1417,9 @@ void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameD
                                                   config_.adaptiveQuality, lastDecodeMode_,
                                                   lastDecodePath_, longRunLoadState_.level,
                                                   decodePumpHotSleepMs_.load(),
-                                                  decodeCopyBytesInWindow_))) {
+                                                  decodeCopyBytesInWindow_,
+                                                  lastDecodeInteropStage_,
+                                                  lastDecodeInteropHresult_))) {
     // I/O 失败时静默降级，避免主渲染循环被监控路径反向影响。
   }
 

@@ -102,4 +102,28 @@ bool ShouldUseLegacySourceReaderVideoProcessing(
   return !(tryD3DInterop && enableAdvancedVideoProcessing);
 }
 
+int SelectDecodeOpenLongRunLevel(const int longRunLoadLevel, const bool cpuFallbackPath,
+                                 const std::size_t decodeOutputPixels) noexcept {
+  if (longRunLoadLevel >= 2) {
+    return 2;
+  }
+  if (!cpuFallbackPath) {
+    return 0;
+  }
+
+  constexpr std::size_t kCpuFallbackPixelTarget = 960U * 540U;
+  if (decodeOutputPixels > kCpuFallbackPixelTarget) {
+    return 1;
+  }
+  return 0;
+}
+
+bool ShouldPreferHardwareTransformsForDecodeOpen(const int decodeOpenLongRunLevel,
+                                                 const bool cpuFallbackPath) noexcept {
+  if (!cpuFallbackPath) {
+    return true;
+  }
+  return decodeOpenLongRunLevel <= 1;
+}
+
 }  // namespace wallpaper

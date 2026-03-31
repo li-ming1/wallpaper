@@ -703,3 +703,17 @@ Phase 79
 - [x] Experiment: `max-only hard WS cap(20MB)`，验证结果为“指标表面下降但出现显著抖动/解码停摆风险”，已回滚该方案
 - [ ] Remaining risk: `decode_path` 仍为 `cpu_nv12_fallback` 且 `decode_output_pixels=2073600`，内存峰值仍远高于 20MB
 - **Status:** complete
+
+### Phase 90: CPU Fallback 重开策略接线与回滚保护（Completed）
+- [x] Red: 调整 `decode_output_policy` 测试，要求 CPU fallback level1 仍保持硬件优先并先触发失败
+- [x] Green: `App::MaybeSampleAndLogMetrics` 接入 `SelectDecodeOpenLongRunLevel(...)`，按 `decode_output_pixels` 触发降档重开（不再仅 0/2 两档）
+- [x] Green: `StartVideoPipelineForPath(...)` 新增 `preferHardwareTransforms` 入参，记录当前 open 偏好并贯穿 warm-resume/retry 路径
+- [x] Green: 新增重开失败自动回滚到旧档位与旧偏好，避免降档失败导致停播
+- [x] Verification: `scripts/run_tests.ps1 -BuildDir build_tmp/test_red_iter`（Red，202/202 中 1 例失败，符合预期）
+- [x] Verification: `scripts/run_tests.ps1 -BuildDir build_tmp/test_green_iter`（Green，202/202 PASS）
+- [x] Verification: `scripts/build_app.ps1 -BuildDir build_tmp/app_iter`（PASS）
+- [x] Verification: `scripts/bench_perf.ps1`（desktop, 12s, warmup 6s, sample 500ms）+ `build_tmp/app_iter/metrics_20260331.csv` 对照
+  - 本机样本：`decode_path=cpu_nv12_fallback`、`decode_output_pixels=2073600` 仍未下降
+  - 本机样本：`private_bytes≈98MB`、`working_set≈105MB`，未达目标
+- [ ] Remaining risk: 当前机器上 SourceReader 尺寸 hint 仍未落地，下一轮需引入“显式缩放链路（非仅 hint）”
+- **Status:** complete

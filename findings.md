@@ -577,3 +577,12 @@
 - 当前真实边界：
   - 在“保持动态壁纸连续可用 + CPU fallback + 1080p 输出未降级”前提下，可稳定做到 CPU 接近目标；
   - 但内存峰值仍显著高于 `20MB`，且强压到 20MB 会触发明显性能/连续性副作用。
+- 2026-03-31 新增发现：`App` 运行态 adaptive reopen 之前只按 `longRun>=2` 才切到 decode open level2，导致 `longRun=1` 且 `decode_output_pixels` 长期 1080p 时不会触发真正降档重开。
+- 2026-03-31 新增决策：
+  - 在 `App::MaybeSampleAndLogMetrics` 接入 `SelectDecodeOpenLongRunLevel(...)`，让 CPU fallback 在高像素输出下可触发 level1 重开。
+  - 新增 `preferHardwareTransforms` 贯穿 open/resume 路径，并记录当前 open 偏好用于恢复。
+  - 新增重开失败自动回滚到旧档位，避免降档尝试导致播放中断回归。
+- 2026-03-31 本机验证（`build_tmp/app_iter`）：
+  - 单测：`test_red_iter` 按预期失败 1 例，`test_green_iter` 202/202 PASS；构建 PASS。
+  - 基准（desktop 12s / warmup 6s）：`decode_path=cpu_nv12_fallback`、`decode_output_pixels=2073600` 仍未下降。
+  - 结论：仅靠 SourceReader 尺寸 hint 仍不足以稳定压到目标，下一轮必须引入可控显式缩放链路。

@@ -42,7 +42,8 @@ class App final {
   bool StartVideoPipelineForPath(const std::string& path, int longRunLoadLevel = 0,
                                  bool resetLongRunState = true,
                                  bool startDecodeImmediately = true,
-                                 bool allowCachedPathProbe = false);
+                                 bool allowCachedPathProbe = false,
+                                 bool preferHardwareTransforms = true);
   void ApplyRenderFpsCap(int governorFps);
   void StartDecodePump();
   void StopDecodePump();
@@ -92,6 +93,8 @@ class App final {
   std::vector<double> presentSamplesMs_;
   DecodeMode lastDecodeMode_ = DecodeMode::kUnknown;
   DecodePath lastDecodePath_ = DecodePath::kUnknown;
+  DecodeInteropStage lastDecodeInteropStage_ = DecodeInteropStage::kUnknown;
+  std::int32_t lastDecodeInteropHresult_ = 0;
   FrameToken lastPresentedFrame_{};
   bool hasLastPresentedFrame_ = false;
   RenderScheduler::Clock::time_point lastPresentedAt_{};
@@ -132,6 +135,7 @@ class App final {
   std::size_t decodeCopyBytesInWindow_ = 0;
   std::size_t lastDecodeOutputPixels_ = 0;
   int decodeOpenLongRunLevel_ = 0;
+  bool decodeOpenPreferHardwareTransforms_ = true;
   std::string videoPathProbeCachePath_;
   bool videoPathProbeCacheValid_ = false;
   RenderScheduler::Clock::time_point videoPathProbeCacheCheckedAt_{};
