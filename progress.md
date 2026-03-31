@@ -1953,3 +1953,20 @@
   - `scripts/run_tests.ps1 -BuildDir build_tmp/test_speed_final` -> 204/204 PASS
   - `scripts/build_app.ps1 -BuildDir build_tmp/app_speed_final` -> PASS
   - `scripts/bench_perf.ps1` (`pauseWhenNotDesktopContext=false`) -> CPU avg 0.8466%, p95 1.3432%
+
+### Phase 92: Playback Speed Boost Iteration
+- **Status:** complete
+- Actions taken:
+  - Tightened realtime clamp policy to bias faster decode cadence while preserving 1x guardrails.
+  - Updated policy tests and re-ran full suite.
+  - Built `app_speed_boost` and ran desktop benchmark with active video config.
+- Files created/modified:
+  - src/loop_sleep_policy.cpp
+  - tests/loop_sleep_policy_tests.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md
+- Verification summary:
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/test_speed_boost_green2` -> 204/204 PASS
+  - `scripts/build_app.ps1 -BuildDir build_tmp/app_speed_boost` -> PASS
+  - `scripts/bench_perf.ps1` -> cpu_avg 0.7534%, cpu_p95 1.7334%, decode_hot_sleep_ms=29

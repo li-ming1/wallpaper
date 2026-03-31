@@ -730,3 +730,14 @@ Phase 79
   - 未再出现 `fallback_ticker` 回归
 - [ ] Remaining risk: `decode_output_pixels` 仍是 1080p，内存峰值仍高于 20MB
 - **Status:** complete
+
+### Phase 92: 播放速度再提一档（Completed）
+- [x] Red: 收紧 realtime clamp 测试目标（30fps 上限 `31ms -> 29ms`，24fps 上限 `39ms -> 37ms`）并验证失败
+- [x] Green: `ClampDecodePumpHotSleepForRealtime` 裕量由 `2ms -> 4ms`，降低 decode hot-sleep 上限以提升播放节奏
+- [x] Verification: `scripts/run_tests.ps1 -BuildDir build_tmp/test_speed_boost_green2`（204/204 PASS）
+- [x] Verification: `scripts/build_app.ps1 -BuildDir build_tmp/app_speed_boost`（PASS）
+- [x] Verification: `bench_perf`（desktop 12s/warmup 6s，pauseWhenNotDesktopContext=false）
+  - speed_final: `cpu_avg=0.8466`, `cpu_p95=1.3432`, `decode_hot_sleep_ms=31`
+  - speed_boost: `cpu_avg=0.7534`, `cpu_p95=1.7334`, `decode_hot_sleep_ms=29`
+  - `decode_mode=mf`, `decode_path=cpu_nv12_fallback`，未出现 fallback_ticker 回归
+- **Status:** complete

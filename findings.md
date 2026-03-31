@@ -593,3 +593,6 @@
 - 2026-03-31 方案取舍：
   - 试验“consume 后立即续读”（非 lazy read）可提升激进追帧，但本项目当前策略下会显著抬高 CPU 并触发 `fallback_ticker` 回归，已回退。
 - 2026-03-31 验证结果（`app_speed_final`）：`cpu_avg=0.8466`、`cpu_p95=1.3432`，`decode_hot_sleep_ms` 稳定在 `31`（30fps素材），`decode_mode` 保持 `mf`，未复现 `fallback_ticker`。
+- 2026-03-31 追加速度迭代：将 realtime hot-sleep 裁剪裕量从 2ms 提高到 4ms，30fps 素材稳定上限从 31ms 下调到 29ms（24fps 从 39ms 下调到 37ms）。
+- 验证：`app_speed_boost` 样本中 `decode_hot_sleep_ms` 长段稳定在 `29`，`decode_mode=mf` 保持稳定，未再出现 `fallback_ticker`。
+- 性能观测：`cpu_avg` 下降到 `0.7534`，`cpu_p95` 有波动（`1.7334`）但仍在可控范围。
