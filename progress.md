@@ -1877,3 +1877,32 @@
   - src/decode_output_policy.cpp
   - src/win/decode_pipeline_stub.cpp
   - tests/decode_output_policy_tests.cpp
+
+### Phase 89: CPU 优先收敛与 WS 上限实验
+- **Status:** complete
+- **Completed:** 2026-03-31 11:35
+- Actions taken:
+  - Red: 将 `decode_output_policy` 测试阈值收紧到 `540p/432p/360p` 并验证失败。
+  - Green: 落地新阈值策略，补强 `decode_pipeline_stub` 的协商重试校验路径。
+  - Green: 回滚 `MFStartup` 到 `MFSTARTUP_LITE`，回滚 hard-cap 主线实现，保持稳定播放路径。
+  - Experiment: 单独验证 `max-only hard WS cap=20MB`，确认存在明显 p95 抬升与解码停摆风险后放弃。
+- Verification:
+  - `./scripts/run_tests.ps1 -BuildDir build_tmp/phase89_final_tests` -> pass (199/199)
+  - `./scripts/build_app.ps1 -BuildDir build_tmp/phase89_final_app` -> pass
+  - `./scripts/bench_perf.ps1 -ExePath build_tmp/phase89_final_app/wallpaper_app.exe -Scenario desktop -DurationSec 12 -WarmupSec 6 -SampleMs 500 -Tag phase89_ab_phase89_final_r1`
+    - CPU avg `0.9438%`, CPU p95 `1.5334%`, WS max `45.14MB`
+- Notes:
+  - `metrics_20260331.csv` 仍为 `decode_path=cpu_nv12_fallback` + `decode_output_pixels=2073600`。
+  - `hard WS cap` 实验样本：WS 可压近 `20MB`，但 CPU p95 抬升并伴随 `decode_copy_bytes_per_sec` 归零样本，已确认不可作为主线。
+- Files modified:
+  - include/wallpaper/decode_output_policy.h
+  - src/decode_output_policy.cpp
+  - src/win/decode_pipeline_stub.cpp
+  - tests/decode_output_policy_tests.cpp
+  - src/main.cpp
+  - include/wallpaper/runtime_trim_policy.h
+  - src/runtime_trim_policy.cpp
+  - tests/runtime_trim_policy_tests.cpp
+  - task_plan.md
+  - findings.md
+  - progress.md

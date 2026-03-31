@@ -556,3 +556,24 @@
 - 结论：
   - 平均 CPU 继续下降，但 `decode_path` 仍固定为 `cpu_nv12_fallback`，未进入 `dxva_zero_copy`。
   - 在不降分辨率/不降目标帧率前提下，`WS max < 20MB` 仍未接近达标。
+
+## 2026-03-31 11:35:12 Phase 89 结论（CPU 优先收敛 + WS 上限实验）
+- 本轮实现：
+  - `decode_output_policy` 从 `720p/540p` 下探到 `540p/432p/360p`（CPU fallback + adaptive）。
+  - `decode_pipeline_stub` 增加“重试后协商结果再校验”路径，避免重试轮次静默跳过失败状态。
+  - 回滚 `MFStartup(MFSTARTUP_FULL)` 到 `MFSTARTUP_LITE`，保持轻量运行时初始化。
+  - 回滚“硬工作集封顶”主线策略，避免长期换页抖动。
+- 主线验证（`phase89_final_app`, desktop 12s, warmup 6s）：
+  - `cpu_avg_percent = 0.9438`
+  - `cpu_p95_percent = 1.5334`
+  - `working_set_bytes_max = 45.14MB`
+  - `private_bytes_max = 105.80MB`
+- 关键观测：
+  - `metrics_20260331.csv` 仍显示 `decode_path=cpu_nv12_fallback`、`decode_output_pixels=2073600`。
+  - 说明 SourceReader 输出尺寸 hint 在该机型/该链路上仍未真正落地，CPU fallback 仍按 1080p 处理。
+- 对照实验（max-only hard cap 20MB）：
+  - 结果可把 WS 压到约 `20.94MB`，但 `cpu_p95` 拉高到 `3.86%`，并出现 `decode_copy_bytes_per_sec -> 0` 的停摆样本。
+  - 判定：该策略属于“以内存数字换可用性”，不满足质量要求，已回滚。
+- 当前真实边界：
+  - 在“保持动态壁纸连续可用 + CPU fallback + 1080p 输出未降级”前提下，可稳定做到 CPU 接近目标；
+  - 但内存峰值仍显著高于 `20MB`，且强压到 20MB 会触发明显性能/连续性副作用。

@@ -26,7 +26,7 @@ TEST_CASE(DecodeOutputPolicy_GpuPathKeepsDesktopHint) {
   EXPECT_EQ(hint.height, 2160U);
 }
 
-TEST_CASE(DecodeOutputPolicy_CpuPathCapsPixelsAt720pInNormalPressure) {
+TEST_CASE(DecodeOutputPolicy_CpuPathCapsPixelsAt540pInNormalPressure) {
   wallpaper::DecodeOutputOptions options;
   options.desktopWidth = 3840;
   options.desktopHeight = 2160;
@@ -35,11 +35,11 @@ TEST_CASE(DecodeOutputPolicy_CpuPathCapsPixelsAt720pInNormalPressure) {
   options.longRunLoadLevel = 0;
 
   const wallpaper::DecodeOutputHint hint = wallpaper::SelectDecodeOutputHint(options);
-  EXPECT_EQ(hint.width, 1280U);
-  EXPECT_EQ(hint.height, 720U);
+  EXPECT_EQ(hint.width, 960U);
+  EXPECT_EQ(hint.height, 540U);
 }
 
-TEST_CASE(DecodeOutputPolicy_CpuPathKeeps720pAtMediumPressure) {
+TEST_CASE(DecodeOutputPolicy_CpuPathDropsTo432pAtMediumPressure) {
   wallpaper::DecodeOutputOptions options;
   options.desktopWidth = 3840;
   options.desktopHeight = 2160;
@@ -48,11 +48,11 @@ TEST_CASE(DecodeOutputPolicy_CpuPathKeeps720pAtMediumPressure) {
   options.longRunLoadLevel = 1;
 
   const wallpaper::DecodeOutputHint hint = wallpaper::SelectDecodeOutputHint(options);
-  EXPECT_EQ(hint.width, 1280U);
-  EXPECT_EQ(hint.height, 720U);
+  EXPECT_EQ(hint.width, 768U);
+  EXPECT_EQ(hint.height, 432U);
 }
 
-TEST_CASE(DecodeOutputPolicy_CpuPathDropsTo540pAtHighPressure) {
+TEST_CASE(DecodeOutputPolicy_CpuPathDropsTo360pAtHighPressure) {
   wallpaper::DecodeOutputOptions options;
   options.desktopWidth = 3840;
   options.desktopHeight = 2160;
@@ -61,21 +61,21 @@ TEST_CASE(DecodeOutputPolicy_CpuPathDropsTo540pAtHighPressure) {
   options.longRunLoadLevel = 2;
 
   const wallpaper::DecodeOutputHint hint = wallpaper::SelectDecodeOutputHint(options);
-  EXPECT_EQ(hint.width, 960U);
-  EXPECT_EQ(hint.height, 540U);
+  EXPECT_EQ(hint.width, 640U);
+  EXPECT_EQ(hint.height, 360U);
 }
 
 TEST_CASE(DecodeOutputPolicy_CpuPathKeepsSmallFrames) {
   wallpaper::DecodeOutputOptions options;
-  options.desktopWidth = 1280;
-  options.desktopHeight = 720;
+  options.desktopWidth = 960;
+  options.desktopHeight = 540;
   options.adaptiveQualityEnabled = true;
   options.cpuFallbackPath = true;
   options.longRunLoadLevel = 2;
 
   const wallpaper::DecodeOutputHint hint = wallpaper::SelectDecodeOutputHint(options);
-  EXPECT_EQ(hint.width, 1280U);
-  EXPECT_EQ(hint.height, 720U);
+  EXPECT_EQ(hint.width, 960U);
+  EXPECT_EQ(hint.height, 540U);
 }
 
 TEST_CASE(DecodeOutputPolicy_ZeroInputReturnsZero) {
@@ -111,7 +111,7 @@ TEST_CASE(DecodeOutputPolicy_NoRetryWhenCpuFallbackNegotiationHonorsHint) {
   options.longRunLoadLevel = 0;
 
   EXPECT_TRUE(
-      !wallpaper::ShouldRetryDecodeOpenWithVideoProcessing(options, 1280, 720));
+      !wallpaper::ShouldRetryDecodeOpenWithVideoProcessing(options, 960, 540));
 }
 
 TEST_CASE(DecodeOutputPolicy_NoRetryWhenAdaptiveDisabledOrGpuPath) {

@@ -399,25 +399,22 @@ class DecodePipelineStub final : public IDecodePipeline {
         if (SUCCEEDED(localHr)) {
           localHr = outType->SetGUID(MF_MT_SUBTYPE, subtype);
         }
-        if (SUCCEEDED(localHr) && withDesktopHint) {
-          if (desktopHintWidth > 0 && desktopHintHeight > 0) {
-            const bool gpuInteropSubtype =
-                IsEqualGUID(subtype, MFVideoFormat_ARGB32) ||
-                IsEqualGUID(subtype, MFVideoFormat_RGB32);
-            const bool cpuFallbackPath =
-                !(mfD3DInteropEnabled_ && gpuInteropSubtype);
-            DecodeOutputOptions outputOptions;
-            outputOptions.desktopWidth = desktopHintWidth;
-            outputOptions.desktopHeight = desktopHintHeight;
-            outputOptions.adaptiveQualityEnabled = openProfile_.adaptiveQualityEnabled;
-            outputOptions.cpuFallbackPath = cpuFallbackPath;
-            outputOptions.longRunLoadLevel = openProfile_.longRunLoadLevel;
-            const DecodeOutputHint selectedHint = SelectDecodeOutputHint(outputOptions);
-            if (selectedHint.width > 0 && selectedHint.height > 0) {
-              // 在 CPU 回退链路对输出像素做上限控制，直接压低解码/上传成本。
-              localHr = MFSetAttributeSize(outType, MF_MT_FRAME_SIZE, selectedHint.width,
-                                           selectedHint.height);
-            }
+        if (SUCCEEDED(localHr) && withDesktopHint && desktopHintWidth > 0 && desktopHintHeight > 0) {
+          const bool gpuInteropSubtype =
+              IsEqualGUID(subtype, MFVideoFormat_ARGB32) ||
+              IsEqualGUID(subtype, MFVideoFormat_RGB32);
+          const bool cpuFallbackPath = !(mfD3DInteropEnabled_ && gpuInteropSubtype);
+          DecodeOutputOptions outputOptions;
+          outputOptions.desktopWidth = desktopHintWidth;
+          outputOptions.desktopHeight = desktopHintHeight;
+          outputOptions.adaptiveQualityEnabled = openProfile_.adaptiveQualityEnabled;
+          outputOptions.cpuFallbackPath = cpuFallbackPath;
+          outputOptions.longRunLoadLevel = openProfile_.longRunLoadLevel;
+          const DecodeOutputHint selectedHint = SelectDecodeOutputHint(outputOptions);
+          if (selectedHint.width > 0 && selectedHint.height > 0) {
+            // 在 CPU 回退链路对输出像素做上限控制，直接压低解码/上传成本。
+            localHr = MFSetAttributeSize(outType, MF_MT_FRAME_SIZE, selectedHint.width,
+                                         selectedHint.height);
           }
         }
         if (SUCCEEDED(localHr)) {
@@ -428,6 +425,20 @@ class DecodePipelineStub final : public IDecodePipeline {
           outType->Release();
         }
         return localHr;
+      };
+
+      const auto queryNegotiatedFrameSize = [&](UINT32* const width, UINT32* const height) -> bool {
+        if (width == nullptr || height == nullptr) {
+          return false;
+        }
+        IMFMediaType* outType = nullptr;
+        HRESULT localHr = reader->GetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, &outType);
+        if (FAILED(localHr) || outType == nullptr) {
+          return false;
+        }
+        localHr = MFGetAttributeSize(outType, MF_MT_FRAME_SIZE, width, height);
+        outType->Release();
+        return SUCCEEDED(localHr) && *width > 0 && *height > 0;
       };
 
       GUID preferredSubtypes[2]{};
@@ -441,6 +452,10 @@ class DecodePipelineStub final : public IDecodePipeline {
       }
 
       bool configured = false;
+      bool retryWithVideoProcessing = false;
+      UINT32 negotiatedWidth = 0;
+      UINT32 negotiatedHeight = 0;
+
       for (int i = 0; i < preferredSubtypeCount; ++i) {
         const GUID& subtype = preferredSubtypes[i];
         hr = setOutType(true, subtype);
@@ -448,29 +463,17 @@ class DecodePipelineStub final : public IDecodePipeline {
           // 某些编解码链路不接受帧大小提示，回退到默认输出协商。
           hr = setOutType(false, subtype);
         }
-        if (SUCCEEDED(hr)) {
-          selectedOutputSubtype_ = subtype;
-          configured = true;
-          break;
+        if (FAILED(hr)) {
+          continue;
         }
-      }
-      if (!configured) {
-        return false;
-      }
+        if (!queryNegotiatedFrameSize(&negotiatedWidth, &negotiatedHeight)) {
+          continue;
+        }
 
-      IMFMediaType* outType = nullptr;
-      hr = reader->GetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, &outType);
-      if (FAILED(hr) || outType == nullptr) {
-        return false;
-      }
-      hr = MFGetAttributeSize(outType, MF_MT_FRAME_SIZE, outWidth, outHeight);
-      outType->Release();
-      if (!SUCCEEDED(hr) || *outWidth == 0 || *outHeight == 0) {
-        return false;
-      }
+        selectedOutputSubtype_ = subtype;
+        configured = true;
+        retryWithVideoProcessing = false;
 
-      if (outRetryWithVideoProcessing != nullptr) {
-        *outRetryWithVideoProcessing = false;
         if (desktopHintWidth > 0 && desktopHintHeight > 0) {
           const bool gpuInteropSubtype =
               IsEqualGUID(selectedOutputSubtype_, MFVideoFormat_ARGB32) ||
@@ -483,9 +486,20 @@ class DecodePipelineStub final : public IDecodePipeline {
           outputOptions.adaptiveQualityEnabled = openProfile_.adaptiveQualityEnabled;
           outputOptions.cpuFallbackPath = cpuFallbackPath;
           outputOptions.longRunLoadLevel = openProfile_.longRunLoadLevel;
-          *outRetryWithVideoProcessing = ShouldRetryDecodeOpenWithVideoProcessing(
-              outputOptions, *outWidth, *outHeight);
+          retryWithVideoProcessing = ShouldRetryDecodeOpenWithVideoProcessing(
+              outputOptions, negotiatedWidth, negotiatedHeight);
         }
+        break;
+      }
+
+      if (!configured) {
+        return false;
+      }
+
+      *outWidth = negotiatedWidth;
+      *outHeight = negotiatedHeight;
+      if (outRetryWithVideoProcessing != nullptr) {
+        *outRetryWithVideoProcessing = retryWithVideoProcessing;
       }
       return true;
     };
@@ -513,19 +527,19 @@ class DecodePipelineStub final : public IDecodePipeline {
           ShouldRequireD3DInteropBinding(cpuFallbackOutputOptions, preserveD3DInterop, false);
       opened = createReader(true, preserveD3DInterop, enableAdvancedVideoProcessing,
                             requireD3DOnRetry, &reader) &&
-               configureReader(reader, &width, &height, nullptr);
+               configureReader(reader, &width, &height, &retryWithVideoProcessing);
       retriedWithD3DInterop = preserveD3DInterop;
-      if (!opened && retriedWithD3DInterop) {
+      if ((!opened || retryWithVideoProcessing) && retriedWithD3DInterop) {
         if (reader != nullptr) {
           reader->Release();
           reader = nullptr;
         }
         opened = createReader(true, false, enableAdvancedVideoProcessing, false, &reader) &&
-                 configureReader(reader, &width, &height, nullptr);
+                 configureReader(reader, &width, &height, &retryWithVideoProcessing);
       }
       attemptedSoftwareFallback = true;
     }
-    if (!opened) {
+    if (!opened || retryWithVideoProcessing) {
       if (reader != nullptr) {
         reader->Release();
         reader = nullptr;
@@ -534,15 +548,15 @@ class DecodePipelineStub final : public IDecodePipeline {
         // 某些设备/编码器必须启用软件视频处理才能协商到 RGB32。
         opened = createReader(true, openProfile_.preferHardwareTransforms,
                               enableAdvancedVideoProcessing, requireD3DOnHardwareAttempt, &reader) &&
-                 configureReader(reader, &width, &height, nullptr);
-        if (!opened && openProfile_.preferHardwareTransforms) {
+                 configureReader(reader, &width, &height, &retryWithVideoProcessing);
+        if ((!opened || retryWithVideoProcessing) && openProfile_.preferHardwareTransforms) {
           if (reader != nullptr) {
             reader->Release();
             reader = nullptr;
           }
           // 最后再退回纯软件路径，避免过早放弃 D3D 互操作。
           opened = createReader(true, false, enableAdvancedVideoProcessing, false, &reader) &&
-                   configureReader(reader, &width, &height, nullptr);
+                   configureReader(reader, &width, &height, &retryWithVideoProcessing);
         }
       }
     }

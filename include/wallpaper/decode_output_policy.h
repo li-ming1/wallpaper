@@ -20,7 +20,7 @@ struct DecodeOutputOptions final {
 // 选择 SourceReader 输出尺寸提示：
 // - 自适应关闭：保持桌面分辨率；
 // - GPU 零拷贝路径：保持桌面分辨率；
-// - CPU 回退路径 + 自适应开启：常态限制到 720p，高压长期运行再降到 540p。
+// - CPU 回退路径 + 自适应开启：常态限制到 540p，中压降到 432p，高压降到 360p。
 [[nodiscard]] DecodeOutputHint SelectDecodeOutputHint(const DecodeOutputOptions& options) noexcept;
 
 // 当 CPU 回退路径在自适应开启时协商结果高于目标 hint，建议切到 video processing 重试一次。

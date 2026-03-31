@@ -3,6 +3,7 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#include <objbase.h>
 #endif
 
 #include <cstring>
@@ -166,10 +167,37 @@ class ScopedSingleInstanceMutex final {
   bool mutexAcquired_ = false;
   bool lockFileAcquired_ = false;
 };
+
+class ScopedComInit final {
+ public:
+  ScopedComInit() {
+    const HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    if (SUCCEEDED(hr)) {
+      initialized_ = true;
+      return;
+    }
+    if (hr == RPC_E_CHANGED_MODE) {
+      // 若外部已以其他模型初始化 COM，不重复初始化，沿用当前线程模型。
+      initialized_ = false;
+      return;
+    }
+    initialized_ = false;
+  }
+
+  ~ScopedComInit() {
+    if (initialized_) {
+      CoUninitialize();
+    }
+  }
+
+ private:
+  bool initialized_ = false;
+};
 #endif
 
 int RunWallpaperApp() {
 #ifdef _WIN32
+  ScopedComInit comInit;
   ScopedSingleInstanceMutex singleInstanceMutex;
   const bool guardAcquired = singleInstanceMutex.TryAcquire();
   if (!wallpaper::ShouldAllowSingleInstanceStartup(guardAcquired && singleInstanceMutex.mutex_acquired(),

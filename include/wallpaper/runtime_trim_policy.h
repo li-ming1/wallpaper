@@ -16,7 +16,7 @@ namespace wallpaper {
 
 // 运行态 working-set 回收门控：
 // - 仅在活跃视频 + CPU 回退路径下考虑；
-// - long-run 越高，触发阈值越低（0:64MB, 1:40MB, >=2:32MB）。
+// - long-run 越高，触发阈值越低（0:20MB, 1:18MB, >=2:16MB）。
 [[nodiscard]] bool ShouldRequestWorkingSetTrim(bool hasActiveVideo, DecodePath decodePath,
                                                std::size_t workingSetBytes,
                                                int longRunLoadLevel) noexcept;

@@ -14,11 +14,15 @@ DecodeOutputHint SelectDecodeOutputHint(const DecodeOutputOptions& options) noex
     return hint;
   }
 
-  const double maxPixels =
-      options.longRunLoadLevel >= 2 ? (960.0 * 540.0) : (1280.0 * 720.0);
+  double maxPixels = 960.0 * 540.0;
+  if (options.longRunLoadLevel >= 2) {
+    maxPixels = 640.0 * 360.0;
+  } else if (options.longRunLoadLevel >= 1) {
+    maxPixels = 768.0 * 432.0;
+  }
   const double currentPixels =
       static_cast<double>(options.desktopWidth) * static_cast<double>(options.desktopHeight);
-  constexpr double kNativeCpuFloorPixels = 1280.0 * 720.0;
+  constexpr double kNativeCpuFloorPixels = 960.0 * 540.0;
   if (currentPixels <= kNativeCpuFloorPixels) {
     return hint;
   }

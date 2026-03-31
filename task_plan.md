@@ -690,3 +690,16 @@ Phase 79
   - CPU avg `0.8978%`, CPU p95 `1.7074%`, WS max `41.43MB`
 - [ ] Remaining risk: `decode_output_pixels` 仍 `2073600`，`decode_path` 仍 `cpu_nv12_fallback`
 - **Status:** complete
+
+### Phase 89: CPU 优先收敛与 WS 上限实验（Completed）
+- [x] Red: 调整 `decode_output_policy` 目标档位测试（CPU fallback: `540p/432p/360p`）并验证失败
+- [x] Green: 实施更激进输出 hint 策略，并补强 SourceReader 重试后协商结果校验
+- [x] Green: 移除 `working-set hard cap` 旧实现（`min+max`）以消除换页抖动
+- [x] Green: `MFStartup` 从 `FULL` 回调到 `LITE`，降低运行时基础占用
+- [x] Verification: `scripts/run_tests.ps1 -BuildDir build_tmp/phase89_final_tests`（199/199 PASS）
+- [x] Verification: `scripts/build_app.ps1 -BuildDir build_tmp/phase89_final_app`（PASS）
+- [x] Verification: `phase89_final_app`（desktop, 12s, warmup 6s）
+  - CPU avg `0.9438%`, CPU p95 `1.5334%`, WS max `45.14MB`
+- [x] Experiment: `max-only hard WS cap(20MB)`，验证结果为“指标表面下降但出现显著抖动/解码停摆风险”，已回滚该方案
+- [ ] Remaining risk: `decode_path` 仍为 `cpu_nv12_fallback` 且 `decode_output_pixels=2073600`，内存峰值仍远高于 20MB
+- **Status:** complete
