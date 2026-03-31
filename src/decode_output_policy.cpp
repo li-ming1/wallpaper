@@ -78,4 +78,24 @@ bool ShouldPreserveD3DInteropOnVideoProcessingRetry(
   return options.desktopWidth > 0 && options.desktopHeight > 0;
 }
 
+bool ShouldRequireD3DInteropBinding(const DecodeOutputOptions& options,
+                                    const bool preferHardwareTransforms,
+                                    const bool requireHardwareTransforms) noexcept {
+  if (requireHardwareTransforms) {
+    return true;
+  }
+  if (!preferHardwareTransforms) {
+    return false;
+  }
+  if (!options.adaptiveQualityEnabled || !options.cpuFallbackPath) {
+    return false;
+  }
+  return options.desktopWidth > 0 && options.desktopHeight > 0;
+}
+
+bool ShouldUseLegacySourceReaderVideoProcessing(
+    const bool tryD3DInterop, const bool enableAdvancedVideoProcessing) noexcept {
+  return !(tryD3DInterop && enableAdvancedVideoProcessing);
+}
+
 }  // namespace wallpaper

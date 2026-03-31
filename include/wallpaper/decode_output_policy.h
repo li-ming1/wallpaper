@@ -38,4 +38,15 @@ struct DecodeOutputOptions final {
 [[nodiscard]] bool ShouldPreserveD3DInteropOnVideoProcessingRetry(
     const DecodeOutputOptions& options, bool preferHardwareTransforms) noexcept;
 
+// 当当前轮次声明为“硬件优先”时，是否要求本轮必须成功绑定 D3D interop；
+// 若要求绑定但失败，应把该轮视作失败并由上层进入下一轮降级策略。
+[[nodiscard]] bool ShouldRequireD3DInteropBinding(const DecodeOutputOptions& options,
+                                                  bool preferHardwareTransforms,
+                                                  bool requireHardwareTransforms) noexcept;
+
+// D3D interop + advanced processing 组合下禁用 legacy video processing，
+// 避免 SourceReader 回退到系统内存样本路径。
+[[nodiscard]] bool ShouldUseLegacySourceReaderVideoProcessing(
+    bool tryD3DInterop, bool enableAdvancedVideoProcessing) noexcept;
+
 }  // namespace wallpaper

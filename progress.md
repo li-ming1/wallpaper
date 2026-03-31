@@ -1837,3 +1837,43 @@
   - src/runtime_trim_policy.cpp
   - src/app.cpp
   - src/win/wallpaper_host_win.cpp
+
+### Phase 83: D3D 互操作绑定严格化
+- **Status:** complete
+- **Completed:** 2026-03-31 10:31
+- Actions taken:
+  - Red: 新增 `DecodeOutputPolicy_RequiresD3DInteropBinding*` 测试，确认缺失实现导致红灯。
+  - Green: 新增 `ShouldRequireD3DInteropBinding(...)` 并接入 `decode_pipeline_stub` 创建 reader 轮次。
+  - Green: 当“保留 D3D 的 video-processing 重试”失败时，追加 software-only 兜底重试，避免单轮失败直接终止。
+- Verification:
+  - `./scripts/run_tests.ps1 -BuildDir build_tmp/phase83_red` -> expected fail
+  - `./scripts/run_tests.ps1 -BuildDir build_tmp/phase83_green` -> pass (197/197)
+  - `./scripts/build_app.ps1 -BuildDir build_tmp/phase83_app` -> pass
+  - `./scripts/bench_perf.ps1 -ExePath build_tmp/phase83_app/wallpaper_app.exe -Scenario desktop -DurationSec 12 -WarmupSec 6 -SampleMs 500 -Tag phase83_ab_phase83_r1`
+    - CPU avg `1.1850%`, CPU p95 `2.0834%`, WS max `42.94MB`
+- Files modified:
+  - include/wallpaper/decode_output_policy.h
+  - src/decode_output_policy.cpp
+  - src/win/decode_pipeline_stub.cpp
+  - tests/decode_output_policy_tests.cpp
+
+### Phase 84: D3D 路径 processing 属性收敛
+- **Status:** complete
+- **Completed:** 2026-03-31 10:39
+- Actions taken:
+  - Red: 新增 `DecodeOutputPolicy_*LegacyVideoProcessing*` 测试并确认失败。
+  - Green: 新增 `ShouldUseLegacySourceReaderVideoProcessing(...)`。
+  - Green: `decode_pipeline_stub` 在 `D3D + advanced processing` 组合下禁用 `MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING`，仅保留 advanced processing。
+- Verification:
+  - `./scripts/run_tests.ps1 -BuildDir build_tmp/phase84_red` -> expected fail
+  - `./scripts/run_tests.ps1 -BuildDir build_tmp/phase84_green` -> pass (199/199)
+  - `./scripts/build_app.ps1 -BuildDir build_tmp/phase84_app` -> pass
+  - `./scripts/bench_perf.ps1 -ExePath build_tmp/phase84_app/wallpaper_app.exe -Scenario desktop -DurationSec 12 -WarmupSec 6 -SampleMs 500 -Tag phase84_ab_phase84_r1`
+    - CPU avg `0.8978%`, CPU p95 `1.7074%`, WS max `41.43MB`
+- Notes:
+  - 运行指标 `metrics_20260331.csv` 仍显示 `decode_path=cpu_nv12_fallback` 与 `decode_output_pixels=2073600`。
+- Files modified:
+  - include/wallpaper/decode_output_policy.h
+  - src/decode_output_policy.cpp
+  - src/win/decode_pipeline_stub.cpp
+  - tests/decode_output_policy_tests.cpp

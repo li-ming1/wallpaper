@@ -281,6 +281,7 @@ class DecodePipelineStub final : public IDecodePipeline {
 
     const auto createReader = [&](const bool enableVideoProcessing,
                                   const bool tryD3DInterop, const bool enableAdvancedProcessing,
+                                  const bool requireD3DInteropBinding,
                                   IMFSourceReader** const outReader) -> bool {
       if (outReader == nullptr) {
         return false;
@@ -312,8 +313,11 @@ class DecodePipelineStub final : public IDecodePipeline {
         hr = readerAttributes->SetUINT32(MF_READWRITE_USE_ONLY_HARDWARE_TRANSFORMS, TRUE);
       }
 #endif
-      if (SUCCEEDED(hr) && readerAttributes != nullptr && enableVideoProcessing) {
-        // 回退路径：在无法直接协商输出时再开启软件视频处理。
+      const bool useLegacyVideoProcessing = ShouldUseLegacySourceReaderVideoProcessing(
+          tryD3DInterop, enableAdvancedProcessing);
+      if (SUCCEEDED(hr) && readerAttributes != nullptr && enableVideoProcessing &&
+          useLegacyVideoProcessing) {
+        // 仅在非 D3D-advanced 路径启用 legacy video processing，避免无意落回系统内存样本。
         hr = readerAttributes->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, TRUE);
       }
 #if defined(MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING)
@@ -331,14 +335,24 @@ class DecodePipelineStub final : public IDecodePipeline {
               FAILED(MFCreateDXGIDeviceManager(&dxgiDeviceResetToken_, &dxgiDeviceManager_))) {
             dxgiDeviceManager_ = nullptr;
           }
-          if (dxgiDeviceManager_ != nullptr &&
-              SUCCEEDED(dxgiDeviceManager_->ResetDevice(sharedDevice, dxgiDeviceResetToken_))) {
-            if (SUCCEEDED(readerAttributes->SetUnknown(MF_SOURCE_READER_D3D_MANAGER,
-                                                       dxgiDeviceManager_))) {
-              useD3DInterop = true;
+          if (dxgiDeviceManager_ != nullptr) {
+            const HRESULT resetHr =
+                dxgiDeviceManager_->ResetDevice(sharedDevice, dxgiDeviceResetToken_);
+            if (SUCCEEDED(resetHr)) {
+              const HRESULT bindHr =
+                  readerAttributes->SetUnknown(MF_SOURCE_READER_D3D_MANAGER, dxgiDeviceManager_);
+              if (SUCCEEDED(bindHr)) {
+                useD3DInterop = true;
+              }
             }
           }
           sharedDevice->Release();
+        }
+        if (requireD3DInteropBinding && !useD3DInterop) {
+          if (readerAttributes != nullptr) {
+            readerAttributes->Release();
+          }
+          return false;
         }
       }
       if (FAILED(hr)) {
@@ -481,19 +495,35 @@ class DecodePipelineStub final : public IDecodePipeline {
     IMFSourceReader* reader = nullptr;
     bool retryWithVideoProcessing = false;
     bool attemptedSoftwareFallback = false;
-    bool opened =
-        createReader(false, openProfile_.preferHardwareTransforms, false, &reader) &&
-        configureReader(reader, &width, &height, &retryWithVideoProcessing);
+    const bool requireD3DOnHardwareAttempt = ShouldRequireD3DInteropBinding(
+        cpuFallbackOutputOptions, openProfile_.preferHardwareTransforms,
+        openProfile_.requireHardwareTransforms);
+    bool opened = createReader(false, openProfile_.preferHardwareTransforms, false,
+                               requireD3DOnHardwareAttempt, &reader) &&
+                  configureReader(reader, &width, &height, &retryWithVideoProcessing);
     if (opened && retryWithVideoProcessing && !openProfile_.requireHardwareTransforms) {
       if (reader != nullptr) {
         reader->Release();
         reader = nullptr;
       }
-      attemptedSoftwareFallback = true;
+      bool retriedWithD3DInterop = false;
       const bool preserveD3DInterop = ShouldPreserveD3DInteropOnVideoProcessingRetry(
           cpuFallbackOutputOptions, openProfile_.preferHardwareTransforms);
-      opened = createReader(true, preserveD3DInterop, enableAdvancedVideoProcessing, &reader) &&
+      const bool requireD3DOnRetry =
+          ShouldRequireD3DInteropBinding(cpuFallbackOutputOptions, preserveD3DInterop, false);
+      opened = createReader(true, preserveD3DInterop, enableAdvancedVideoProcessing,
+                            requireD3DOnRetry, &reader) &&
                configureReader(reader, &width, &height, nullptr);
+      retriedWithD3DInterop = preserveD3DInterop;
+      if (!opened && retriedWithD3DInterop) {
+        if (reader != nullptr) {
+          reader->Release();
+          reader = nullptr;
+        }
+        opened = createReader(true, false, enableAdvancedVideoProcessing, false, &reader) &&
+                 configureReader(reader, &width, &height, nullptr);
+      }
+      attemptedSoftwareFallback = true;
     }
     if (!opened) {
       if (reader != nullptr) {
@@ -503,7 +533,7 @@ class DecodePipelineStub final : public IDecodePipeline {
       if (!openProfile_.requireHardwareTransforms && !attemptedSoftwareFallback) {
         // 某些设备/编码器必须启用软件视频处理才能协商到 RGB32。
         opened = createReader(true, openProfile_.preferHardwareTransforms,
-                              enableAdvancedVideoProcessing, &reader) &&
+                              enableAdvancedVideoProcessing, requireD3DOnHardwareAttempt, &reader) &&
                  configureReader(reader, &width, &height, nullptr);
         if (!opened && openProfile_.preferHardwareTransforms) {
           if (reader != nullptr) {
@@ -511,7 +541,7 @@ class DecodePipelineStub final : public IDecodePipeline {
             reader = nullptr;
           }
           // 最后再退回纯软件路径，避免过早放弃 D3D 互操作。
-          opened = createReader(true, false, enableAdvancedVideoProcessing, &reader) &&
+          opened = createReader(true, false, enableAdvancedVideoProcessing, false, &reader) &&
                    configureReader(reader, &width, &height, nullptr);
         }
       }

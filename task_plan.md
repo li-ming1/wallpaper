@@ -669,3 +669,24 @@ Phase 79
   - CPU avg `1.2180%`, CPU p95 `2.7628%`, WS min `19.81MB`, WS max `41.39MB`
 - [ ] Remaining risk: 低谷可触达 20MB 附近，但峰值仍远高于目标
 - **Status:** complete
+
+### Phase 83: D3D 互操作绑定严格化（Completed）
+- [x] Red: 新增 `ShouldRequireD3DInteropBinding` 策略测试并验证失败
+- [x] Green: 硬件优先轮次要求 D3D interop 成功绑定，否则该轮判定失败进入下一轮
+- [x] Green: `video-processing retry` 在保留 D3D 失败后自动回退 software-only，避免单轮失败直接中断
+- [x] Verification: `scripts/run_tests.ps1 -BuildDir build_tmp/phase83_green`（197/197 PASS）
+- [x] Verification: `scripts/build_app.ps1 -BuildDir build_tmp/phase83_app`（PASS）
+- [x] Verification: `phase83_app`（desktop, 12s, warmup 6s）
+  - CPU avg `1.1850%`, CPU p95 `2.0834%`, WS max `42.94MB`
+- [ ] Remaining risk: 运行指标仍显示 `decode_path=cpu_nv12_fallback`
+- **Status:** complete
+
+### Phase 84: D3D 路径 legacy video processing 规避（Completed）
+- [x] Red: 新增 `ShouldUseLegacySourceReaderVideoProcessing` 策略测试并验证失败
+- [x] Green: D3D + advanced processing 路径禁用 legacy processing，避免样本回落系统内存
+- [x] Verification: `scripts/run_tests.ps1 -BuildDir build_tmp/phase84_green`（199/199 PASS）
+- [x] Verification: `scripts/build_app.ps1 -BuildDir build_tmp/phase84_app`（PASS）
+- [x] Verification: `phase84_app`（desktop, 12s, warmup 6s）
+  - CPU avg `0.8978%`, CPU p95 `1.7074%`, WS max `41.43MB`
+- [ ] Remaining risk: `decode_output_pixels` 仍 `2073600`，`decode_path` 仍 `cpu_nv12_fallback`
+- **Status:** complete

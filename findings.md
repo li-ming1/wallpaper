@@ -545,3 +545,14 @@
   - 运行链路仍然稳定在 `decode_path=cpu_nv12_fallback`。
   - `decode_output_pixels` 仍是 `2073600`（1080p），CPU 回退链路像素规模没有真正下降。
   - 无损路线已显著压低平均 CPU，但内存峰值仍远高于 20MB。
+
+## 2026-03-31 10:39:55 互操作强制绑定与 processing 规避结论（Phase 83/84）
+- 新增策略：
+  - `ShouldRequireD3DInteropBinding(...)`：硬件优先轮次若未成功绑定 D3D interop，则该轮判定失败，进入后续降级轮次。
+  - `ShouldUseLegacySourceReaderVideoProcessing(...)`：在 `D3D interop + advanced processing` 组合下禁用 legacy processing，避免无意回到系统内存样本。
+- 落地后结果（同视频配置，desktop 12s）：
+  - phase83：`CPU avg 1.1850%`, `CPU p95 2.0834%`, `WS max 42.94MB`
+  - phase84：`CPU avg 0.8978%`, `CPU p95 1.7074%`, `WS max 41.43MB`
+- 结论：
+  - 平均 CPU 继续下降，但 `decode_path` 仍固定为 `cpu_nv12_fallback`，未进入 `dxva_zero_copy`。
+  - 在不降分辨率/不降目标帧率前提下，`WS max < 20MB` 仍未接近达标。

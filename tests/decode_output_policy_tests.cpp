@@ -194,3 +194,42 @@ TEST_CASE(DecodeOutputPolicy_DoesNotForceD3DInteropWhenHardwareNotPreferred) {
 
   EXPECT_TRUE(!wallpaper::ShouldPreserveD3DInteropOnVideoProcessingRetry(options, false));
 }
+
+TEST_CASE(DecodeOutputPolicy_RequiresD3DInteropBindingWhenHardwarePreferredInAdaptiveCpuPath) {
+  wallpaper::DecodeOutputOptions options;
+  options.desktopWidth = 1920;
+  options.desktopHeight = 1080;
+  options.adaptiveQualityEnabled = true;
+  options.cpuFallbackPath = true;
+
+  EXPECT_TRUE(wallpaper::ShouldRequireD3DInteropBinding(options, true, false));
+}
+
+TEST_CASE(DecodeOutputPolicy_RequiresD3DInteropBindingWhenHardwareStrictlyRequired) {
+  wallpaper::DecodeOutputOptions options;
+  options.desktopWidth = 1920;
+  options.desktopHeight = 1080;
+  options.adaptiveQualityEnabled = true;
+  options.cpuFallbackPath = true;
+
+  EXPECT_TRUE(wallpaper::ShouldRequireD3DInteropBinding(options, false, true));
+}
+
+TEST_CASE(DecodeOutputPolicy_DoesNotRequireD3DInteropBindingWhenNotHardwarePath) {
+  wallpaper::DecodeOutputOptions options;
+  options.desktopWidth = 1920;
+  options.desktopHeight = 1080;
+  options.adaptiveQualityEnabled = false;
+  options.cpuFallbackPath = true;
+
+  EXPECT_TRUE(!wallpaper::ShouldRequireD3DInteropBinding(options, false, false));
+}
+
+TEST_CASE(DecodeOutputPolicy_DisablesLegacyVideoProcessingWhenUsingD3DAndAdvancedProcessing) {
+  EXPECT_TRUE(!wallpaper::ShouldUseLegacySourceReaderVideoProcessing(true, true));
+}
+
+TEST_CASE(DecodeOutputPolicy_EnablesLegacyVideoProcessingWhenNotInD3DAdvancedPath) {
+  EXPECT_TRUE(wallpaper::ShouldUseLegacySourceReaderVideoProcessing(false, true));
+  EXPECT_TRUE(wallpaper::ShouldUseLegacySourceReaderVideoProcessing(true, false));
+}
