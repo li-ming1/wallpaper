@@ -22,6 +22,11 @@ namespace wallpaper {
 // 根据当前渲染帧率上限给出“有帧时”解码泵睡眠，避免长期动态场景忙轮询。
 [[nodiscard]] int ComputeDecodePumpHotSleepMs(int renderFpsCap, int sourceFps) noexcept;
 
+// 为了解码速度不低于素材 1x，限制 hot-sleep 不超过源帧间隔的安全上限。
+[[nodiscard]] int ClampDecodePumpHotSleepForRealtime(int requestedHotSleepMs,
+                                                     int renderFpsCap,
+                                                     int sourceFps) noexcept;
+
 // 渲染参数未变化时避免重复唤醒解码泵，减少无效线程调度。
 [[nodiscard]] bool ShouldWakeDecodePumpForRenderCapUpdate(int previousHotSleepMs,
                                                           int nextHotSleepMs,

@@ -717,3 +717,16 @@ Phase 79
   - 本机样本：`private_bytes≈98MB`、`working_set≈105MB`，未达目标
 - [ ] Remaining risk: 当前机器上 SourceReader 尺寸 hint 仍未落地，下一轮需引入“显式缩放链路（非仅 hint）”
 - **Status:** complete
+
+### Phase 91: 播放速度 1x 修复（Completed）
+- [x] Red: 新增 `ClampDecodePumpHotSleepForRealtime(...)` 策略测试并验证失败
+- [x] Green: `ApplyRenderFpsCap` 接入实时上限裁剪，避免 CPU fallback boost 过大导致慢放
+- [x] Validation: 尝试“consume 后立即续读”方案并回归验证，确认会触发高压回归（`fallback_ticker`），已放弃该方案
+- [x] Verification: `scripts/run_tests.ps1 -BuildDir build_tmp/test_speed_final`（204/204 PASS）
+- [x] Verification: `scripts/build_app.ps1 -BuildDir build_tmp/app_speed_final`（PASS）
+- [x] Verification: `bench_perf`（desktop 12s/warmup 6s, pauseWhenNotDesktopContext=false）
+  - `cpu_avg=0.8466`, `cpu_p95=1.3432`
+  - `decode_mode=mf`, `decode_path=cpu_nv12_fallback`, `decode_hot_sleep_ms` 收敛到 `31`
+  - 未再出现 `fallback_ticker` 回归
+- [ ] Remaining risk: `decode_output_pixels` 仍是 1080p，内存峰值仍高于 20MB
+- **Status:** complete

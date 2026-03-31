@@ -586,3 +586,10 @@
   - 单测：`test_red_iter` 按预期失败 1 例，`test_green_iter` 202/202 PASS；构建 PASS。
   - 基准（desktop 12s / warmup 6s）：`decode_path=cpu_nv12_fallback`、`decode_output_pixels=2073600` 仍未下降。
   - 结论：仅靠 SourceReader 尺寸 hint 仍不足以稳定压到目标，下一轮必须引入可控显式缩放链路。
+- 2026-03-31 速度问题排查结论：慢放主因是 `ApplyRenderFpsCap` 在 CPU fallback 下叠加 boost 后，`decode hot-sleep` 可达到 40ms+；在 lazy-read 模型下会直接拉低解码取样节奏，体感低于 1x。
+- 2026-03-31 修复决策：
+  - 新增 `ClampDecodePumpHotSleepForRealtime(requested, renderFpsCap, sourceFps)`，按源帧间隔设置安全上限（预留 2ms 裕量）。
+  - 在 `App::ApplyRenderFpsCap` 对所有 boost 后结果做实时上限裁剪，保留 CPU 降载但不允许慢放。
+- 2026-03-31 方案取舍：
+  - 试验“consume 后立即续读”（非 lazy read）可提升激进追帧，但本项目当前策略下会显著抬高 CPU 并触发 `fallback_ticker` 回归，已回退。
+- 2026-03-31 验证结果（`app_speed_final`）：`cpu_avg=0.8466`、`cpu_p95=1.3432`，`decode_hot_sleep_ms` 稳定在 `31`（30fps素材），`decode_mode` 保持 `mf`，未复现 `fallback_ticker`。

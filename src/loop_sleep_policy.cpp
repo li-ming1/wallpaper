@@ -65,6 +65,15 @@ int ComputeDecodePumpHotSleepMs(const int renderFpsCap, const int sourceFps) noe
   return 40;
 }
 
+int ClampDecodePumpHotSleepForRealtime(const int requestedHotSleepMs, const int renderFpsCap,
+                                       const int sourceFps) noexcept {
+  const int effectiveSourceFps = std::clamp(sourceFps > 0 ? sourceFps : renderFpsCap, 1, 240);
+  const int frameIntervalMs = std::max(1, 1000 / effectiveSourceFps);
+  // 预留 2ms 安全余量，避免 sleep 撞到下一帧边界导致持续低于 1x 的慢放体感。
+  const int realtimeSafeMaxSleepMs = std::max(6, frameIntervalMs - 2);
+  return std::clamp(requestedHotSleepMs, 6, realtimeSafeMaxSleepMs);
+}
+
 bool ShouldWakeDecodePumpForRenderCapUpdate(const int previousHotSleepMs, const int nextHotSleepMs,
                                             const int previousFpsCap,
                                             const int nextFpsCap) noexcept {

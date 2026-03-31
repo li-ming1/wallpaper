@@ -1933,3 +1933,23 @@
   - `scripts/run_tests.ps1 -BuildDir build_tmp/test_green_iter` -> 202/202 PASS
   - `scripts/build_app.ps1 -BuildDir build_tmp/app_iter` -> PASS
   - `scripts/bench_perf.ps1` + metrics tail: 当前机型上 `decode_output_pixels` 仍 1080p，未达最终目标
+
+### Phase 91: Playback Speed 1x Fix
+- **Status:** complete
+- Actions taken:
+  - Added TDD red tests for realtime hot-sleep clamp in `loop_sleep_policy`.
+  - Implemented `ClampDecodePumpHotSleepForRealtime` and wired it into `App::ApplyRenderFpsCap`.
+  - Evaluated alternative async-read prefetch strategy; reverted after confirming high-load regression (`fallback_ticker`).
+  - Re-ran full tests/build and desktop perf sampling.
+- Files created/modified:
+  - include/wallpaper/loop_sleep_policy.h
+  - src/loop_sleep_policy.cpp
+  - src/app.cpp
+  - tests/loop_sleep_policy_tests.cpp
+  - src/decode_async_read_policy.cpp (experiment reverted)
+  - tests/decode_async_read_policy_tests.cpp (experiment reverted)
+- Verification summary:
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/test_speed_red` -> link fail as expected (Red)
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/test_speed_final` -> 204/204 PASS
+  - `scripts/build_app.ps1 -BuildDir build_tmp/app_speed_final` -> PASS
+  - `scripts/bench_perf.ps1` (`pauseWhenNotDesktopContext=false`) -> CPU avg 0.8466%, p95 1.3432%

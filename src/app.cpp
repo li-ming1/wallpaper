@@ -665,7 +665,9 @@ void App::ApplyRenderFpsCap(const int governorFps) {
       dynamicBoostMs += 8;
     }
   }
-  const int nextHotSleepMs = std::clamp(baseHotSleepMs + dynamicBoostMs, 6, 64);
+  const int requestedHotSleepMs = std::clamp(baseHotSleepMs + dynamicBoostMs, 6, 64);
+  const int nextHotSleepMs =
+      ClampDecodePumpHotSleepForRealtime(requestedHotSleepMs, desired, sourceFrameRateState_.sourceFps);
   const int previousHotSleepMs = decodePumpHotSleepMs_.load();
   const int previousFpsCap = scheduler_.GetFpsCap();
 

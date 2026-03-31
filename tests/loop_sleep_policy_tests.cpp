@@ -67,6 +67,17 @@ TEST_CASE(LoopSleepPolicy_DecodePumpHotSleepUsesSourceFpsForLowFpsVideo) {
   EXPECT_EQ(wallpaper::ComputeDecodePumpHotSleepMs(60, 24), 36);
 }
 
+TEST_CASE(LoopSleepPolicy_ClampDecodePumpHotSleepForRealtimeProtectsPlaybackSpeed) {
+  EXPECT_EQ(wallpaper::ClampDecodePumpHotSleepForRealtime(42, 30, 30), 31);
+  EXPECT_EQ(wallpaper::ClampDecodePumpHotSleepForRealtime(50, 30, 24), 39);
+  EXPECT_EQ(wallpaper::ClampDecodePumpHotSleepForRealtime(24, 60, 60), 14);
+}
+
+TEST_CASE(LoopSleepPolicy_ClampDecodePumpHotSleepForRealtimePreservesSmallerSleep) {
+  EXPECT_EQ(wallpaper::ClampDecodePumpHotSleepForRealtime(12, 30, 30), 12);
+  EXPECT_EQ(wallpaper::ClampDecodePumpHotSleepForRealtime(6, 30, 24), 6);
+}
+
 TEST_CASE(LoopSleepPolicy_HighResolutionTimerEnabledOnlyForActive60Fps) {
   EXPECT_TRUE(wallpaper::ShouldUseHighResolutionTimer(
       true, false, 60, 0, wallpaper::DecodePath::kDxvaZeroCopy, false));
