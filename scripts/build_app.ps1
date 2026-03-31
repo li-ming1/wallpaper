@@ -80,7 +80,9 @@ $sources = @(
   "src/metrics_sampler.cpp",
   "src/frame_bridge.cpp",
   "src/startup_policy.cpp",
-  "src/video_path_probe_policy.cpp"
+  "src/video_path_probe_policy.cpp",
+  "src/upload_copy_policy.cpp",
+  "src/upload_scale_policy.cpp"
 )
 
 Write-Host "Compiling Windows resources with $($windres.Source)..."

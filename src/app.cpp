@@ -737,14 +737,13 @@ void App::StartDecodePump() {
 
   decodePumpThread_ = std::thread([this]() {
     const auto sleepInterruptible = [this](const int sleepMs,
-                                           const bool preferEventDrivenWait) {
+                                           const bool preferEventDrivenWait,
+                                           const bool frameAcquired) {
       if (sleepMs <= 0) {
         return;
       }
-      const int boundedSleepMs = std::clamp(sleepMs, 1, 500);
-      // SourceReader 回调可唤醒时，优先放大等待窗口以减少无帧轮询唤醒。
       const int waitMs =
-          preferEventDrivenWait ? std::max(boundedSleepMs, 140) : boundedSleepMs;
+          SelectDecodePumpInterruptibleWaitMs(sleepMs, preferEventDrivenWait, frameAcquired);
       std::unique_lock<std::mutex> lock(decodePumpWaitMu_);
       decodePumpWaitCv_.wait_for(lock, std::chrono::milliseconds(waitMs),
                                  [this]() { return !decodePumpRunning_.load() || decodePumpWakeRequested_; });
@@ -808,7 +807,8 @@ void App::StartDecodePump() {
         sleepInterruptible(
             decodeIdleSleepMs,
             ShouldPreferEventDrivenDecodePumpWait(decodeFrameReadyNotifierAvailable_, decodeReady,
-                                                  false));
+                                                  false),
+            false);
         continue;
       }
       if (decodeIdleSleepMs > 2) {
@@ -830,14 +830,16 @@ void App::StartDecodePump() {
         sleepInterruptible(
             decodeIdleSleepMs,
             ShouldPreferEventDrivenDecodePumpWait(decodeFrameReadyNotifierAvailable_, decodeReady,
-                                                  true));
+                                                  true),
+            true);
       } else {
         decodeIdleSleepMs = ComputeDecodePumpSleepMs(true, false, decodeIdleSleepMs,
                                                      decodeFrameReadyNotifierAvailable_);
         sleepInterruptible(
             decodeIdleSleepMs,
             ShouldPreferEventDrivenDecodePumpWait(decodeFrameReadyNotifierAvailable_, decodeReady,
-                                                  false));
+                                                  false),
+            false);
       }
     }
   });

@@ -128,6 +128,21 @@ TEST_CASE(LoopSleepPolicy_DecodePumpDoesNotPreferEventDrivenWaitWithoutNotifierO
   EXPECT_TRUE(!wallpaper::ShouldPreferEventDrivenDecodePumpWait(true, false, false));
 }
 
+TEST_CASE(LoopSleepPolicy_DecodePumpInterruptibleWaitUsesShorterWindowWhenFrameAcquired) {
+  EXPECT_EQ(wallpaper::SelectDecodePumpInterruptibleWaitMs(25, true, true), 70);
+  EXPECT_EQ(wallpaper::SelectDecodePumpInterruptibleWaitMs(96, true, true), 96);
+}
+
+TEST_CASE(LoopSleepPolicy_DecodePumpInterruptibleWaitKeepsLongWindowWithoutFrame) {
+  EXPECT_EQ(wallpaper::SelectDecodePumpInterruptibleWaitMs(25, true, false), 140);
+  EXPECT_EQ(wallpaper::SelectDecodePumpInterruptibleWaitMs(180, true, false), 180);
+}
+
+TEST_CASE(LoopSleepPolicy_DecodePumpInterruptibleWaitUsesRequestedValueWhenNotEventDriven) {
+  EXPECT_EQ(wallpaper::SelectDecodePumpInterruptibleWaitMs(25, false, true), 25);
+  EXPECT_EQ(wallpaper::SelectDecodePumpInterruptibleWaitMs(88, false, false), 88);
+}
+
 TEST_CASE(DecodeTokenGatePolicy_SkipsWhenNoDecodedSequence) {
   EXPECT_TRUE(!wallpaper::ShouldAttemptDecodedTokenConsume(false, 0, 0));
   EXPECT_TRUE(!wallpaper::ShouldAttemptDecodedTokenConsume(true, 11, 0));

@@ -41,6 +41,11 @@ namespace wallpaper {
                                                          bool decodeReady,
                                                          bool frameAcquired) noexcept;
 
+// 解码泵可中断等待窗口选择：有帧时缩短窗口提升节拍，无帧时保持长窗口控 CPU。
+[[nodiscard]] int SelectDecodePumpInterruptibleWaitMs(int requestedSleepMs,
+                                                      bool preferEventDrivenWait,
+                                                      bool frameAcquired) noexcept;
+
 // 高精度计时器仅在“桌面动态 + 60fps + 低压力”场景启用，避免长期系统功耗抬升。
 [[nodiscard]] bool ShouldUseHighResolutionTimer(bool hasActiveVideo, bool stablePaused,
                                                 int appliedFpsCap, int longRunLoadLevel,

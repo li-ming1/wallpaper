@@ -91,6 +91,17 @@ bool ShouldPreferEventDrivenDecodePumpWait(const bool frameReadyNotifierAvailabl
   return frameReadyNotifierAvailable && decodeReady;
 }
 
+int SelectDecodePumpInterruptibleWaitMs(const int requestedSleepMs,
+                                        const bool preferEventDrivenWait,
+                                        const bool frameAcquired) noexcept {
+  const int boundedSleepMs = std::clamp(requestedSleepMs, 1, 500);
+  if (!preferEventDrivenWait) {
+    return boundedSleepMs;
+  }
+  const int minWaitMs = frameAcquired ? 70 : 140;
+  return std::max(boundedSleepMs, minWaitMs);
+}
+
 bool ShouldUseHighResolutionTimer(const bool hasActiveVideo, const bool stablePaused,
                                   const int appliedFpsCap, const int longRunLoadLevel,
                                   const DecodePath decodePath,
