@@ -77,13 +77,15 @@ $sources = @(
   "src/render_scheduler.cpp",
   "src/resource_arbiter.cpp",
   "src/source_frame_rate_policy.cpp",
+  "src/swap_chain_policy.cpp",
   "src/runtime_trim_policy.cpp",
   "src/metrics_sampler.cpp",
   "src/frame_bridge.cpp",
   "src/startup_policy.cpp",
   "src/video_path_probe_policy.cpp",
   "src/upload_copy_policy.cpp",
-  "src/upload_scale_policy.cpp"
+  "src/upload_scale_policy.cpp",
+  "src/upload_texture_policy.cpp"
 )
 
 Write-Host "Compiling Windows resources with $($windres.Source)..."

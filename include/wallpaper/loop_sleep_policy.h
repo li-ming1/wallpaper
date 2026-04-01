@@ -1,6 +1,8 @@
 #pragma once
 
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 
 #include "wallpaper/interfaces.h"
 
@@ -27,6 +29,11 @@ namespace wallpaper {
                                                      int renderFpsCap,
                                                      int sourceFps) noexcept;
 
+// 紧凑 CPU fallback 路径主动下调渲染帧率上限，减少 present/trim 频率以守住 CPU。
+[[nodiscard]] int ClampRenderFpsForCompactCpuFallback(int requestedFpsCap,
+                                                      DecodePath decodePath,
+                                                      std::size_t decodeOutputPixels) noexcept;
+
 // 渲染参数未变化时避免重复唤醒解码泵，减少无效线程调度。
 [[nodiscard]] bool ShouldWakeDecodePumpForRenderCapUpdate(int previousHotSleepMs,
                                                           int nextHotSleepMs,
@@ -45,6 +52,11 @@ namespace wallpaper {
 [[nodiscard]] int SelectDecodePumpInterruptibleWaitMs(int requestedSleepMs,
                                                       bool preferEventDrivenWait,
                                                       bool frameAcquired) noexcept;
+
+// 事件驱动解码下若上一帧尚未被主线程消费，则暂缓继续拉取并发布下一帧，避免无效 CPU 发布。
+[[nodiscard]] bool ShouldDeferDecodePumpAcquire(bool frameReadyNotifierAvailable,
+                                                std::uint64_t latestDecodedSequence,
+                                                std::uint64_t latestPresentedSequence) noexcept;
 
 // 高精度计时器仅在“桌面动态 + 60fps + 低压力”场景启用，避免长期系统功耗抬升。
 [[nodiscard]] bool ShouldUseHighResolutionTimer(bool hasActiveVideo, bool stablePaused,

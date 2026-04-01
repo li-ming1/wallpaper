@@ -8,7 +8,7 @@ struct UploadScalePlan final {
   int divisor = 1;
 };
 
-// CPU 回退路径下优先压缩上传纹理尺寸，降低每帧上传带宽与纹理驻留。
+// 质量优先路径下保持原始上传尺寸，不再为了 CPU fallback 主动压缩画面分辨率。
 [[nodiscard]] UploadScalePlan SelectUploadScalePlanForCpuUpload(int sourceWidth,
                                                                 int sourceHeight) noexcept;
 

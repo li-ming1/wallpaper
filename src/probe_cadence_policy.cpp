@@ -2,6 +2,12 @@
 
 namespace wallpaper {
 
+namespace {
+
+constexpr std::size_t kCompactCpuFallbackPixels = 960U * 540U;
+
+}
+
 bool ShouldRefreshRuntimeProbe(const ProbeClock::time_point now,
                                const ProbeClock::time_point lastSampleAt,
                                const std::chrono::milliseconds interval) noexcept {
@@ -87,6 +93,22 @@ std::chrono::milliseconds SelectMetricsSampleInterval(const bool hasActiveVideo,
     return std::chrono::milliseconds(1000);
   }
   return std::chrono::milliseconds(2000);
+}
+
+std::chrono::milliseconds SelectRuntimeMetricsSampleInterval(
+    const bool hasActiveVideo, const bool stablePaused, const bool occluded,
+    const DecodePath decodePath, const std::size_t decodeOutputPixels,
+    const int appliedFpsCap) noexcept {
+  const auto baseInterval =
+      SelectMetricsSampleInterval(hasActiveVideo, stablePaused, occluded);
+  if (baseInterval > std::chrono::milliseconds(1000)) {
+    return baseInterval;
+  }
+  if (appliedFpsCap <= 30 && IsCpuFallbackDecodePath(decodePath) &&
+      decodeOutputPixels > kCompactCpuFallbackPixels) {
+    return std::chrono::milliseconds(2000);
+  }
+  return baseInterval;
 }
 
 }  // namespace wallpaper

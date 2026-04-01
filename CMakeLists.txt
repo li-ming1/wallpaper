@@ -30,6 +30,7 @@ add_library(wallpaper_core STATIC
   src/render_scheduler.cpp
   src/resource_arbiter.cpp
   src/source_frame_rate_policy.cpp
+  src/swap_chain_policy.cpp
   src/metrics_sampler.cpp
   src/frame_bridge.cpp
   src/frame_buffer_policy.cpp
@@ -42,6 +43,7 @@ add_library(wallpaper_core STATIC
   src/video_path_probe_policy.cpp
   src/upload_copy_policy.cpp
   src/upload_scale_policy.cpp
+  src/upload_texture_policy.cpp
 )
 target_include_directories(wallpaper_core PUBLIC include)
 
@@ -106,12 +108,14 @@ add_executable(wallpaper_tests
   tests/render_scheduler_tests.cpp
   tests/resource_arbiter_tests.cpp
   tests/source_frame_rate_policy_tests.cpp
+  tests/swap_chain_policy_tests.cpp
   tests/runtime_trim_policy_tests.cpp
   tests/single_instance_policy_tests.cpp
   tests/startup_policy_tests.cpp
   tests/tray_thread_stop_policy_tests.cpp
   tests/upload_copy_policy_tests.cpp
   tests/upload_scale_policy_tests.cpp
+  tests/upload_texture_policy_tests.cpp
   tests/video_path_probe_policy_tests.cpp
   tests/video_path_matcher_tests.cpp
   src/config_store.cpp
@@ -139,10 +143,12 @@ add_executable(wallpaper_tests
   src/render_scheduler.cpp
   src/resource_arbiter.cpp
   src/source_frame_rate_policy.cpp
+  src/swap_chain_policy.cpp
   src/runtime_trim_policy.cpp
   src/startup_policy.cpp
   src/upload_copy_policy.cpp
   src/upload_scale_policy.cpp
+  src/upload_texture_policy.cpp
   src/video_path_probe_policy.cpp
   src/video_path_matcher.cpp
 )

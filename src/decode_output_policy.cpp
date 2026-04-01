@@ -10,42 +10,6 @@ DecodeOutputHint SelectDecodeOutputHint(const DecodeOutputOptions& options) noex
   if (options.desktopWidth == 0 || options.desktopHeight == 0) {
     return {};
   }
-  if (!options.adaptiveQualityEnabled || !options.cpuFallbackPath) {
-    return hint;
-  }
-
-  double maxPixels = 960.0 * 540.0;
-  if (options.longRunLoadLevel >= 2) {
-    maxPixels = 640.0 * 360.0;
-  } else if (options.longRunLoadLevel >= 1) {
-    maxPixels = 768.0 * 432.0;
-  }
-  const double currentPixels =
-      static_cast<double>(options.desktopWidth) * static_cast<double>(options.desktopHeight);
-  constexpr double kNativeCpuFloorPixels = 960.0 * 540.0;
-  if (currentPixels <= kNativeCpuFloorPixels) {
-    return hint;
-  }
-  if (currentPixels <= maxPixels) {
-    return hint;
-  }
-
-  const double scale = std::sqrt(maxPixels / currentPixels);
-  std::uint32_t scaledWidth = static_cast<std::uint32_t>(
-      std::max(2.0, std::floor(static_cast<double>(options.desktopWidth) * scale)));
-  std::uint32_t scaledHeight = static_cast<std::uint32_t>(
-      std::max(2.0, std::floor(static_cast<double>(options.desktopHeight) * scale)));
-
-  // 偶数尺寸更贴近常见 YUV/RGB 处理链路，减少内部对齐与协商失败概率。
-  if ((scaledWidth & 1U) != 0U) {
-    --scaledWidth;
-  }
-  if ((scaledHeight & 1U) != 0U) {
-    --scaledHeight;
-  }
-
-  hint.width = std::max<std::uint32_t>(2U, scaledWidth);
-  hint.height = std::max<std::uint32_t>(2U, scaledHeight);
   return hint;
 }
 
@@ -124,6 +88,25 @@ bool ShouldPreferHardwareTransformsForDecodeOpen(const int decodeOpenLongRunLeve
     return true;
   }
   return decodeOpenLongRunLevel <= 1;
+}
+
+bool ShouldReopenDecodeForLongRunTuning(const bool cpuFallbackPath,
+                                        const std::size_t decodeOutputPixels,
+                                        const int currentDecodeOpenLevel,
+                                        const int desiredDecodeOpenLevel,
+                                        const bool currentPreferHardwareTransforms,
+                                        const bool desiredPreferHardwareTransforms) noexcept {
+  constexpr std::size_t kCompactCpuFallbackPixels = 960U * 540U;
+  const bool tuningChanged = currentDecodeOpenLevel != desiredDecodeOpenLevel ||
+                             currentPreferHardwareTransforms != desiredPreferHardwareTransforms;
+  if (!tuningChanged) {
+    return false;
+  }
+  if (cpuFallbackPath && decodeOutputPixels != 0 &&
+      decodeOutputPixels <= kCompactCpuFallbackPixels) {
+    return false;
+  }
+  return true;
 }
 
 }  // namespace wallpaper

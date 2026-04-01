@@ -25,6 +25,28 @@ TEST_CASE(RenderScheduler_SwitchCapTo60) {
   EXPECT_TRUE(scheduler.ShouldRender(t0 + 17ms));
 }
 
+TEST_CASE(RenderScheduler_RespectsFpsCap24) {
+  wallpaper::RenderScheduler scheduler(24);
+  const auto t0 = wallpaper::RenderScheduler::Clock::time_point{};
+
+  EXPECT_EQ(scheduler.GetFpsCap(), 24);
+  EXPECT_TRUE(scheduler.ShouldRender(t0));
+  EXPECT_TRUE(!scheduler.ShouldRender(t0 + 20ms));
+  EXPECT_TRUE(!scheduler.ShouldRender(t0 + 34ms));
+  EXPECT_TRUE(scheduler.ShouldRender(t0 + 42ms));
+}
+
+TEST_CASE(RenderScheduler_RespectsFpsCap16) {
+  wallpaper::RenderScheduler scheduler(16);
+  const auto t0 = wallpaper::RenderScheduler::Clock::time_point{};
+
+  EXPECT_EQ(scheduler.GetFpsCap(), 16);
+  EXPECT_TRUE(scheduler.ShouldRender(t0));
+  EXPECT_TRUE(!scheduler.ShouldRender(t0 + 30ms));
+  EXPECT_TRUE(!scheduler.ShouldRender(t0 + 55ms));
+  EXPECT_TRUE(scheduler.ShouldRender(t0 + 63ms));
+}
+
 TEST_CASE(RenderScheduler_TimeUntilNextRenderTracksInterval) {
   wallpaper::RenderScheduler scheduler(30);
   const auto t0 = wallpaper::RenderScheduler::Clock::time_point{};

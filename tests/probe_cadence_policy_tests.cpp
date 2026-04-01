@@ -1,4 +1,5 @@
 #include "wallpaper/probe_cadence_policy.h"
+#include "wallpaper/interfaces.h"
 
 #include <chrono>
 
@@ -107,4 +108,26 @@ TEST_CASE(ProbeCadencePolicy_MetricsSampleIntervalIsRelaxedWhenPausedOrInactive)
 
 TEST_CASE(ProbeCadencePolicy_MetricsSampleIntervalIsRelaxedWhenOccluded) {
   EXPECT_EQ(wallpaper::SelectMetricsSampleInterval(true, false, true), 2000ms);
+}
+
+TEST_CASE(ProbeCadencePolicy_RuntimeMetricsSampleIntervalRelaxesForFullQualityCpuFallback30Fps) {
+  EXPECT_EQ(wallpaper::SelectRuntimeMetricsSampleInterval(
+                true, false, false, wallpaper::DecodePath::kCpuNv12Fallback, 1920U * 1080U, 30)
+                .count(),
+            2000);
+}
+
+TEST_CASE(ProbeCadencePolicy_RuntimeMetricsSampleIntervalKeepsDefaultForOtherActivePaths) {
+  EXPECT_EQ(wallpaper::SelectRuntimeMetricsSampleInterval(
+                true, false, false, wallpaper::DecodePath::kDxvaZeroCopy, 1920U * 1080U, 30)
+                .count(),
+            1000);
+  EXPECT_EQ(wallpaper::SelectRuntimeMetricsSampleInterval(
+                true, false, false, wallpaper::DecodePath::kCpuNv12Fallback, 960U * 540U, 30)
+                .count(),
+            1000);
+  EXPECT_EQ(wallpaper::SelectRuntimeMetricsSampleInterval(
+                true, false, false, wallpaper::DecodePath::kCpuNv12Fallback, 1920U * 1080U, 60)
+                .count(),
+            1000);
 }

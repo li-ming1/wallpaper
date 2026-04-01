@@ -74,6 +74,29 @@ TEST_CASE(FrameBridge_PublishAndReadLatestNv12Frame) {
   EXPECT_EQ(latest.uvPlaneBytes, static_cast<std::size_t>(4));
 }
 
+TEST_CASE(FrameBridge_PublishAndReadLatestGpuNv12Frame) {
+  wallpaper::frame_bridge::ClearLatestFrame();
+
+  auto yTextureHolder = std::shared_ptr<void>(reinterpret_cast<void*>(0x10), [](void*) {});
+  auto uvTextureHolder = std::shared_ptr<void>(reinterpret_cast<void*>(0x20), [](void*) {});
+  wallpaper::frame_bridge::PublishLatestGpuNv12Frame(
+      1920, 1080, 3000, 13, std::move(yTextureHolder), std::move(uvTextureHolder));
+
+  wallpaper::frame_bridge::LatestFrame latest;
+  EXPECT_TRUE(wallpaper::frame_bridge::TryGetLatestFrame(&latest));
+  EXPECT_EQ(latest.width, 1920);
+  EXPECT_EQ(latest.height, 1080);
+  EXPECT_EQ(static_cast<int>(latest.sequence), 13);
+  EXPECT_TRUE(latest.gpuBacked);
+  EXPECT_EQ(static_cast<int>(latest.pixelFormat),
+            static_cast<int>(wallpaper::frame_bridge::PixelFormat::kNv12));
+  EXPECT_TRUE(latest.gpuTexture != nullptr);
+  EXPECT_TRUE(latest.gpuAuxTexture != nullptr);
+  EXPECT_TRUE(latest.gpuTextureHolder != nullptr);
+  EXPECT_TRUE(latest.gpuAuxTextureHolder != nullptr);
+  EXPECT_TRUE(latest.rgbaData == nullptr);
+}
+
 TEST_CASE(FrameBridge_TryGetLatestFrameIfNewerSkipsSameSequence) {
   wallpaper::frame_bridge::ClearLatestFrame();
 

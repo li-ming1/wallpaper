@@ -29,10 +29,13 @@ struct LatestFrame final {
   std::uint32_t dxgiFormat = 0;
 #ifdef _WIN32
   ID3D11Texture2D* gpuTexture = nullptr;
+  ID3D11Texture2D* gpuAuxTexture = nullptr;
 #else
   void* gpuTexture = nullptr;
+  void* gpuAuxTexture = nullptr;
 #endif
   std::shared_ptr<void> gpuTextureHolder;
+  std::shared_ptr<void> gpuAuxTextureHolder;
   const std::uint8_t* rgbaData = nullptr;
   std::size_t rgbaDataBytes = 0;
   std::shared_ptr<void> rgbaDataHolder;
@@ -59,6 +62,9 @@ void PublishLatestGpuFrame(int width, int height, std::int64_t timestamp100ns,
                            std::uint64_t sequence, std::uint32_t dxgiFormat,
                            std::uint32_t subresourceIndex,
                            std::shared_ptr<void> gpuTextureHolder);
+void PublishLatestGpuNv12Frame(int width, int height, std::int64_t timestamp100ns,
+                               std::uint64_t sequence, std::shared_ptr<void> yTextureHolder,
+                               std::shared_ptr<void> uvTextureHolder);
 [[nodiscard]] bool TryGetLatestFrame(LatestFrame* outFrame);
 [[nodiscard]] bool TryGetLatestFrameIfNewer(std::uint64_t lastSeenSequence,
                                             LatestFrame* outFrame);

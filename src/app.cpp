@@ -11,6 +11,7 @@
 #include "wallpaper/probe_cadence_policy.h"
 #include "wallpaper/runtime_trim_policy.h"
 #include "wallpaper/startup_policy.h"
+#include "wallpaper/upload_texture_policy.h"
 #include "wallpaper/video_path_probe_policy.h"
 #include "wallpaper/video_path_matcher.h"
 
@@ -591,6 +592,7 @@ void App::ResetPlaybackState(const bool resetLongRunState) {
   startupDecodeDeferredAt_ = RenderScheduler::Clock::time_point{};
   pauseEnteredAt_ = RenderScheduler::Clock::time_point{};
   lastWorkingSetTrimAt_ = RenderScheduler::Clock::time_point{};
+  startupWorkingSetTrimDone_ = false;
   hardSuspendedByPause_ = false;
   pauseTransitionState_ = PauseTransitionState{};
   decodePumpDynamicBoostMs_.store(0);
@@ -604,6 +606,7 @@ void App::ResetPlaybackState(const bool resetLongRunState) {
     latestDecodedToken_ = FrameToken{};
   }
   latestDecodedSequence_.store(0, std::memory_order_release);
+  latestPresentedSequence_.store(0, std::memory_order_release);
 }
 
 bool App::StartVideoPipelineForPath(const std::string& path, const int longRunLoadLevel,
@@ -664,6 +667,7 @@ void App::ApplyRenderFpsCap(const int governorFps) {
   if (sourceFrameRateState_.sourceFps <= 30 && desired > 30) {
     desired = 30;
   }
+  desired = ClampRenderFpsForCompactCpuFallback(desired, lastDecodePath_, lastDecodeOutputPixels_);
   int baseHotSleepMs = ComputeDecodePumpHotSleepMs(desired, sourceFrameRateState_.sourceFps);
   int dynamicBoostMs = decodePumpDynamicBoostMs_.load();
   if (IsCpuFallbackDecodePath(lastDecodePath_)) {
@@ -821,6 +825,17 @@ void App::StartDecodePump() {
       }
       if (decodeIdleSleepMs > 2) {
         decodeIdleSleepMs = 2;
+      }
+
+      const std::uint64_t latestDecodedSequence = latestDecodedSequence_.load(std::memory_order_acquire);
+      const std::uint64_t latestPresentedSequence =
+          latestPresentedSequence_.load(std::memory_order_acquire);
+      if (ShouldDeferDecodePumpAcquire(decodeFrameReadyNotifierAvailable_, latestDecodedSequence,
+                                       latestPresentedSequence)) {
+        const int hotSleepMs = std::max(decodePumpHotSleepMs_.load(), decodeIdleSleepMs);
+        // 已有待消费帧时改用短定时回压，避免“回调唤醒 + 主线程再唤醒”形成抖动放大。
+        sleepInterruptible(hotSleepMs, false, true);
+        continue;
       }
 
       FrameToken token{};
@@ -1337,6 +1352,15 @@ void App::Tick() {
       ResetSourceFrameRateState(&sourceFrameRateState_);
       lastDecodedTimestamp100ns_ = -1;
     }
+    if (ShouldExecuteStartupWorkingSetTrim(
+            wallpaperAttached_ && decodeOpened_.load() && decodeRunning_.load(), frame.decodePath,
+            lastDecodeOutputPixels_, frame.gpuBacked, startupWorkingSetTrimDone_)) {
+      // 共享 GPU NV12 桥接把大页驻留留在 present 之后更容易命中活跃窗口，
+      // 首帧到达时预付一次 trim，并同步重置节奏基线，减少后续 CPU 尖峰数量。
+      TrimCurrentProcessWorkingSet();
+      lastWorkingSetTrimAt_ = now;
+      startupWorkingSetTrimDone_ = true;
+    }
     ApplyRenderFpsCap(qualityGovernor_.CurrentFps());
     lastPresentedFrame_ = frame;
     hasLastPresentedFrame_ = true;
@@ -1359,6 +1383,10 @@ void App::Tick() {
   const auto presentBegin = RenderScheduler::Clock::now();
   wallpaperHost_->Present(frame);
   const auto presentEnd = RenderScheduler::Clock::now();
+  if (hasNewDecodedToken) {
+    // 只有 Present 真正返回后，才允许解码泵把该序号视作“已完成消费”。
+    latestPresentedSequence_.store(frame.sequence, std::memory_order_release);
+  }
   lastPresentedAt_ = presentEnd;
   const double presentMs =
       std::chrono::duration<double, std::milli>(presentEnd - presentBegin).count();
@@ -1380,7 +1408,9 @@ void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameD
   const bool hasActiveVideo = wallpaperAttached_ && decodeOpened_.load() && decodeRunning_.load();
   const bool occluded = wallpaperHost_ != nullptr && wallpaperHost_->IsOccluded();
   const auto metricsSampleInterval =
-      SelectMetricsSampleInterval(hasActiveVideo, stablePauseForLoopSleep_, occluded);
+      SelectRuntimeMetricsSampleInterval(hasActiveVideo, stablePauseForLoopSleep_, occluded,
+                                         lastDecodePath_, lastDecodeOutputPixels_,
+                                         scheduler_.GetFpsCap());
   if (lastMetricsAt_ != RenderScheduler::Clock::time_point{} &&
       now - lastMetricsAt_ < metricsSampleInterval) {
     return;
@@ -1415,9 +1445,12 @@ void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameD
   }
   if (ShouldRequestWorkingSetTrim(hasActiveVideo, lastDecodePath_, metrics.workingSetBytes,
                                   longRunLoadState_.level)) {
-    constexpr std::chrono::seconds kWorkingSetTrimInterval(2);
-    if (lastWorkingSetTrimAt_ == RenderScheduler::Clock::time_point{} ||
-        (now - lastWorkingSetTrimAt_) >= kWorkingSetTrimInterval) {
+    const auto workingSetTrimInterval =
+        SelectRuntimeWorkingSetTrimInterval(hasActiveVideo, lastDecodePath_, lastDecodeOutputPixels_,
+                                            longRunLoadState_.level);
+    if (workingSetTrimInterval.count() > 0 &&
+        (lastWorkingSetTrimAt_ == RenderScheduler::Clock::time_point{} ||
+         (now - lastWorkingSetTrimAt_) >= workingSetTrimInterval)) {
       TrimCurrentProcessWorkingSet();
       lastWorkingSetTrimAt_ = now;
     }
@@ -1428,8 +1461,9 @@ void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameD
         SelectDecodeOpenLongRunLevel(longRunLoadState_.level, true, lastDecodeOutputPixels_);
     const bool desiredPreferHardwareTransforms =
         ShouldPreferHardwareTransformsForDecodeOpen(desiredDecodeOpenLevel, true);
-    if (desiredDecodeOpenLevel != decodeOpenLongRunLevel_ ||
-        desiredPreferHardwareTransforms != decodeOpenPreferHardwareTransforms_) {
+    if (ShouldReopenDecodeForLongRunTuning(
+            true, lastDecodeOutputPixels_, decodeOpenLongRunLevel_, desiredDecodeOpenLevel,
+            decodeOpenPreferHardwareTransforms_, desiredPreferHardwareTransforms)) {
       const int previousDecodeOpenLevel = decodeOpenLongRunLevel_;
       const bool previousPreferHardwareTransforms = decodeOpenPreferHardwareTransforms_;
       const std::string currentPath = config_.videoPath;

@@ -4,6 +4,7 @@
 #include "wallpaper/decode_output_policy.h"
 #include "wallpaper/d3d11_interop_device.h"
 #include "wallpaper/nv12_layout_policy.h"
+#include "wallpaper/upload_texture_policy.h"
 #include "wallpaper/upload_scale_policy.h"
 
 #include "wallpaper/frame_bridge.h"
@@ -658,6 +659,70 @@ class DecodePipelineStub final : public IDecodePipeline {
     ResetDecodeAsyncRead(&decodeAsyncReadState_);
     interopStage_ = DecodeInteropStage::kNotAttempted;
     interopHresult_ = 0;
+    ReleaseSharedNv12BridgeTexturesLocked();
+  }
+
+  void ReleaseSharedNv12BridgeTexturesLocked() {
+    if (sharedNv12BridgeYTexture_ != nullptr) {
+      sharedNv12BridgeYTexture_->Release();
+      sharedNv12BridgeYTexture_ = nullptr;
+    }
+    if (sharedNv12BridgeUvTexture_ != nullptr) {
+      sharedNv12BridgeUvTexture_->Release();
+      sharedNv12BridgeUvTexture_ = nullptr;
+    }
+    sharedNv12BridgeWidth_ = 0;
+    sharedNv12BridgeHeight_ = 0;
+  }
+
+  bool EnsureSharedNv12BridgeTexturesLocked(ID3D11Device* const device, const UINT width,
+                                            const UINT height) {
+    if (device == nullptr || width == 0 || height == 0 || (width & 1U) != 0U ||
+        (height & 1U) != 0U) {
+      return false;
+    }
+    if (sharedNv12BridgeYTexture_ != nullptr && sharedNv12BridgeUvTexture_ != nullptr &&
+        sharedNv12BridgeWidth_ == width && sharedNv12BridgeHeight_ == height) {
+      return true;
+    }
+
+    ReleaseSharedNv12BridgeTexturesLocked();
+
+    D3D11_TEXTURE2D_DESC yDesc{};
+    yDesc.Width = width;
+    yDesc.Height = height;
+    yDesc.MipLevels = 1;
+    yDesc.ArraySize = 1;
+    yDesc.Format = DXGI_FORMAT_R8_UNORM;
+    yDesc.SampleDesc.Count = 1;
+    yDesc.Usage = D3D11_USAGE_DEFAULT;
+    yDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+    HRESULT hr = device->CreateTexture2D(&yDesc, nullptr, &sharedNv12BridgeYTexture_);
+    if (FAILED(hr) || sharedNv12BridgeYTexture_ == nullptr) {
+      ReleaseSharedNv12BridgeTexturesLocked();
+      return false;
+    }
+
+    D3D11_TEXTURE2D_DESC uvDesc{};
+    uvDesc.Width = width / 2U;
+    uvDesc.Height = height / 2U;
+    uvDesc.MipLevels = 1;
+    uvDesc.ArraySize = 1;
+    uvDesc.Format = DXGI_FORMAT_R8G8_UNORM;
+    uvDesc.SampleDesc.Count = 1;
+    uvDesc.Usage = D3D11_USAGE_DEFAULT;
+    uvDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+    hr = device->CreateTexture2D(&uvDesc, nullptr, &sharedNv12BridgeUvTexture_);
+    if (FAILED(hr) || sharedNv12BridgeUvTexture_ == nullptr) {
+      ReleaseSharedNv12BridgeTexturesLocked();
+      return false;
+    }
+
+    sharedNv12BridgeWidth_ = width;
+    sharedNv12BridgeHeight_ = height;
+    return true;
   }
 
   bool SeekReaderToStartLocked() {
@@ -937,6 +1002,75 @@ class DecodePipelineStub final : public IDecodePipeline {
                            static_cast<std::uint32_t>(scaledBuffer.height)};
     };
 
+    const auto publishSharedGpuNv12Frame =
+        [&](const std::uint8_t* const yPlaneData, const int yStrideBytes,
+            const std::size_t yPlaneBytes, const std::uint8_t* const uvPlaneData,
+            const int uvStrideBytes, const std::size_t uvPlaneBytes) -> PublishResult {
+      const std::size_t decodeOutputPixels =
+          static_cast<std::size_t>(snapshot.frameWidth) *
+          static_cast<std::size_t>(snapshot.frameHeight);
+      if (!ShouldUseSharedGpuNv12Bridge(DecodePathForSelectedSubtype(snapshot.selectedOutputSubtype),
+                                        decodeOutputPixels, shouldScaleForBridge)) {
+        return {};
+      }
+
+      ID3D11Device* sharedDevice = d3d11_interop::AcquireSharedDevice();
+      if (sharedDevice == nullptr) {
+        return {};
+      }
+
+      ID3D11DeviceContext* sharedContext = nullptr;
+      sharedDevice->GetImmediateContext(&sharedContext);
+      if (sharedContext == nullptr) {
+        sharedDevice->Release();
+        return {};
+      }
+
+      ID3D11Texture2D* yTexture = nullptr;
+      ID3D11Texture2D* uvTexture = nullptr;
+      {
+        std::lock_guard<std::mutex> lock(mu_);
+        if (!EnsureSharedNv12BridgeTexturesLocked(sharedDevice, snapshot.frameWidth,
+                                                  snapshot.frameHeight)) {
+          sharedContext->Release();
+          sharedDevice->Release();
+          return {};
+        }
+        sharedContext->UpdateSubresource(
+            sharedNv12BridgeYTexture_, 0, nullptr, yPlaneData, static_cast<UINT>(yStrideBytes),
+            static_cast<UINT>(yStrideBytes) * snapshot.frameHeight);
+        sharedContext->UpdateSubresource(
+            sharedNv12BridgeUvTexture_, 0, nullptr, uvPlaneData, static_cast<UINT>(uvStrideBytes),
+            static_cast<UINT>(uvStrideBytes) * (snapshot.frameHeight / 2U));
+        yTexture = sharedNv12BridgeYTexture_;
+        uvTexture = sharedNv12BridgeUvTexture_;
+        yTexture->AddRef();
+        uvTexture->AddRef();
+      }
+
+      sharedContext->Release();
+      sharedDevice->Release();
+
+      std::shared_ptr<void> yTextureHolder(
+          yTexture, [](void* ptr) {
+            if (ptr != nullptr) {
+              static_cast<ID3D11Texture2D*>(ptr)->Release();
+            }
+          });
+      std::shared_ptr<void> uvTextureHolder(
+          uvTexture, [](void* ptr) {
+            if (ptr != nullptr) {
+              static_cast<ID3D11Texture2D*>(ptr)->Release();
+            }
+          });
+      frame_bridge::PublishLatestGpuNv12Frame(
+          static_cast<int>(snapshot.frameWidth), static_cast<int>(snapshot.frameHeight),
+          snapshot.outputTimestamp100ns, snapshot.sequence, std::move(yTextureHolder),
+          std::move(uvTextureHolder));
+      return PublishResult{true, true, yPlaneBytes + uvPlaneBytes, snapshot.frameWidth,
+                           snapshot.frameHeight};
+    };
+
     if (IsSelectedOutputNv12(snapshot.selectedOutputSubtype)) {
       DWORD sampleBufferCount = 0;
       DWORD sampleTotalLength = 0;
@@ -971,6 +1105,18 @@ class DecodePipelineStub final : public IDecodePipeline {
                   indexedBuffer->Release();
                   return scaledResult;
                 }
+              }
+
+              const PublishResult gpuBridgeResult = publishSharedGpuNv12Frame(
+                  static_cast<const std::uint8_t*>(scanline0 + layout.yPlaneOffsetBytes),
+                  static_cast<int>(pitch), layout.yPlaneBytes,
+                  static_cast<const std::uint8_t*>(scanline0 + layout.uvPlaneOffsetBytes),
+                  static_cast<int>(pitch), layout.uvPlaneBytes);
+              if (gpuBridgeResult.ok) {
+                buffer2d->Unlock2D();
+                buffer2d->Release();
+                indexedBuffer->Release();
+                return gpuBridgeResult;
               }
 
               std::shared_ptr<void> bufferHolder(
@@ -1038,6 +1184,17 @@ class DecodePipelineStub final : public IDecodePipeline {
           mediaBuffer->Release();
           return scaledResult;
         }
+      }
+
+      const PublishResult gpuBridgeResult = publishSharedGpuNv12Frame(
+          static_cast<const std::uint8_t*>(rawData + layout.yPlaneOffsetBytes),
+          static_cast<int>(snapshot.frameWidth), layout.yPlaneBytes,
+          static_cast<const std::uint8_t*>(rawData + layout.uvPlaneOffsetBytes),
+          static_cast<int>(snapshot.frameWidth), layout.uvPlaneBytes);
+      if (gpuBridgeResult.ok) {
+        mediaBuffer->Unlock();
+        mediaBuffer->Release();
+        return gpuBridgeResult;
       }
 
       std::shared_ptr<void> bufferHolder(
@@ -1132,12 +1289,13 @@ class DecodePipelineStub final : public IDecodePipeline {
     frame->timestamp100ns = snapshot.outputTimestamp100ns;
     frame->gpuBacked = publishResult.gpuBacked;
     frame->cpuCopyBytes = publishResult.cpuCopyBytes;
+    const bool gpuZeroCopyPath = publishResult.gpuBacked && snapshot.mfGpuZeroCopyActive;
     frame->decodeInteropStage =
-        publishResult.gpuBacked ? DecodeInteropStage::kEnabled : interopStage_;
-    frame->decodeInteropHresult = publishResult.gpuBacked ? 0 : interopHresult_;
-    frame->decodePath = publishResult.gpuBacked
-                            ? DecodePath::kDxvaZeroCopy
-                            : DecodePathForSelectedSubtype(snapshot.selectedOutputSubtype);
+        gpuZeroCopyPath ? DecodeInteropStage::kEnabled : interopStage_;
+    frame->decodeInteropHresult = gpuZeroCopyPath ? 0 : interopHresult_;
+    frame->decodePath =
+        gpuZeroCopyPath ? DecodePath::kDxvaZeroCopy
+                        : DecodePathForSelectedSubtype(snapshot.selectedOutputSubtype);
     return true;
   }
 #endif
@@ -1188,6 +1346,10 @@ class DecodePipelineStub final : public IDecodePipeline {
   DecodeAsyncReadState decodeAsyncReadState_{};
   IMFSample* asyncReadySample_ = nullptr;
   std::int64_t asyncReadyRawTimestamp100ns_ = 0;
+  ID3D11Texture2D* sharedNv12BridgeYTexture_ = nullptr;
+  ID3D11Texture2D* sharedNv12BridgeUvTexture_ = nullptr;
+  UINT sharedNv12BridgeWidth_ = 0;
+  UINT sharedNv12BridgeHeight_ = 0;
 #endif
 };
 

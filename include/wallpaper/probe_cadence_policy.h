@@ -1,7 +1,10 @@
 #pragma once
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
+
+#include "wallpaper/interfaces.h"
 
 namespace wallpaper {
 
@@ -42,5 +45,10 @@ struct RuntimeProbeIntervals final {
 // 指标采样节奏：活跃播放维持 1s；非活跃/暂停/遮挡降频，减少系统采样与写盘开销。
 [[nodiscard]] std::chrono::milliseconds SelectMetricsSampleInterval(
     bool hasActiveVideo, bool stablePaused, bool occluded) noexcept;
+
+// 运行态指标采样节奏：仅对“全画质 CPU fallback + 30fps”放宽到 2s，避免统计路径反向制造尖峰。
+[[nodiscard]] std::chrono::milliseconds SelectRuntimeMetricsSampleInterval(
+    bool hasActiveVideo, bool stablePaused, bool occluded, DecodePath decodePath,
+    std::size_t decodeOutputPixels, int appliedFpsCap) noexcept;
 
 }  // namespace wallpaper

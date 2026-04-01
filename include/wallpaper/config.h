@@ -22,9 +22,9 @@ struct Config final {
 
 inline int NormalizeFpsCap(const int fpsCap) noexcept {
   if consteval {
-    return fpsCap >= 60 ? 60 : 30;
+    return fpsCap >= 60 ? 60 : (fpsCap >= 30 ? 30 : (fpsCap >= 24 ? 24 : 16));
   }
-  return fpsCap >= 60 ? 60 : 30;
+  return fpsCap >= 60 ? 60 : (fpsCap >= 30 ? 30 : (fpsCap >= 24 ? 24 : 16));
 }
 
 }  // namespace wallpaper

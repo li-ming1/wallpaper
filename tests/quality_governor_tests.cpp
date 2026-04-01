@@ -51,3 +51,21 @@ TEST_CASE(QualityGovernor_Target30AlwaysRemains30) {
   EXPECT_EQ(governor.Update(BuildMetrics(4.0, 5.0, 0.0)), 30);
   EXPECT_EQ(governor.Update(BuildMetrics(12.0, 20.0, 0.2)), 30);
 }
+
+TEST_CASE(QualityGovernor_Target24Remains24WhenAdaptiveEnabled) {
+  wallpaper::QualityGovernor governor;
+  governor.SetTargetFps(24);
+
+  EXPECT_EQ(governor.CurrentFps(), 24);
+  EXPECT_EQ(governor.Update(BuildMetrics(4.0, 5.0, 0.0)), 24);
+  EXPECT_EQ(governor.Update(BuildMetrics(12.0, 20.0, 0.2)), 24);
+}
+
+TEST_CASE(QualityGovernor_Target16Remains16WhenAdaptiveEnabled) {
+  wallpaper::QualityGovernor governor;
+  governor.SetTargetFps(16);
+
+  EXPECT_EQ(governor.CurrentFps(), 16);
+  EXPECT_EQ(governor.Update(BuildMetrics(3.0, 4.0, 0.0)), 16);
+  EXPECT_EQ(governor.Update(BuildMetrics(15.0, 22.0, 0.3)), 16);
+}

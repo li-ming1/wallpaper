@@ -17,20 +17,20 @@ TEST_CASE(UploadScalePolicy_DoesNotScale720pOrLower) {
   EXPECT_EQ(plan.divisor, 1);
 }
 
-TEST_CASE(UploadScalePolicy_Scales1080pToFifth) {
+TEST_CASE(UploadScalePolicy_DoesNotScale1080pWhenQualityFirst) {
   const wallpaper::UploadScalePlan plan =
       wallpaper::SelectUploadScalePlanForCpuUpload(1920, 1080);
-  EXPECT_EQ(plan.targetWidth, 384);
-  EXPECT_EQ(plan.targetHeight, 216);
-  EXPECT_EQ(plan.divisor, 5);
+  EXPECT_EQ(plan.targetWidth, 1920);
+  EXPECT_EQ(plan.targetHeight, 1080);
+  EXPECT_EQ(plan.divisor, 1);
 }
 
-TEST_CASE(UploadScalePolicy_Scales1440pToFifth) {
+TEST_CASE(UploadScalePolicy_DoesNotScale1440pWhenQualityFirst) {
   const wallpaper::UploadScalePlan plan =
       wallpaper::SelectUploadScalePlanForCpuUpload(2560, 1440);
-  EXPECT_EQ(plan.targetWidth, 512);
-  EXPECT_EQ(plan.targetHeight, 288);
-  EXPECT_EQ(plan.divisor, 5);
+  EXPECT_EQ(plan.targetWidth, 2560);
+  EXPECT_EQ(plan.targetHeight, 1440);
+  EXPECT_EQ(plan.divisor, 1);
 }
 
 TEST_CASE(UploadScalePolicy_DoesNotScaleOddResolution) {

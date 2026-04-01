@@ -25,7 +25,7 @@ void QualityGovernor::SetTargetFps(const int fpsCap) noexcept {
     currentFps_ = targetFps_;
   }
   if (targetFps_ <= 30) {
-    currentFps_ = 30;
+    currentFps_ = targetFps_;
     stableSamples_ = 0;
   }
 }
@@ -41,7 +41,7 @@ int QualityGovernor::Update(const RuntimeMetrics& metrics) noexcept {
     return currentFps_;
   }
   if (targetFps_ <= 30) {
-    currentFps_ = 30;
+    currentFps_ = targetFps_;
     stableSamples_ = 0;
     return currentFps_;
   }

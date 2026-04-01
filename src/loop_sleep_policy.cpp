@@ -74,6 +74,21 @@ int ClampDecodePumpHotSleepForRealtime(const int requestedHotSleepMs, const int 
   return std::clamp(requestedHotSleepMs, 6, realtimeSafeMaxSleepMs);
 }
 
+int ClampRenderFpsForCompactCpuFallback(const int requestedFpsCap, const DecodePath decodePath,
+                                        const std::size_t decodeOutputPixels) noexcept {
+  constexpr std::size_t kCompactCpuFallbackPixels = 960U * 540U;
+  if (!IsCpuFallbackDecodePath(decodePath) || decodeOutputPixels == 0 ||
+      decodeOutputPixels > kCompactCpuFallbackPixels) {
+    return requestedFpsCap;
+  }
+  // 540p 质量档下实际新帧速率本来就明显低于 24fps；继续维持 24fps render cap 只会
+  // 增加重复 present 与后续 trim 开销。对该档位单独降到 16fps，更贴近真实新帧节奏。
+  if (decodeOutputPixels == kCompactCpuFallbackPixels) {
+    return std::min(requestedFpsCap, 16);
+  }
+  return std::min(requestedFpsCap, 24);
+}
+
 bool ShouldWakeDecodePumpForRenderCapUpdate(const int previousHotSleepMs, const int nextHotSleepMs,
                                             const int previousFpsCap,
                                             const int nextFpsCap) noexcept {
@@ -100,6 +115,13 @@ int SelectDecodePumpInterruptibleWaitMs(const int requestedSleepMs,
   }
   const int minWaitMs = frameAcquired ? 70 : 140;
   return std::max(boundedSleepMs, minWaitMs);
+}
+
+bool ShouldDeferDecodePumpAcquire(const bool frameReadyNotifierAvailable,
+                                  const std::uint64_t latestDecodedSequence,
+                                  const std::uint64_t latestPresentedSequence) noexcept {
+  return frameReadyNotifierAvailable && latestDecodedSequence != 0 &&
+         latestDecodedSequence > latestPresentedSequence;
 }
 
 bool ShouldUseHighResolutionTimer(const bool hasActiveVideo, const bool stablePaused,

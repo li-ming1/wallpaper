@@ -119,7 +119,9 @@ void PublishLatestNv12FrameView(const int width, const int height, const int yPl
   payload->frame.gpuSubresourceIndex = 0;
   payload->frame.dxgiFormat = 0;
   payload->frame.gpuTexture = nullptr;
+  payload->frame.gpuAuxTexture = nullptr;
   payload->frame.gpuTextureHolder.reset();
+  payload->frame.gpuAuxTextureHolder.reset();
   payload->frame.rgbaData = nullptr;
   payload->frame.rgbaDataBytes = 0;
   payload->frame.rgbaDataHolder = std::move(planeDataHolder);
@@ -147,10 +149,47 @@ void PublishLatestGpuFrame(const int width, const int height, const std::int64_t
   payload->frame.dxgiFormat = dxgiFormat;
 #ifdef _WIN32
   payload->frame.gpuTexture = static_cast<ID3D11Texture2D*>(gpuTextureHolder.get());
+  payload->frame.gpuAuxTexture = nullptr;
 #else
   payload->frame.gpuTexture = gpuTextureHolder.get();
+  payload->frame.gpuAuxTexture = nullptr;
 #endif
   payload->frame.gpuTextureHolder = std::move(gpuTextureHolder);
+  payload->frame.gpuAuxTextureHolder.reset();
+  payload->frame.rgbaData = nullptr;
+  payload->frame.rgbaDataBytes = 0;
+  payload->frame.rgbaDataHolder.reset();
+  payload->frame.yPlaneData = nullptr;
+  payload->frame.yPlaneBytes = 0;
+  payload->frame.yPlaneStrideBytes = 0;
+  payload->frame.uvPlaneData = nullptr;
+  payload->frame.uvPlaneBytes = 0;
+  payload->frame.uvPlaneStrideBytes = 0;
+  PublishPayload(std::const_pointer_cast<const FramePayload>(std::move(payload)), sequence);
+}
+
+void PublishLatestGpuNv12Frame(const int width, const int height,
+                               const std::int64_t timestamp100ns, const std::uint64_t sequence,
+                               std::shared_ptr<void> yTextureHolder,
+                               std::shared_ptr<void> uvTextureHolder) {
+  if (width <= 0 || height <= 0 || yTextureHolder == nullptr || uvTextureHolder == nullptr) {
+    return;
+  }
+
+  auto payload = MakeFramePayloadBase(width, height, width, timestamp100ns, sequence);
+  payload->frame.gpuBacked = true;
+  payload->frame.pixelFormat = PixelFormat::kNv12;
+  payload->frame.gpuSubresourceIndex = 0;
+  payload->frame.dxgiFormat = 0;
+#ifdef _WIN32
+  payload->frame.gpuTexture = static_cast<ID3D11Texture2D*>(yTextureHolder.get());
+  payload->frame.gpuAuxTexture = static_cast<ID3D11Texture2D*>(uvTextureHolder.get());
+#else
+  payload->frame.gpuTexture = yTextureHolder.get();
+  payload->frame.gpuAuxTexture = uvTextureHolder.get();
+#endif
+  payload->frame.gpuTextureHolder = std::move(yTextureHolder);
+  payload->frame.gpuAuxTextureHolder = std::move(uvTextureHolder);
   payload->frame.rgbaData = nullptr;
   payload->frame.rgbaDataBytes = 0;
   payload->frame.rgbaDataHolder.reset();
@@ -175,7 +214,10 @@ bool TryGetLatestFrame(LatestFrame* outFrame) {
   if (!payload->frame.gpuBacked && payload->frame.rgbaDataHolder == nullptr) {
     return false;
   }
-  if (payload->frame.gpuBacked && payload->frame.gpuTextureHolder == nullptr) {
+  if (payload->frame.gpuBacked &&
+      (payload->frame.gpuTextureHolder == nullptr ||
+       (payload->frame.pixelFormat == PixelFormat::kNv12 &&
+        payload->frame.gpuAuxTextureHolder == nullptr))) {
     return false;
   }
   *outFrame = payload->frame;
@@ -197,7 +239,10 @@ bool TryGetLatestFrameIfNewer(const std::uint64_t lastSeenSequence, LatestFrame*
   if (!payload->frame.gpuBacked && payload->frame.rgbaDataHolder == nullptr) {
     return false;
   }
-  if (payload->frame.gpuBacked && payload->frame.gpuTextureHolder == nullptr) {
+  if (payload->frame.gpuBacked &&
+      (payload->frame.gpuTextureHolder == nullptr ||
+       (payload->frame.pixelFormat == PixelFormat::kNv12 &&
+        payload->frame.gpuAuxTextureHolder == nullptr))) {
     return false;
   }
   *outFrame = payload->frame;

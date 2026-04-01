@@ -78,6 +78,33 @@ TEST_CASE(LoopSleepPolicy_ClampDecodePumpHotSleepForRealtimePreservesSmallerSlee
   EXPECT_EQ(wallpaper::ClampDecodePumpHotSleepForRealtime(6, 30, 24), 6);
 }
 
+TEST_CASE(LoopSleepPolicy_ClampRenderFpsForCompactCpuFallbackLowersPresentRate) {
+  EXPECT_EQ(wallpaper::ClampRenderFpsForCompactCpuFallback(
+                30, wallpaper::DecodePath::kCpuNv12Fallback, 960U * 540U),
+            16);
+  EXPECT_EQ(wallpaper::ClampRenderFpsForCompactCpuFallback(
+                60, wallpaper::DecodePath::kCpuNv12Fallback, 960U * 540U),
+            16);
+  EXPECT_EQ(wallpaper::ClampRenderFpsForCompactCpuFallback(
+                24, wallpaper::DecodePath::kCpuNv12Fallback, 960U * 540U),
+            16);
+}
+
+TEST_CASE(LoopSleepPolicy_ClampRenderFpsForCompactCpuFallbackKeepsOtherPaths) {
+  EXPECT_EQ(wallpaper::ClampRenderFpsForCompactCpuFallback(
+                30, wallpaper::DecodePath::kCpuNv12Fallback, 384U * 216U),
+            24);
+  EXPECT_EQ(wallpaper::ClampRenderFpsForCompactCpuFallback(
+                30, wallpaper::DecodePath::kCpuNv12Fallback, 1920U * 1080U),
+            30);
+  EXPECT_EQ(wallpaper::ClampRenderFpsForCompactCpuFallback(
+                30, wallpaper::DecodePath::kDxvaZeroCopy, 960U * 540U),
+            30);
+  EXPECT_EQ(wallpaper::ClampRenderFpsForCompactCpuFallback(
+                30, wallpaper::DecodePath::kUnknown, 0),
+            30);
+}
+
 TEST_CASE(LoopSleepPolicy_HighResolutionTimerEnabledOnlyForActive60Fps) {
   EXPECT_TRUE(wallpaper::ShouldUseHighResolutionTimer(
       true, false, 60, 0, wallpaper::DecodePath::kDxvaZeroCopy, false));
@@ -141,6 +168,17 @@ TEST_CASE(LoopSleepPolicy_DecodePumpInterruptibleWaitKeepsLongWindowWithoutFrame
 TEST_CASE(LoopSleepPolicy_DecodePumpInterruptibleWaitUsesRequestedValueWhenNotEventDriven) {
   EXPECT_EQ(wallpaper::SelectDecodePumpInterruptibleWaitMs(25, false, true), 25);
   EXPECT_EQ(wallpaper::SelectDecodePumpInterruptibleWaitMs(88, false, false), 88);
+}
+
+TEST_CASE(LoopSleepPolicy_DecodePumpDefersAcquireWhenEventDrivenFrameStillPendingPresent) {
+  EXPECT_TRUE(wallpaper::ShouldDeferDecodePumpAcquire(true, 12, 11));
+  EXPECT_TRUE(wallpaper::ShouldDeferDecodePumpAcquire(true, 2, 0));
+}
+
+TEST_CASE(LoopSleepPolicy_DecodePumpDoesNotDeferAcquireWithoutPendingFrameOrNotifier) {
+  EXPECT_TRUE(!wallpaper::ShouldDeferDecodePumpAcquire(true, 12, 12));
+  EXPECT_TRUE(!wallpaper::ShouldDeferDecodePumpAcquire(true, 0, 0));
+  EXPECT_TRUE(!wallpaper::ShouldDeferDecodePumpAcquire(false, 12, 11));
 }
 
 TEST_CASE(DecodeTokenGatePolicy_SkipsWhenNoDecodedSequence) {

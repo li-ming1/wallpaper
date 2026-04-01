@@ -84,6 +84,7 @@ class App final {
   FrameToken latestDecodedToken_{};
   bool hasLatestDecodedToken_ = false;
   std::atomic<std::uint64_t> latestDecodedSequence_{0};
+  std::atomic<std::uint64_t> latestPresentedSequence_{0};
 
   std::atomic<bool> running_{false};
   std::atomic<bool> decodeOpened_{false};
@@ -130,6 +131,7 @@ class App final {
   bool hardSuspendedByPause_ = false;
   PauseTransitionState pauseTransitionState_{};
   RenderScheduler::Clock::time_point lastWorkingSetTrimAt_{};
+  bool startupWorkingSetTrimDone_ = false;
   unsigned long processMemoryPriority_ = 5;
   std::size_t droppedFrames_ = 0;
   std::size_t totalFrames_ = 0;
