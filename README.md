@@ -55,14 +55,3 @@ powershell -ExecutionPolicy Bypass -File .\scripts\run_tests.ps1 -BuildDir build
 - `scripts/`：构建与测试脚本
 - `assets/`：项目资源
 
-## 版本控制约定
-
-以下内容不纳入版本控制：
-
-- `build_tmp/`
-- `test_videos/`
-- `findings.md`
-- `progress.md`
-- `task_plan.md`
-
-这些文件和目录默认视为本地实验、调研或工作记录。
