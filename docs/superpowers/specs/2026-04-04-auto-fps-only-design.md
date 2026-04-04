@@ -30,7 +30,8 @@
 - 若 `sourceFps > 0`：`autoTargetFps = NormalizeFpsCap(sourceFps)`（本质仍是 `24/25/30/60`）。
 - 若 `sourceFps <= 0`：`autoTargetFps = 60`。
 - 若未来出现 `>60` 的 `sourceFps`，`NormalizeFpsCap` 会归一到 `60`。
-- `QualityGovernor::SetTargetFps(autoTargetFps)`，`effectiveFps` 仍可在高负载下自动降至 `30`。
+- `QualityGovernor::SetTargetFps(autoTargetFps)`，高负载下仅在 `autoTargetFps > 30` 时会自动降至 `30`；
+  若 `autoTargetFps <= 30`，则 `effectiveFps` 保持该目标值。
 - 现有 `ClampRenderFpsForCompactCpuFallback` 逻辑保留，作为 CPU fallback 降负载兜底。
 
 ### 4.2 配置与托盘收口
@@ -58,6 +59,7 @@
 
 - `config.json` 中的 `fpsCap/renderCapMode` 将被忽略且不再写回，属于破坏性变更（允许）。
 - 若源帧率长期无法稳定识别，将保持默认 60；高负载时仍可自动降到 30。
+- `target_fps` 字段语义调整为“自动目标上限”，需同步接受此口径变化。
 
 ## 7. 验证
 
@@ -65,7 +67,8 @@
   - `config_store_tests` 删除 `fpsCap/renderCapMode` 读写断言。
   - 新增 “`sourceFps <= 0` => `autoTargetFps=60`” 用例。
   - 新增 “`sourceFps=24/25/30/60` => `autoTargetFps` 等于该离散档位” 用例。
-  - 新增 “高负载 => `effectiveFps=30`，`target_fps` 仍为 `autoTargetFps`” 用例。
+  - 新增 “`autoTargetFps=60` 且高负载 => `effectiveFps=30`，`target_fps` 仍为 60” 用例。
+  - 新增 “`autoTargetFps=24/25/30` 高负载时 `effectiveFps` 保持目标值” 用例。
 - 托盘：菜单项不再出现 FPS 入口。
 - 运行：metrics `target_fps` 与源帧率、负载变化关系符合预期。
 
