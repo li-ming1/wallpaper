@@ -10,8 +10,8 @@
 ## 2. 目标
 
 - 移除所有手动 FPS 配置与 UI 入口。
-- 自动上限：源帧率稳定可用时随源帧率收敛；未知时默认 60。
-- 不降低分辨率、采样、码率或清晰度（本次不新增任何下采样或质量降级行为）。
+- 自动上限：源帧率稳定可用时收敛到对应离散档位；未知时默认 60。
+- 不改变现有分辨率、采样、码率或清晰度策略（本次不新增任何下采样或质量降级行为）。
 - 保留 `adaptiveQuality` 作为高负载保护路径，本次改动仅影响 FPS 目标，不改动其现有解码输出策略。
 
 ## 3. 非目标
@@ -27,11 +27,12 @@
 - 继续复用现有 `source_frame_rate_policy` 的离散识别，不引入连续帧率：
   - 仅识别 `24/25/30/60`，稳定阈值为连续命中 `4` 次（现有 `kStableSampleThreshold`）。
   - 23.976/29.97/59.94/50 等非整数会按现有时间戳区间落入最近档位（例如 50/59.94 -> 60）。
-  - 未稳定识别前 `sourceFps` 为 `0`，稳定后保持最后一次识别结果，直到管线重置。
+  - 未稳定识别前 `sourceFps` 为 `0`；稳定后若帧间隔持续变化，将按既有 hint 衰减机制重新收敛到新档位，无需重置管线。
 - 若 `sourceFps > 0`：`autoTargetFps = NormalizeFpsCap(sourceFps)`（本质仍是 `24/25/30/60`）。
 - 若 `sourceFps <= 0`：`autoTargetFps = 60`。
 - 若未来出现 `>60` 的 `sourceFps`，`NormalizeFpsCap` 会归一到 `60`。
-- `QualityGovernor::SetTargetFps(autoTargetFps)`，高负载下仅在 `autoTargetFps > 30` 时会自动降至 `30`；
+- `QualityGovernor::SetTargetFps(autoTargetFps)`，高负载判定由 `QualityGovernor` 内部完成。
+- 高负载下仅在 `autoTargetFps > 30` 时会自动降至 `30`；
   若 `autoTargetFps <= 30`，则 `effectiveFps` 保持该目标值。
 - 现有 `ClampRenderFpsForCompactCpuFallback` 逻辑保留，作为 CPU fallback 降负载兜底。
 
@@ -52,15 +53,15 @@
 
 - `source_frame_rate_policy` 按既有阈值更新 `sourceFps`（稳定阈值 4 次，非稳定保持上次结果）。
 - App 计算 `autoTargetFps` 并更新 `QualityGovernor` 目标。
-- 高负载下仅在 `autoTargetFps > 30` 时将 `effectiveFps` 降至 `30`，否则保持 `autoTargetFps`。
+- `QualityGovernor` 内部判定高负载，仅在 `autoTargetFps > 30` 时将 `effectiveFps` 降至 `30`。
 - `ApplyRenderFpsCap(qualityGovernor_.CurrentFps())` 驱动调度与解码泵节奏。
-- CPU fallback + 小分辨率情况下，`ClampRenderFpsForCompactCpuFallback` 作为最终上限。
+- CPU fallback + 小分辨率情况下，`ClampRenderFpsForCompactCpuFallback` 在最后一步收口最终上限。
 
 ## 6. 兼容性与风险
 
 - `config.json` 中的 `fpsCap/renderCapMode` 将被忽略且不再写回，属于破坏性变更（允许）。
 - 若源帧率长期无法稳定识别，将保持默认 60；高负载时仍可自动降到 30。
-- `target_fps` 字段语义调整为“自动目标上限”，需同步接受此口径变化。
+- `target_fps` 字段语义调整为“自动目标上限”，当前仓库只写本地 `metrics.csv`，无其它集成点需同步。
 
 ## 7. 验证
 
@@ -68,6 +69,7 @@
   - `config_store_tests` 删除 `fpsCap/renderCapMode` 读写断言。
   - 新增 “`sourceFps <= 0` => `autoTargetFps=60`” 用例。
   - 新增 “`sourceFps=24/25/30/60` => `autoTargetFps` 等于该离散档位” 用例。
+  - 新增 “同一管线内源帧率从 60 稳定到 30 后，`autoTargetFps` 能更新” 用例。
   - 新增 “`autoTargetFps=60` 且高负载 => `effectiveFps=30`，`target_fps` 仍为 60” 用例。
   - 新增 “`autoTargetFps=24/25/30` 高负载时 `effectiveFps` 保持目标值” 用例。
 - 托盘：菜单项不再出现 FPS 入口。
