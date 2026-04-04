@@ -11,8 +11,8 @@
 
 - 移除所有手动 FPS 配置与 UI 入口。
 - 自动上限：源帧率稳定可用时随源帧率收敛；未知时默认 60。
-- 不降低分辨率、采样、码率或清晰度。
-- 保留 `adaptiveQuality` 作为高负载保护路径。
+- 不降低分辨率、采样、码率或清晰度（本次不新增任何下采样或质量降级行为）。
+- 保留 `adaptiveQuality` 作为高负载保护路径，本次改动仅影响 FPS 目标，不改动其现有解码输出策略。
 
 ## 3. 非目标
 
@@ -26,6 +26,7 @@
 
 - 继续复用现有 `source_frame_rate_policy` 的离散识别，不引入连续帧率：
   - 仅识别 `24/25/30/60`，稳定阈值为连续命中 `4` 次（现有 `kStableSampleThreshold`）。
+  - 23.976/29.97/59.94/50 等非整数会按现有时间戳区间落入最近档位（例如 50/59.94 -> 60）。
   - 未稳定识别前 `sourceFps` 为 `0`，稳定后保持最后一次识别结果，直到管线重置。
 - 若 `sourceFps > 0`：`autoTargetFps = NormalizeFpsCap(sourceFps)`（本质仍是 `24/25/30/60`）。
 - 若 `sourceFps <= 0`：`autoTargetFps = 60`。
@@ -51,7 +52,7 @@
 
 - `source_frame_rate_policy` 按既有阈值更新 `sourceFps`（稳定阈值 4 次，非稳定保持上次结果）。
 - App 计算 `autoTargetFps` 并更新 `QualityGovernor` 目标。
-- `QualityGovernor` 在高负载下将 `effectiveFps` 降至 `30`。
+- 高负载下仅在 `autoTargetFps > 30` 时将 `effectiveFps` 降至 `30`，否则保持 `autoTargetFps`。
 - `ApplyRenderFpsCap(qualityGovernor_.CurrentFps())` 驱动调度与解码泵节奏。
 - CPU fallback + 小分辨率情况下，`ClampRenderFpsForCompactCpuFallback` 作为最终上限。
 
