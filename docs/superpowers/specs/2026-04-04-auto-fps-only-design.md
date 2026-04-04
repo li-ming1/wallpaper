@@ -24,18 +24,23 @@
 
 ### 4.1 自动目标上限
 
-- 若 `sourceFps > 0`：`autoTargetFps = NormalizeFpsCap(sourceFps)`。
+- 继续复用现有 `source_frame_rate_policy` 的离散识别，不引入连续帧率：
+  - 仅识别 `24/25/30/60`，稳定阈值为连续命中 `4` 次（现有 `kStableSampleThreshold`）。
+  - 未稳定识别前 `sourceFps` 为 `0`，稳定后保持最后一次识别结果，直到管线重置。
+- 若 `sourceFps > 0`：`autoTargetFps = NormalizeFpsCap(sourceFps)`（本质仍是 `24/25/30/60`）。
 - 若 `sourceFps <= 0`：`autoTargetFps = 60`。
-- `QualityGovernor::SetTargetFps(autoTargetFps)`，`effectiveFps` 仍可在高负载下自动降至 30。
+- 若未来出现 `>60` 的 `sourceFps`，`NormalizeFpsCap` 会归一到 `60`。
+- `QualityGovernor::SetTargetFps(autoTargetFps)`，`effectiveFps` 仍可在高负载下自动降至 `30`。
 - 现有 `ClampRenderFpsForCompactCpuFallback` 逻辑保留，作为 CPU fallback 降负载兜底。
 
 ### 4.2 配置与托盘收口
 
 - 删除配置字段：`fpsCap`、`renderCapMode`。
-- `config_store` 不再读取/写入上述字段；旧配置中的残留字段被忽略。
+- `config_store` 不再读取/写入上述字段；旧配置中的残留字段被忽略且不会再写回。
 - 移除托盘菜单项：`30 FPS` / `60 FPS`。
 - 删除 `TrayActionType::kSetFps30/kSetFps60` 与 `TrayMenuState::fpsCap`。
 - `App::HandleTrayActions` 中移除对应分支。
+- 代码库中当前不存在 CLI/环境变量/脚本 API 的 FPS 入口；若未来新增，则同属移除范围。
 
 ### 4.3 指标语义
 
@@ -43,9 +48,11 @@
 
 ## 5. 数据流
 
-- `source_frame_rate_policy` 更新 `sourceFps`。
+- `source_frame_rate_policy` 按既有阈值更新 `sourceFps`（稳定阈值 4 次，非稳定保持上次结果）。
 - App 计算 `autoTargetFps` 并更新 `QualityGovernor` 目标。
-- `ApplyRenderFpsCap(qualityGovernor_.CurrentFps())` 继续驱动调度与解码泵节奏。
+- `QualityGovernor` 在高负载下将 `effectiveFps` 降至 `30`。
+- `ApplyRenderFpsCap(qualityGovernor_.CurrentFps())` 驱动调度与解码泵节奏。
+- CPU fallback + 小分辨率情况下，`ClampRenderFpsForCompactCpuFallback` 作为最终上限。
 
 ## 6. 兼容性与风险
 
@@ -54,9 +61,13 @@
 
 ## 7. 验证
 
-- 单测：更新 `config_store_tests` 与相关策略测试，覆盖“源帧率未知 => 60”。
+- 单测：
+  - `config_store_tests` 删除 `fpsCap/renderCapMode` 读写断言。
+  - 新增 “`sourceFps <= 0` => `autoTargetFps=60`” 用例。
+  - 新增 “`sourceFps=24/25/30/60` => `autoTargetFps` 等于该离散档位” 用例。
+  - 新增 “高负载 => `effectiveFps=30`，`target_fps` 仍为 `autoTargetFps`” 用例。
 - 托盘：菜单项不再出现 FPS 入口。
-- 运行：metrics `target_fps` 与源帧率、负载变化的关系符合预期。
+- 运行：metrics `target_fps` 与源帧率、负载变化关系符合预期。
 
 ## 8. 里程碑
 
