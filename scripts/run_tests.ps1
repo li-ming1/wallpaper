@@ -112,7 +112,6 @@ $coreSources = @(
   "src/runtime_trim_policy.cpp",
   "src/startup_policy.cpp",
   "src/async_file_writer.cpp",
-  "src/win/decode_pipeline_stub_core.cpp",
   "src/upload_copy_policy.cpp",
   "src/upload_scale_policy.cpp",
   "src/upload_texture_policy.cpp",
