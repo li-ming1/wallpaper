@@ -92,8 +92,8 @@ $appSources = @(
   "src/app_autostart.cpp",
   "src/platform_stubs.cpp",
   "src/win/wallpaper_host_win.cpp",
-  "src/win/decode_pipeline_stub.cpp",
-  "src/win/decode_pipeline_stub_core.cpp",
+  "src/win/decode_pipeline_core.cpp",
+  "src/win/decode_pipeline_mf.cpp",
   "src/win/tray_controller_win.cpp"
 )
 

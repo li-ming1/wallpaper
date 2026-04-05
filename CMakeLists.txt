@@ -79,8 +79,8 @@ if (WIN32)
   target_sources(wallpaper_app PRIVATE
     resources/app_icon.rc
     src/win/wallpaper_host_win.cpp
-    src/win/decode_pipeline_stub.cpp
-    src/win/decode_pipeline_stub_core.cpp
+    src/win/decode_pipeline_core.cpp
+    src/win/decode_pipeline_mf.cpp
     src/win/tray_controller_win.cpp
   )
   if (NOT MSVC)

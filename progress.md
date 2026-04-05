@@ -2832,3 +2832,7 @@
 - 完成：统一 CMake/脚本高优化旗标（默认 -O3 -march=native -flto，便携开关可回落），新增异步落盘 writer 并接入 ConfigStore/MetricsLogFile，拆分 app.cpp（decode pump / tray），重写 video_path_matcher 无异常 fallback，应用目标启用 -fno-exceptions/-fno-rtti。
 - 验证：scripts/run_tests.ps1 -BuildDir build_tmp（PASS 261/261）；scripts/build_app.ps1 -BuildDir build_tmp（PASS，wallpaper_app.exe=236,032B）。
 - 待做：进一步拆分 decode_pipeline_stub_impl.inc（MF 部分）并更新 findings。
+2026-04-05: Located docs/superpowers/specs; new decode pipeline split design to be added there.
+2026-04-05: Wrote design doc docs/superpowers/specs/2026-04-05-decode-pipeline-split-design.md (decode pipeline split into core/mf). Proceeding per user's blanket go-ahead without further approval prompts.
+2026-04-05: Tests passed after split (`scripts/run_tests.ps1 -BuildDir build_tmp`).
+2026-04-05: Rebuilt app via `scripts/build_app.ps1 -BuildDir build_tmp` after replacing decode_pipeline_stub with core/mf files; first run failed due to missing file, fixed appSources and header override, final build succeeded.
