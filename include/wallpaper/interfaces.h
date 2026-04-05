@@ -68,7 +68,6 @@ class IWallpaperHost {
 
 struct DecodeOpenProfile final {
   CodecPolicy codecPolicy = CodecPolicy::kH264;
-  bool adaptiveQualityEnabled = true;
   int longRunLoadLevel = 0;
   bool preferHardwareTransforms = true;
   bool requireHardwareTransforms = false;
@@ -93,16 +92,12 @@ class IDecodePipeline {
 enum class TrayActionType {
   kNone = 0,
   kExit = 1,
-  kSetFps30 = 2,
-  kSetFps60 = 3,
-  kSelectVideo = 4,
-  kClearVideo = 5,
-  kEnableAutoStart = 6,
-  kDisableAutoStart = 7,
-  kEnableAdaptiveQuality = 8,
-  kDisableAdaptiveQuality = 9,
-  kMenuOpened = 10,
-  kMenuClosed = 11,
+  kSelectVideo = 2,
+  kClearVideo = 3,
+  kEnableAutoStart = 4,
+  kDisableAutoStart = 5,
+  kMenuOpened = 6,
+  kMenuClosed = 7,
 };
 
 struct TrayAction final {
@@ -111,9 +106,7 @@ struct TrayAction final {
 };
 
 struct TrayMenuState final {
-  int fpsCap = 30;
   bool autoStart = false;
-  bool adaptiveQuality = true;
   bool hasVideo = false;
 };
 
@@ -128,7 +121,7 @@ class ITrayController {
   virtual bool TryDequeueAction(TrayAction* action) = 0;
 };
 
-std::unique_ptr<IWallpaperHost> CreateWallpaperHost();
+std::unique_ptr<IWallpaperHost> CreateWallpaperHost(FrameLatencyWaitableMode mode);
 std::unique_ptr<IDecodePipeline> CreateDecodePipeline();
 std::unique_ptr<ITrayController> CreateTrayController();
 

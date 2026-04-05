@@ -35,3 +35,10 @@ TEST_CASE(SwapChainPolicy_DisablesWaitableObjectWhenNotAllowed) {
 
   EXPECT_TRUE(!plans[0].useFrameLatencyWaitableObject);
 }
+
+TEST_CASE(SwapChainPolicy_FrameLatencyModeAllowsAuto) {
+  EXPECT_TRUE(wallpaper::ShouldAllowFrameLatencyWaitableObject(
+      wallpaper::FrameLatencyWaitableMode::kAuto));
+  EXPECT_TRUE(!wallpaper::ShouldAllowFrameLatencyWaitableObject(
+      wallpaper::FrameLatencyWaitableMode::kOff));
+}

@@ -26,10 +26,10 @@ TEST_CASE(ConfigStore_LoadsDefaultsWhenMissing) {
   const auto cfg = store.Load();
 
   EXPECT_TRUE(cfg.videoPath.empty());
-  EXPECT_EQ(cfg.fpsCap, 30);
   EXPECT_TRUE(cfg.pauseWhenNotDesktopContext);
   EXPECT_TRUE(!cfg.autoStart);
-  EXPECT_TRUE(cfg.adaptiveQuality);
+  EXPECT_EQ(static_cast<int>(cfg.frameLatencyWaitableMode),
+            static_cast<int>(wallpaper::FrameLatencyWaitableMode::kOff));
 }
 
 TEST_CASE(ConfigStore_RoundTripsCoreFields) {
@@ -38,22 +38,47 @@ TEST_CASE(ConfigStore_RoundTripsCoreFields) {
 
   wallpaper::Config expected;
   expected.videoPath = "D:/videos/demo.mp4";
-  expected.fpsCap = 60;
   expected.autoStart = true;
   expected.pauseWhenNotDesktopContext = false;
-  expected.adaptiveQuality = false;
   expected.codecPolicy = wallpaper::CodecPolicy::kH264PlusHevc;
+  expected.frameLatencyWaitableMode = wallpaper::FrameLatencyWaitableMode::kAuto;
 
   wallpaper::ConfigStore store(path);
   store.Save(expected);
 
+  const std::string rewritten = ReadFile(path);
+  EXPECT_TRUE(rewritten.find("\"adaptiveQuality\"") == std::string::npos);
+
   const auto actual = store.Load();
   EXPECT_EQ(actual.videoPath, expected.videoPath);
-  EXPECT_EQ(actual.fpsCap, expected.fpsCap);
   EXPECT_EQ(actual.autoStart, expected.autoStart);
   EXPECT_EQ(actual.pauseWhenNotDesktopContext, expected.pauseWhenNotDesktopContext);
-  EXPECT_EQ(actual.adaptiveQuality, expected.adaptiveQuality);
   EXPECT_EQ(static_cast<int>(actual.codecPolicy), static_cast<int>(expected.codecPolicy));
+  EXPECT_EQ(static_cast<int>(actual.frameLatencyWaitableMode),
+            static_cast<int>(expected.frameLatencyWaitableMode));
+}
+
+TEST_CASE(ConfigStore_DoesNotPersistManualFpsFields) {
+  const auto path =
+      std::filesystem::temp_directory_path() / "wallpaper_no_manual_fps_config.json";
+  std::filesystem::remove(path);
+
+  wallpaper::Config cfg;
+  cfg.videoPath = "D:/videos/demo.mp4";
+  cfg.autoStart = true;
+  cfg.pauseWhenNotDesktopContext = false;
+  cfg.codecPolicy = wallpaper::CodecPolicy::kH264PlusHevc;
+  cfg.frameLatencyWaitableMode = wallpaper::FrameLatencyWaitableMode::kAuto;
+
+  wallpaper::ConfigStore store(path);
+  store.Save(cfg);
+
+  const std::string rewritten = ReadFile(path);
+  EXPECT_TRUE(rewritten.find("\"fpsCap\"") == std::string::npos);
+  EXPECT_TRUE(rewritten.find("\"renderCapMode\"") == std::string::npos);
+  EXPECT_TRUE(rewritten.find("\"adaptiveQuality\"") == std::string::npos);
+
+  std::filesystem::remove(path);
 }
 
 TEST_CASE(ConfigStore_LoadRewritesLegacyPauseKeys) {
@@ -74,11 +99,45 @@ TEST_CASE(ConfigStore_LoadRewritesLegacyPauseKeys) {
   wallpaper::ConfigStore store(path);
   const auto cfg = store.Load();
 
-  EXPECT_EQ(cfg.fpsCap, 60);
   const std::string rewritten = ReadFile(path);
   EXPECT_TRUE(rewritten.find("\"pauseOnFullscreen\"") == std::string::npos);
   EXPECT_TRUE(rewritten.find("\"pauseOnMaximized\"") == std::string::npos);
   EXPECT_TRUE(rewritten.find("\"pauseWhenNotDesktopContext\"") != std::string::npos);
+  EXPECT_TRUE(rewritten.find("\"fpsCap\"") == std::string::npos);
+  EXPECT_TRUE(rewritten.find("\"adaptiveQuality\"") == std::string::npos);
+
+  std::filesystem::remove(path);
+}
+
+TEST_CASE(ConfigStore_InvalidModesRewriteToDefaults) {
+  const auto path =
+      std::filesystem::temp_directory_path() / "wallpaper_invalid_modes_config.json";
+  {
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    out << "{\n";
+    out << "  \"videoPath\": \"D:/videos/demo.mp4\",\n";
+    out << "  \"fpsCap\": 30,\n";
+    out << "  \"autoStart\": false,\n";
+    out << "  \"pauseWhenNotDesktopContext\": true,\n";
+    out << "  \"adaptiveQuality\": true,\n";
+    out << "  \"codecPolicy\": \"h264\",\n";
+    out << "  \"renderCapMode\": \"warp\",\n";
+    out << "  \"frameLatencyWaitableMode\": \"maybe\"\n";
+    out << "}\n";
+  }
+
+  wallpaper::ConfigStore store(path);
+  const auto cfg = store.Load();
+
+  EXPECT_EQ(static_cast<int>(cfg.frameLatencyWaitableMode),
+            static_cast<int>(wallpaper::FrameLatencyWaitableMode::kOff));
+
+  const std::string rewritten = ReadFile(path);
+  EXPECT_TRUE(rewritten.find("\"renderCapMode\"") == std::string::npos);
+  EXPECT_TRUE(rewritten.find("\"frameLatencyWaitableMode\"") != std::string::npos);
+  EXPECT_TRUE(rewritten.find("\"warp\"") == std::string::npos);
+  EXPECT_TRUE(rewritten.find("\"maybe\"") == std::string::npos);
+  EXPECT_TRUE(rewritten.find("\"adaptiveQuality\"") == std::string::npos);
 
   std::filesystem::remove(path);
 }
@@ -116,24 +175,26 @@ TEST_CASE(ConfigStore_SaveExpectedRoundTripSucceeds) {
   wallpaper::ConfigStore store(path);
   wallpaper::Config expected;
   expected.videoPath = "D:/videos/expected_demo.mp4";
-  expected.fpsCap = 60;
   expected.autoStart = true;
   expected.pauseWhenNotDesktopContext = false;
-  expected.adaptiveQuality = false;
   expected.codecPolicy = wallpaper::CodecPolicy::kH264PlusHevc;
+  expected.frameLatencyWaitableMode = wallpaper::FrameLatencyWaitableMode::kAuto;
 
   const auto saveResult = store.SaveExpected(expected);
   EXPECT_TRUE(saveResult.has_value());
+
+  const std::string rewritten = ReadFile(path);
+  EXPECT_TRUE(rewritten.find("\"adaptiveQuality\"") == std::string::npos);
 
   const auto loadResult = store.LoadExpected();
   EXPECT_TRUE(loadResult.has_value());
   const auto actual = *loadResult;
   EXPECT_EQ(actual.videoPath, expected.videoPath);
-  EXPECT_EQ(actual.fpsCap, expected.fpsCap);
   EXPECT_EQ(actual.autoStart, expected.autoStart);
   EXPECT_EQ(actual.pauseWhenNotDesktopContext, expected.pauseWhenNotDesktopContext);
-  EXPECT_EQ(actual.adaptiveQuality, expected.adaptiveQuality);
   EXPECT_EQ(static_cast<int>(actual.codecPolicy), static_cast<int>(expected.codecPolicy));
+  EXPECT_EQ(static_cast<int>(actual.frameLatencyWaitableMode),
+            static_cast<int>(expected.frameLatencyWaitableMode));
 
   std::filesystem::remove(path);
 }

@@ -13,4 +13,9 @@ std::array<SwapChainPlan, 5> BuildSwapChainPlans(
   }};
 }
 
+bool ShouldAllowFrameLatencyWaitableObject(
+    const FrameLatencyWaitableMode mode) noexcept {
+  return mode == FrameLatencyWaitableMode::kAuto;
+}
+
 }  // namespace wallpaper

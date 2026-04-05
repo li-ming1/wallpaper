@@ -6,6 +6,7 @@
 #include "wallpaper/config.h"
 
 namespace wallpaper {
+class AsyncFileWriter;
 
 enum class ConfigStoreError {
   kFileMissing = 0,
@@ -16,7 +17,7 @@ enum class ConfigStoreError {
 
 class ConfigStore final {
  public:
-  explicit ConfigStore(std::filesystem::path path);
+  explicit ConfigStore(std::filesystem::path path, AsyncFileWriter* writer = nullptr);
 
   [[nodiscard]] std::expected<Config, ConfigStoreError> LoadExpected() const;
   [[nodiscard]] std::expected<void, ConfigStoreError> SaveExpected(const Config& config) const;
@@ -26,7 +27,10 @@ class ConfigStore final {
   [[nodiscard]] bool Exists() const;
 
  private:
+  std::expected<void, ConfigStoreError> SaveExpectedInternal(const Config& config,
+                                                             bool allowAsync) const;
   std::filesystem::path path_;
+  AsyncFileWriter* writer_;
 };
 
 }  // namespace wallpaper

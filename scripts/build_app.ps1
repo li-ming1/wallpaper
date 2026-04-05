@@ -1,7 +1,8 @@
 param(
   [string]$BuildDir = "build",
   [switch]$UseCxx26,
-  [switch]$UseCxx2c
+  [switch]$UseCxx2c,
+  [switch]$Portable
 )
 
 $ErrorActionPreference = "Stop"
@@ -46,19 +47,13 @@ function Resolve-Cxx26Flag {
 
 $output = Join-Path $BuildDir "wallpaper_app.exe"
 $resourceObj = Join-Path $BuildDir "app_icon_res.o"
-$sources = @(
-  "src/main.cpp",
-  "src/app.cpp",
-  "src/platform_stubs.cpp",
-  "src/win/wallpaper_host_win.cpp",
-  "src/win/decode_pipeline_stub.cpp",
-  "src/win/tray_controller_win.cpp",
+$coreSources = @(
   "src/config_store.cpp",
   "src/cpu_frame_downscale.cpp",
-  "src/decode_async_read_policy.cpp",
   "src/desktop_context_policy.cpp",
   "src/desktop_attach_policy.cpp",
   "src/decode_output_policy.cpp",
+  "src/decode_async_read_policy.cpp",
   "src/frame_buffer_policy.cpp",
   "src/frame_latency_policy.cpp",
   "src/foreground_policy.cpp",
@@ -83,9 +78,23 @@ $sources = @(
   "src/frame_bridge.cpp",
   "src/startup_policy.cpp",
   "src/video_path_probe_policy.cpp",
+  "src/async_file_writer.cpp",
   "src/upload_copy_policy.cpp",
   "src/upload_scale_policy.cpp",
   "src/upload_texture_policy.cpp"
+)
+
+$appSources = @(
+  "src/main.cpp",
+  "src/app.cpp",
+  "src/app_decode_control.cpp",
+  "src/app_tray.cpp",
+  "src/app_autostart.cpp",
+  "src/platform_stubs.cpp",
+  "src/win/wallpaper_host_win.cpp",
+  "src/win/decode_pipeline_stub.cpp",
+  "src/win/decode_pipeline_stub_core.cpp",
+  "src/win/tray_controller_win.cpp"
 )
 
 Write-Host "Compiling Windows resources with $($windres.Source)..."
@@ -97,19 +106,30 @@ if ($LASTEXITCODE -ne 0) {
 $useExperimentalCxx = $UseCxx26 -or $UseCxx2c
 $cppStdFlag = if ($useExperimentalCxx) { Resolve-Cxx26Flag $gxx.Source } else { "-std=c++23" }
 
+$optFlags = if ($Portable) { @("-O2", "-march=x86-64-v3") } else { @("-O3", "-march=native", "-flto") }
+
 $compileArgs = @(
   $cppStdFlag,
-  "-O2",
+  $optFlags,
+  "-ffunction-sections",
+  "-fdata-sections",
+  "-fno-exceptions",
+  "-fno-rtti",
+  "-fno-asynchronous-unwind-tables",
+  "-fno-unwind-tables",
+  "-fomit-frame-pointer",
   "-Wall",
   "-Wextra",
   "-Wpedantic",
+  "-DNDEBUG",
   "-DUNICODE",
   "-D_UNICODE",
   "-DWIN32_LEAN_AND_MEAN",
   "-DNOMINMAX",
   "-mwindows",
-  "-Iinclude"
-) + $sources + @(
+  "-Iinclude",
+  "-Wl,--gc-sections"
+) + $coreSources + $appSources + @(
   $resourceObj,
   "-o", $output,
   "-lole32",
@@ -132,6 +152,15 @@ Write-Host "Building wallpaper_app.exe (Windows subsystem)..."
 & $gxx.Source @compileArgs
 if ($LASTEXITCODE -ne 0) {
   exit $LASTEXITCODE
+}
+
+$strip = Get-Command strip -ErrorAction SilentlyContinue
+if ($strip) {
+  Write-Host "Stripping symbols with $($strip.Source)..."
+  & $strip.Source "--strip-all" $output
+  if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+  }
 }
 
 Write-Host "Build complete: $output"

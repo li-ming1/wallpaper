@@ -83,7 +83,7 @@ const char* RuntimePowerStateToCsv(const RuntimePowerState state) {
 }  // namespace
 
 std::string BuildMetricsCsvHeader() {
-  return "unix_ms,session_id,target_fps,effective_fps,adaptive_quality,decode_mode,decode_path,"
+  return "unix_ms,session_id,target_fps,effective_fps,decode_mode,decode_path,"
          "decode_output_pixels,thread_qos,occluded,power_state,"
          "cpu_percent,private_bytes,working_set_bytes,present_p95_ms,dropped_frame_ratio,"
          "long_run_level,decode_hot_sleep_ms,decode_copy_bytes_per_sec,"
@@ -92,15 +92,15 @@ std::string BuildMetricsCsvHeader() {
 
 std::string BuildMetricsCsvLine(const std::int64_t unixMs, const RuntimeMetrics& metrics,
                                 const std::string_view sessionId, const int targetFps,
-                                const int effectiveFps, const bool adaptiveQualityEnabled,
-                                const DecodeMode decodeMode, const DecodePath decodePath,
+                                const int effectiveFps, const DecodeMode decodeMode,
+                                const DecodePath decodePath,
                                 const int longRunLevel, const int decodeHotSleepMs,
                                 const std::size_t decodeCopyBytesPerSec,
                                 const DecodeInteropStage decodeInteropStage,
                                 const std::int32_t decodeInteropHresult) {
   std::ostringstream out;
   out << unixMs << ',' << sessionId << ',' << targetFps << ',' << effectiveFps << ','
-      << (adaptiveQualityEnabled ? 1 : 0) << ',' << DecodeModeToCsv(decodeMode) << ','
+      << DecodeModeToCsv(decodeMode) << ','
       << DecodePathToCsv(decodePath) << ',' << metrics.decodeOutputPixels << ','
       << RuntimeThreadQosToCsv(metrics.threadQos) << ',' << (metrics.occluded ? 1 : 0) << ','
       << RuntimePowerStateToCsv(metrics.powerState) << ',' << std::fixed << std::setprecision(3)

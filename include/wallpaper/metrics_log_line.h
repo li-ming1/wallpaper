@@ -14,9 +14,9 @@ namespace wallpaper {
 
 [[nodiscard]] std::string BuildMetricsCsvLine(std::int64_t unixMs, const RuntimeMetrics& metrics,
                                               std::string_view sessionId, int targetFps,
-                                              int effectiveFps, bool adaptiveQualityEnabled,
-                                              DecodeMode decodeMode, DecodePath decodePath,
-                                              int longRunLevel, int decodeHotSleepMs,
+                                              int effectiveFps, DecodeMode decodeMode,
+                                              DecodePath decodePath, int longRunLevel,
+                                              int decodeHotSleepMs,
                                               std::size_t decodeCopyBytesPerSec,
                                               DecodeInteropStage decodeInteropStage,
                                               std::int32_t decodeInteropHresult);

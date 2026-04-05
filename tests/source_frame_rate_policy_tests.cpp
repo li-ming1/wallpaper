@@ -46,6 +46,23 @@ TEST_CASE(SourceFrameRatePolicy_Detects60FpsAfterStableSamples) {
   EXPECT_EQ(state.sourceFps, 60);
 }
 
+TEST_CASE(SourceFrameRatePolicy_UpdatesWhenCadenceChanges) {
+  wallpaper::SourceFrameRateState state;
+  for (int i = 0; i < 4; ++i) {
+    const int fps = wallpaper::UpdateSourceFrameRateState(10'000'000 + i * 166'666,
+                                                          10'166'666 + i * 166'666, &state);
+    (void)fps;
+  }
+  EXPECT_EQ(state.sourceFps, 60);
+
+  for (int i = 0; i < 4; ++i) {
+    const int fps = wallpaper::UpdateSourceFrameRateState(20'000'000 + i * 333'333,
+                                                          20'333'333 + i * 333'333, &state);
+    (void)fps;
+  }
+  EXPECT_EQ(state.sourceFps, 30);
+}
+
 TEST_CASE(SourceFrameRatePolicy_IgnoresInvalidTimestampOrder) {
   wallpaper::SourceFrameRateState state;
   state.sourceFps = 25;

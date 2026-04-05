@@ -13,7 +13,6 @@ struct DecodeOutputHint final {
 struct DecodeOutputOptions final {
   std::uint32_t desktopWidth = 0;
   std::uint32_t desktopHeight = 0;
-  bool adaptiveQualityEnabled = true;
   bool cpuFallbackPath = false;
   int longRunLoadLevel = 0;
 };
@@ -26,12 +25,12 @@ struct DecodeOutputOptions final {
     const DecodeOutputOptions& options, std::uint32_t negotiatedWidth,
     std::uint32_t negotiatedHeight) noexcept;
 
-// 仅在 CPU 回退 + 自适应质量场景下开启 advanced video processing，
+// 仅在 CPU 回退 + software video processing 场景下开启 advanced video processing，
 // 用于提升输出尺寸 hint 命中率（MF_MT_FRAME_SIZE）。
 [[nodiscard]] bool ShouldEnableAdvancedVideoProcessing(const DecodeOutputOptions& options,
                                                        bool softwareVideoProcessing) noexcept;
 
-// 自适应 CPU 回退链路触发 software retry 时，优先保留 D3D 互操作尝试，
+// CPU 回退链路触发 software retry 时，优先保留 D3D 互操作尝试，
 // 避免因为一次重试直接退化到纯系统内存路径。
 [[nodiscard]] bool ShouldPreserveD3DInteropOnVideoProcessingRetry(
     const DecodeOutputOptions& options, bool preferHardwareTransforms) noexcept;

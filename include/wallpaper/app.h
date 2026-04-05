@@ -10,6 +10,7 @@
 #include <thread>
 #include <vector>
 
+#include "wallpaper/async_file_writer.h"
 #include "wallpaper/config_store.h"
 #include "wallpaper/interfaces.h"
 #include "wallpaper/long_run_load_policy.h"
@@ -51,6 +52,7 @@ class App final {
   void OnDecodeFrameReady();
   static void OnDecodeFrameReadyThunk(void* context);
   void SyncTrayMenuState() const;
+  void RefreshAutoTargetFps(bool force);
   void ScheduleConfigSave();
   bool ShouldActivateVideoPipelineCached(const std::string& path, bool allowCache,
                                          RenderScheduler::Clock::time_point now);
@@ -58,6 +60,7 @@ class App final {
   void Tick();
   void MaybeSampleAndLogMetrics(bool attemptedRender, bool frameDropped, double presentMs);
 
+  std::unique_ptr<AsyncFileWriter> fileWriter_;
   ConfigStore configStore_;
   Config config_{};
   RenderScheduler scheduler_;
@@ -65,6 +68,7 @@ class App final {
   MetricsLogFile metricsLogFile_;
   MetricsSampler metrics_;
   QualityGovernor qualityGovernor_;
+  int autoTargetFps_ = 60;
   std::string metricsSessionId_;
 
   std::unique_ptr<IWallpaperHost> wallpaperHost_;
@@ -80,6 +84,7 @@ class App final {
   mutable std::mutex decodePumpWaitMu_;
   std::condition_variable decodePumpWaitCv_;
   bool decodePumpWakeRequested_ = false;
+  void* decodeFrameReadyEvent_ = nullptr;
   std::mutex decodedTokenMu_;
   FrameToken latestDecodedToken_{};
   bool hasLatestDecodedToken_ = false;

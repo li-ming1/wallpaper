@@ -1,4 +1,5 @@
 #include "wallpaper/config_store.h"
+#include "wallpaper/async_file_writer.h"
 
 #include <algorithm>
 #include <cctype>
@@ -158,28 +159,6 @@ bool ExtractBool(const std::string& json, const std::string& key, bool* out) {
   return false;
 }
 
-bool ExtractInt(const std::string& json, const std::string& key, int* out) {
-  const std::string needle = "\"" + key + "\"";
-  const auto keyPos = json.find(needle);
-  if (keyPos == std::string::npos) {
-    return false;
-  }
-  auto pos = json.find(':', keyPos + needle.size());
-  if (pos == std::string::npos) {
-    return false;
-  }
-  pos = SkipWs(json, pos + 1);
-  std::size_t end = pos;
-  while (end < json.size() && std::isdigit(static_cast<unsigned char>(json[end])) != 0) {
-    ++end;
-  }
-  if (end == pos) {
-    return false;
-  }
-  *out = std::stoi(json.substr(pos, end - pos));
-  return true;
-}
-
 bool ContainsKey(const std::string& json, const std::string& key) {
   const std::string needle = "\"" + key + "\"";
   return json.find(needle) != std::string::npos;
@@ -187,7 +166,8 @@ bool ContainsKey(const std::string& json, const std::string& key) {
 
 }  // namespace
 
-ConfigStore::ConfigStore(std::filesystem::path path) : path_(std::move(path)) {}
+ConfigStore::ConfigStore(std::filesystem::path path, AsyncFileWriter* writer)
+    : path_(std::move(path)), writer_(writer) {}
 
 std::expected<Config, ConfigStoreError> ConfigStore::LoadExpected() const {
   if (!Exists()) {
@@ -206,24 +186,12 @@ std::expected<Config, ConfigStoreError> ConfigStore::LoadExpected() const {
     config.videoPath = value;
   }
 
-  int rawFps = config.fpsCap;
-  if (ExtractInt(json, "fpsCap", &rawFps)) {
-    const int normalizedFps = NormalizeFpsCap(rawFps);
-    config.fpsCap = normalizedFps;
-    if (normalizedFps != rawFps) {
-      requiresRewrite = true;
-    }
-  }
-
   bool flag = false;
   if (ExtractBool(json, "autoStart", &flag)) {
     config.autoStart = flag;
   }
   if (ExtractBool(json, "pauseWhenNotDesktopContext", &flag)) {
     config.pauseWhenNotDesktopContext = flag;
-  }
-  if (ExtractBool(json, "adaptiveQuality", &flag)) {
-    config.adaptiveQuality = flag;
   }
 
   std::string codecValue;
@@ -239,12 +207,30 @@ std::expected<Config, ConfigStoreError> ConfigStore::LoadExpected() const {
     }
   }
 
+  std::string frameLatencyModeValue;
+  if (ExtractString(json, "frameLatencyWaitableMode", &frameLatencyModeValue)) {
+    if (frameLatencyModeValue == "auto") {
+      config.frameLatencyWaitableMode = FrameLatencyWaitableMode::kAuto;
+    } else if (frameLatencyModeValue == "off") {
+      config.frameLatencyWaitableMode = FrameLatencyWaitableMode::kOff;
+    } else {
+      config.frameLatencyWaitableMode = FrameLatencyWaitableMode::kOff;
+      requiresRewrite = true;
+    }
+  }
+
   if (ContainsKey(json, "pauseOnFullscreen") || ContainsKey(json, "pauseOnMaximized")) {
+    requiresRewrite = true;
+  }
+  if (ContainsKey(json, "fpsCap") || ContainsKey(json, "renderCapMode")) {
+    requiresRewrite = true;
+  }
+  if (ContainsKey(json, "adaptiveQuality")) {
     requiresRewrite = true;
   }
 
   if (requiresRewrite) {
-    const auto saved = SaveExpected(config);
+    const auto saved = SaveExpectedInternal(config, /*allowAsync=*/false);
     if (!saved.has_value()) {
       return std::unexpected(saved.error());
     }
@@ -254,27 +240,43 @@ std::expected<Config, ConfigStoreError> ConfigStore::LoadExpected() const {
 }
 
 std::expected<void, ConfigStoreError> ConfigStore::SaveExpected(const Config& config) const {
-  EnsureParentDirectory(path_);
-  std::ofstream out(path_, std::ios::binary | std::ios::trunc);
-  if (!out.is_open()) {
-    return std::unexpected(ConfigStoreError::kWriteFailed);
-  }
+  return SaveExpectedInternal(config, /*allowAsync=*/true);
+}
 
+std::expected<void, ConfigStoreError> ConfigStore::SaveExpectedInternal(
+    const Config& config, const bool allowAsync) const {
+  EnsureParentDirectory(path_);
+  std::ostringstream out;
   out << "{\n";
   out << "  \"videoPath\": \"" << EscapeJson(config.videoPath) << "\",\n";
-  out << "  \"fpsCap\": " << NormalizeFpsCap(config.fpsCap) << ",\n";
   out << "  \"autoStart\": " << (config.autoStart ? "true" : "false") << ",\n";
   out << "  \"pauseWhenNotDesktopContext\": "
       << (config.pauseWhenNotDesktopContext ? "true" : "false") << ",\n";
-  out << "  \"adaptiveQuality\": " << (config.adaptiveQuality ? "true" : "false") << ",\n";
   out << "  \"codecPolicy\": \""
       << (config.codecPolicy == CodecPolicy::kH264PlusHevc ? "h264+hevc" : "h264")
+      << "\",\n";
+  out << "  \"frameLatencyWaitableMode\": \""
+      << (config.frameLatencyWaitableMode == FrameLatencyWaitableMode::kAuto ? "auto" : "off")
       << "\"\n";
   out << "}\n";
-  if (!static_cast<bool>(out)) {
+  const std::string json = out.str();
+
+  if (allowAsync && writer_ != nullptr) {
+    const bool enqueued =
+        writer_->Enqueue(AsyncFileWriter::Task{path_, false, std::string(json)});
+    return enqueued ? std::expected<void, ConfigStoreError>{} :
+                      std::unexpected(ConfigStoreError::kWriteFailed);
+  }
+
+  std::ofstream file(path_, std::ios::binary | std::ios::trunc);
+  if (!file.is_open()) {
     return std::unexpected(ConfigStoreError::kWriteFailed);
   }
-  return {};
+  file.write(json.data(), static_cast<std::streamsize>(json.size()));
+  if (!static_cast<bool>(file)) {
+    return std::unexpected(ConfigStoreError::kWriteFailed);
+  }
+  return std::expected<void, ConfigStoreError>{};
 }
 
 Config ConfigStore::Load() const {

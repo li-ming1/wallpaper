@@ -21,7 +21,9 @@ bool ShouldActivateVideoPipeline(const std::string& videoPath) {
 
 bool ShouldPresentFrame(const bool hasDecodedFrame, const bool hasLastPresentedFrame,
                         const bool staleFramePresentDue) noexcept {
-  return hasDecodedFrame || (hasLastPresentedFrame && staleFramePresentDue);
+  (void)hasLastPresentedFrame;
+  (void)staleFramePresentDue;
+  return hasDecodedFrame;
 }
 
 bool ShouldPresentStaleFrame(const std::chrono::steady_clock::time_point now,

@@ -36,7 +36,7 @@ class TrayControllerStub final : public ITrayController {
 
 }  // namespace
 
-std::unique_ptr<IWallpaperHost> CreateWallpaperHost() {
+std::unique_ptr<IWallpaperHost> CreateWallpaperHost(FrameLatencyWaitableMode) {
   return std::make_unique<WallpaperHostStub>();
 }
 

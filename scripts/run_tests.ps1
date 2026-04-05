@@ -1,7 +1,8 @@
 param(
   [string]$BuildDir = "build",
   [switch]$UseCxx26,
-  [switch]$UseCxx2c
+  [switch]$UseCxx2c,
+  [switch]$Portable
 )
 
 $ErrorActionPreference = "Stop"
@@ -38,7 +39,8 @@ function Resolve-Cxx26Flag {
 }
 
 $output = Join-Path $BuildDir "wallpaper_tests.exe"
-$sources = @(
+
+$testSources = @(
   "tests/test_main.cpp",
   "tests/config_store_tests.cpp",
   "tests/cpu_frame_downscale_tests.cpp",
@@ -47,6 +49,7 @@ $sources = @(
   "tests/desktop_context_policy_tests.cpp",
   "tests/desktop_attach_policy_tests.cpp",
   "tests/decode_output_policy_tests.cpp",
+  "tests/async_file_writer_tests.cpp",
   "tests/frame_buffer_policy_tests.cpp",
   "tests/frame_latency_policy_tests.cpp",
   "tests/frame_bridge_tests.cpp",
@@ -75,13 +78,17 @@ $sources = @(
   "tests/upload_scale_policy_tests.cpp",
   "tests/upload_texture_policy_tests.cpp",
   "tests/video_path_probe_policy_tests.cpp",
-  "tests/video_path_matcher_tests.cpp",
+  "tests/video_path_matcher_tests.cpp"
+)
+
+$coreSources = @(
   "src/config_store.cpp",
   "src/cpu_frame_downscale.cpp",
   "src/decode_async_read_policy.cpp",
   "src/desktop_context_policy.cpp",
   "src/desktop_attach_policy.cpp",
   "src/decode_output_policy.cpp",
+  "src/app_autostart.cpp",
   "src/frame_buffer_policy.cpp",
   "src/frame_latency_policy.cpp",
   "src/frame_bridge.cpp",
@@ -104,6 +111,8 @@ $sources = @(
   "src/swap_chain_policy.cpp",
   "src/runtime_trim_policy.cpp",
   "src/startup_policy.cpp",
+  "src/async_file_writer.cpp",
+  "src/win/decode_pipeline_stub_core.cpp",
   "src/upload_copy_policy.cpp",
   "src/upload_scale_policy.cpp",
   "src/upload_texture_policy.cpp",
@@ -113,14 +122,18 @@ $sources = @(
 
 $useExperimentalCxx = $UseCxx26 -or $UseCxx2c
 $cppStdFlag = if ($useExperimentalCxx) { Resolve-Cxx26Flag $gxx.Source } else { "-std=c++23" }
+$optFlags = if ($Portable) { @("-O2", "-march=x86-64-v3") } else { @("-O3", "-march=native", "-flto") }
 
 $compileArgs = @(
   $cppStdFlag,
+  $optFlags,
   "-Wall",
   "-Wextra",
   "-Wpedantic",
-  "-Iinclude"
-) + $sources + @("-o", $output)
+  "-DNDEBUG",
+  "-Iinclude",
+  "-Wl,--gc-sections"
+) + $testSources + $coreSources + @("-o", $output)
 
 Write-Host "Compiling tests with $($gxx.Source)..."
 & $gxx.Source @compileArgs

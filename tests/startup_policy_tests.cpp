@@ -42,8 +42,8 @@ TEST_CASE(StartupPolicy_ShouldNotPresentWhenReusingLastFrameBeforeKeepAliveDue) 
   EXPECT_TRUE(!wallpaper::ShouldPresentFrame(false, true, false));
 }
 
-TEST_CASE(StartupPolicy_ShouldPresentWhenReusingLastFrameAndKeepAliveDue) {
-  EXPECT_TRUE(wallpaper::ShouldPresentFrame(false, true, true));
+TEST_CASE(StartupPolicy_ShouldNotPresentWhenReusingLastFrameEvenIfKeepAliveDue) {
+  EXPECT_TRUE(!wallpaper::ShouldPresentFrame(false, true, true));
 }
 
 TEST_CASE(StartupPolicy_StaleFrameKeepAliveRequiresInterval) {

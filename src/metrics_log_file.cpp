@@ -1,4 +1,5 @@
 #include "wallpaper/metrics_log_file.h"
+#include "wallpaper/async_file_writer.h"
 
 #include <algorithm>
 #include <array>
@@ -47,12 +48,13 @@ bool IsDateKey(const std::string& text) {
 
 MetricsLogFile::MetricsLogFile(std::filesystem::path path, const std::size_t maxBytes,
                                std::string header, const std::size_t keepDays,
-                               DateKeyProvider dateKeyProvider)
+                               DateKeyProvider dateKeyProvider, AsyncFileWriter* writer)
     : basePath_(std::move(path)),
       maxBytes_(std::max(maxBytes, header.size() + static_cast<std::size_t>(1))),
       header_(std::move(header)),
       keepDays_(std::max<std::size_t>(1, keepDays)),
-      dateKeyProvider_(std::move(dateKeyProvider)) {}
+      dateKeyProvider_(std::move(dateKeyProvider)),
+      writer_(writer) {}
 
 bool MetricsLogFile::EnsureReady() const {
   return EnsureReadyForPath(ActivePath());
@@ -116,6 +118,10 @@ bool MetricsLogFile::Append(const std::string_view line) const {
   // 达到阈值直接回收成“仅表头”，确保长期运行文件体积稳定且写入路径简单。
   if (bytes + line.size() > maxBytes_ && !RewriteWithHeader(activePath)) {
     return false;
+  }
+
+  if (writer_ != nullptr) {
+    return writer_->Enqueue(AsyncFileWriter::Task{activePath, true, std::string(line)});
   }
 
   std::ofstream out(activePath, std::ios::binary | std::ios::app);

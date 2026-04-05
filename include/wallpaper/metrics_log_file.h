@@ -8,13 +8,15 @@
 #include <string_view>
 
 namespace wallpaper {
+class AsyncFileWriter;
 
 class MetricsLogFile final {
  public:
   using DateKeyProvider = std::function<std::string()>;
 
   MetricsLogFile(std::filesystem::path path, std::size_t maxBytes, std::string header,
-                 std::size_t keepDays = 1, DateKeyProvider dateKeyProvider = {});
+                 std::size_t keepDays = 1, DateKeyProvider dateKeyProvider = {},
+                 AsyncFileWriter* writer = nullptr);
 
  [[nodiscard]] bool EnsureReady() const;
   [[nodiscard]] bool Append(std::string_view line) const;
@@ -31,6 +33,7 @@ class MetricsLogFile final {
   std::string header_;
   std::size_t keepDays_;
   DateKeyProvider dateKeyProvider_;
+  AsyncFileWriter* writer_;
   mutable std::filesystem::path lastPrunedActivePath_;
   mutable std::chrono::steady_clock::time_point lastPrunedAt_{};
 };

@@ -105,6 +105,22 @@ TEST_CASE(LoopSleepPolicy_ClampRenderFpsForCompactCpuFallbackKeepsOtherPaths) {
             30);
 }
 
+TEST_CASE(LoopSleepPolicy_ResolveAutoTargetFpsDefaultsTo60WhenUnknown) {
+  EXPECT_EQ(wallpaper::ResolveAutoTargetFps(0), 60);
+  EXPECT_EQ(wallpaper::ResolveAutoTargetFps(-1), 60);
+}
+
+TEST_CASE(LoopSleepPolicy_ResolveAutoTargetFpsKeepsDiscreteRates) {
+  EXPECT_EQ(wallpaper::ResolveAutoTargetFps(24), 24);
+  EXPECT_EQ(wallpaper::ResolveAutoTargetFps(25), 25);
+  EXPECT_EQ(wallpaper::ResolveAutoTargetFps(30), 30);
+  EXPECT_EQ(wallpaper::ResolveAutoTargetFps(60), 60);
+}
+
+TEST_CASE(LoopSleepPolicy_ResolveAutoTargetFpsClampsHighRatesTo60) {
+  EXPECT_EQ(wallpaper::ResolveAutoTargetFps(120), 60);
+}
+
 TEST_CASE(LoopSleepPolicy_HighResolutionTimerEnabledOnlyForActive60Fps) {
   EXPECT_TRUE(wallpaper::ShouldUseHighResolutionTimer(
       true, false, 60, 0, wallpaper::DecodePath::kDxvaZeroCopy, false));

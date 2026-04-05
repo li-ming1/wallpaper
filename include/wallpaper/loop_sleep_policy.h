@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "wallpaper/config.h"
 #include "wallpaper/interfaces.h"
 
 namespace wallpaper {
@@ -33,6 +34,9 @@ namespace wallpaper {
 [[nodiscard]] int ClampRenderFpsForCompactCpuFallback(int requestedFpsCap,
                                                       DecodePath decodePath,
                                                       std::size_t decodeOutputPixels) noexcept;
+
+// 自动目标上限：源帧率稳定时收敛到离散档位，未知时默认 60。
+[[nodiscard]] int ResolveAutoTargetFps(int sourceFps) noexcept;
 
 // 渲染参数未变化时避免重复唤醒解码泵，减少无效线程调度。
 [[nodiscard]] bool ShouldWakeDecodePumpForRenderCapUpdate(int previousHotSleepMs,

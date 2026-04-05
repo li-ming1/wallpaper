@@ -6,6 +6,7 @@
 #include "wallpaper/long_run_load_policy.h"
 #include "wallpaper/loop_sleep_policy.h"
 #include "wallpaper/metrics_log_line.h"
+#include "app_autostart.h"
 #include "wallpaper/pause_suspend_policy.h"
 #include "wallpaper/pause_transition_policy.h"
 #include "wallpaper/probe_cadence_policy.h"
@@ -14,6 +15,7 @@
 #include "wallpaper/upload_texture_policy.h"
 #include "wallpaper/video_path_probe_policy.h"
 #include "wallpaper/video_path_matcher.h"
+#include "app_autostart.h"
 
 #include <algorithm>
 #include <chrono>
@@ -224,35 +226,6 @@ bool SetCurrentProcessMemoryPriority(const ULONG priority) {
                                sizeof(memoryInfo)) != FALSE;
 }
 
-bool SetAutoStartEnabled(const bool enabled) {
-  constexpr wchar_t kRunPath[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
-  constexpr wchar_t kValueName[] = L"WallpaperDynamicDesktop";
-
-  HKEY key = nullptr;
-  if (RegCreateKeyExW(HKEY_CURRENT_USER, kRunPath, 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key,
-                      nullptr) != ERROR_SUCCESS) {
-    return false;
-  }
-
-  bool ok = false;
-  if (enabled) {
-    wchar_t exePath[MAX_PATH] = {};
-    const DWORD len = GetModuleFileNameW(nullptr, exePath, MAX_PATH);
-    if (len > 0 && len < MAX_PATH) {
-      const std::wstring cmd = L"\"" + std::wstring(exePath) + L"\"";
-      const BYTE* bytes = reinterpret_cast<const BYTE*>(cmd.c_str());
-      const DWORD byteSize = static_cast<DWORD>((cmd.size() + 1) * sizeof(wchar_t));
-      ok = RegSetValueExW(key, kValueName, 0, REG_SZ, bytes, byteSize) == ERROR_SUCCESS;
-    }
-  } else {
-    const LONG rc = RegDeleteValueW(key, kValueName);
-    ok = (rc == ERROR_SUCCESS || rc == ERROR_FILE_NOT_FOUND);
-  }
-
-  RegCloseKey(key);
-  return ok;
-}
-
 class ScopedHighResolutionTimer final {
  public:
   ScopedHighResolutionTimer() = default;
@@ -284,7 +257,6 @@ bool IsBatterySaverActive() { return false; }
 bool IsRemoteSessionActive() { return false; }
 bool TrimCurrentProcessWorkingSet() { return false; }
 bool SetCurrentProcessMemoryPriority(unsigned long) { return false; }
-bool SetAutoStartEnabled(bool) { return true; }
 std::uintptr_t QueryForegroundWindowHandle() { return 0; }
 bool TryDetectDesktopContextActive(std::uintptr_t, bool* outActive) {
   if (outActive == nullptr) {
@@ -313,21 +285,30 @@ void PumpThreadWindowMessages() {
 #endif
 }
 
-void WaitMainLoopInterval(const int sleepMs, const bool useMessageAwareWait) {
+void WaitMainLoopInterval(const int sleepMs, const bool useMessageAwareWait,
+                          void* const frameReadyEvent) {
   if (sleepMs <= 0) {
     return;
   }
 #ifdef _WIN32
   const DWORD waitMs = static_cast<DWORD>(std::clamp(sleepMs, 1, 500));
+  const HANDLE decodeEvent = reinterpret_cast<HANDLE>(frameReadyEvent);
   if (useMessageAwareWait) {
     // 仅在长睡眠路径等待主线程消息，且忽略高频输入类消息，减少提前唤醒抖动。
     constexpr DWORD kMainLoopMessageMask = QS_POSTMESSAGE | QS_SENDMESSAGE | QS_TIMER;
-    (void)MsgWaitForMultipleObjectsEx(0, nullptr, waitMs, kMainLoopMessageMask,
-                                      MWMO_INPUTAVAILABLE);
+    const DWORD handleCount = decodeEvent != nullptr ? 1U : 0U;
+    HANDLE handles[1] = {decodeEvent};
+    (void)MsgWaitForMultipleObjectsEx(handleCount, handleCount == 0 ? nullptr : handles, waitMs,
+                                      kMainLoopMessageMask, MWMO_INPUTAVAILABLE);
+    return;
+  }
+  if (decodeEvent != nullptr) {
+    (void)WaitForSingleObjectEx(decodeEvent, waitMs, FALSE);
     return;
   }
   Sleep(waitMs);
 #else
+  (void)frameReadyEvent;
   std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
 #endif
 }
@@ -362,14 +343,17 @@ std::string BuildMetricsSessionId() {
 }  // namespace
 
 App::App(std::filesystem::path configPath)
-    : configStore_(configPath),
+    : fileWriter_(std::make_unique<AsyncFileWriter>(256)),
+      configStore_(configPath, fileWriter_.get()),
       scheduler_(30),
       metricsLogFile_((configPath.has_parent_path() ? configPath.parent_path()
                                                     : std::filesystem::current_path()) /
                           "metrics.csv",
                       256U * 1024U,
                       BuildMetricsCsvHeader(),
-                      7),
+                      7,
+                      {},
+                      fileWriter_.get()),
       metrics_(300),
       qualityGovernor_(),
       metricsSessionId_(BuildMetricsSessionId()) {
@@ -380,6 +364,12 @@ App::App(std::filesystem::path configPath)
 App::~App() {
   RequestStop();
   StopDecodePump();
+#ifdef _WIN32
+  if (decodeFrameReadyEvent_ != nullptr) {
+    CloseHandle(reinterpret_cast<HANDLE>(decodeFrameReadyEvent_));
+    decodeFrameReadyEvent_ = nullptr;
+  }
+#endif
 }
 
 bool App::Initialize() {
@@ -390,17 +380,22 @@ bool App::Initialize() {
   } else {
     config_ = {};
   }
-  qualityGovernor_.SetTargetFps(config_.fpsCap);
-  qualityGovernor_.SetEnabled(config_.adaptiveQuality);
+  RefreshAutoTargetFps(true);
+  qualityGovernor_.SetEnabled(true);
   ApplyRenderFpsCap(qualityGovernor_.CurrentFps());
   arbiter_.SetPauseWhenNotDesktopContext(config_.pauseWhenNotDesktopContext);
 
-  wallpaperHost_ = CreateWallpaperHost();
+  wallpaperHost_ = CreateWallpaperHost(config_.frameLatencyWaitableMode);
   decodePipeline_ = CreateDecodePipeline();
   trayController_ = CreateTrayController();
   if (!wallpaperHost_ || !decodePipeline_ || !trayController_) {
     return false;
   }
+#ifdef _WIN32
+  if (decodeFrameReadyEvent_ == nullptr) {
+    decodeFrameReadyEvent_ = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+  }
+#endif
   decodePipeline_->SetFrameReadyNotifier(&App::OnDecodeFrameReadyThunk, this);
   decodeFrameReadyNotifierAvailable_ = decodePipeline_->SupportsFrameReadyNotifier();
 
@@ -462,7 +457,7 @@ int App::Run() {
     const int sleepMs = ComputeMainLoopSleepMs(shouldPause, hasActiveVideo, untilNextRender);
     const bool useMessageAwareWait =
         ShouldUseMainLoopMessageAwareWait(shouldPause, hasActiveVideo);
-    WaitMainLoopInterval(sleepMs, useMessageAwareWait);
+    WaitMainLoopInterval(sleepMs, useMessageAwareWait, decodeFrameReadyEvent_);
   }
 
   StopDecodePump();
@@ -480,20 +475,13 @@ int App::Run() {
 
 void App::RequestStop() { running_.store(false); }
 
-void App::SyncTrayMenuState() const {
-  if (!trayController_) {
+void App::RefreshAutoTargetFps(const bool force) {
+  const int nextTarget = ResolveAutoTargetFps(sourceFrameRateState_.sourceFps);
+  if (!force && nextTarget == autoTargetFps_) {
     return;
   }
-  TrayMenuState state;
-  state.fpsCap = NormalizeFpsCap(config_.fpsCap);
-  state.autoStart = config_.autoStart;
-  state.adaptiveQuality = config_.adaptiveQuality;
-  state.hasVideo = !config_.videoPath.empty();
-  trayController_->UpdateMenuState(state);
-}
-
-void App::ScheduleConfigSave() {
-  (void)configStore_.SaveExpected(config_);
+  autoTargetFps_ = nextTarget;
+  qualityGovernor_.SetTargetFps(autoTargetFps_);
 }
 
 bool App::ShouldActivateVideoPipelineCached(const std::string& path, const bool allowCache,
@@ -557,6 +545,7 @@ void App::ResetPlaybackState(const bool resetLongRunState) {
   syntheticSequence_ = 0;
   lastDecodedTimestamp100ns_ = -1;
   ResetSourceFrameRateState(&sourceFrameRateState_);
+  RefreshAutoTargetFps(true);
   trayMenuVisible_ = false;
   lastTrayInteractionAt_ = RenderScheduler::Clock::time_point{};
   lastDecodeMode_ = DecodeMode::kUnknown;
@@ -626,7 +615,6 @@ bool App::StartVideoPipelineForPath(const std::string& path, const int longRunLo
   }
   DecodeOpenProfile openProfile;
   openProfile.codecPolicy = config_.codecPolicy;
-  openProfile.adaptiveQualityEnabled = config_.adaptiveQuality;
   openProfile.longRunLoadLevel = longRunLoadLevel;
   openProfile.preferHardwareTransforms = preferHardwareTransforms;
   openProfile.requireHardwareTransforms = false;
@@ -664,9 +652,6 @@ bool App::StartVideoPipelineForPath(const std::string& path, const int longRunLo
 
 void App::ApplyRenderFpsCap(const int governorFps) {
   int desired = NormalizeFpsCap(governorFps);
-  if (sourceFrameRateState_.sourceFps <= 30 && desired > 30) {
-    desired = 30;
-  }
   desired = ClampRenderFpsForCompactCpuFallback(desired, lastDecodePath_, lastDecodeOutputPixels_);
   int baseHotSleepMs = ComputeDecodePumpHotSleepMs(desired, sourceFrameRateState_.sourceFps);
   int dynamicBoostMs = decodePumpDynamicBoostMs_.load();
@@ -693,339 +678,6 @@ void App::ApplyRenderFpsCap(const int governorFps) {
                                              desired)) {
     WakeDecodePump();
   }
-}
-
-bool App::ApplyVideoPath(const std::string& newPath) {
-  if (!decodePipeline_) {
-    return false;
-  }
-  if (IsSameVideoPath(newPath, config_.videoPath)) {
-    return true;
-  }
-
-  const std::string oldPath = config_.videoPath;
-  const bool canRestoreOldPath =
-      ShouldActivateVideoPipelineCached(oldPath, false, RenderScheduler::Clock::now());
-
-  const auto restoreOldVideo = [this, &oldPath, canRestoreOldPath]() {
-    if (canRestoreOldPath) {
-      StartVideoPipelineForPath(oldPath);
-    }
-  };
-
-  if (newPath.empty()) {
-    decodePipeline_->Stop();
-    decodeOpened_.store(false);
-    decodeRunning_.store(false);
-    decodeFrameReadyNotifierAvailable_ = false;
-    ResetPlaybackState();
-    config_.videoPath.clear();
-    InvalidateVideoPathProbeCache();
-    DetachWallpaper();
-    return true;
-  }
-
-  if (!ShouldActivateVideoPipelineCached(newPath, false, RenderScheduler::Clock::now())) {
-    return false;
-  }
-
-  if (!StartVideoPipelineForPath(newPath)) {
-    restoreOldVideo();
-    return false;
-  }
-
-  config_.videoPath = newPath;
-  return true;
-}
-
-void App::StartDecodePump() {
-  if (decodePumpRunning_.exchange(true)) {
-    return;
-  }
-  {
-    std::lock_guard<std::mutex> lock(decodePumpWaitMu_);
-    decodePumpWakeRequested_ = false;
-  }
-
-  decodePumpThread_ = std::thread([this]() {
-    const auto sleepInterruptible = [this](const int sleepMs,
-                                           const bool preferEventDrivenWait,
-                                           const bool frameAcquired) {
-      if (sleepMs <= 0) {
-        return;
-      }
-      const int waitMs =
-          SelectDecodePumpInterruptibleWaitMs(sleepMs, preferEventDrivenWait, frameAcquired);
-      std::unique_lock<std::mutex> lock(decodePumpWaitMu_);
-      decodePumpWaitCv_.wait_for(lock, std::chrono::milliseconds(waitMs),
-                                 [this]() { return !decodePumpRunning_.load() || decodePumpWakeRequested_; });
-      decodePumpWakeRequested_ = false;
-    };
-
-#ifdef _WIN32
-    int lastDecodeThreadPriority = THREAD_PRIORITY_NORMAL;
-    RuntimeThreadQos lastDecodeThreadQos = RuntimeThreadQos::kNormal;
-    ULONG lastMemoryPriority = MEMORY_PRIORITY_NORMAL;
-    const auto setDecodeThreadPriority = [&](const int priority) {
-      if (priority == lastDecodeThreadPriority) {
-        return;
-      }
-      if (SetThreadPriority(GetCurrentThread(), priority) != FALSE) {
-        lastDecodeThreadPriority = priority;
-      }
-    };
-    const auto applyDecodeThreadServiceHints = [&](const bool decodeReady,
-                                                   const bool warmupActive) {
-      const RuntimeThreadQos nextQos =
-          warmupActive ? RuntimeThreadQos::kNormal : RuntimeThreadQos::kEco;
-      const ULONG nextMemoryPriority =
-          warmupActive ? MEMORY_PRIORITY_NORMAL : MEMORY_PRIORITY_LOW;
-      decodeThreadQos_.store(static_cast<int>(nextQos));
-      if (nextQos != lastDecodeThreadQos) {
-        THREAD_POWER_THROTTLING_STATE throttling{};
-        throttling.Version = THREAD_POWER_THROTTLING_CURRENT_VERSION;
-        throttling.ControlMask = THREAD_POWER_THROTTLING_EXECUTION_SPEED;
-        throttling.StateMask =
-            nextQos == RuntimeThreadQos::kEco ? THREAD_POWER_THROTTLING_EXECUTION_SPEED : 0;
-        SetThreadInformation(GetCurrentThread(), ThreadPowerThrottling, &throttling,
-                             sizeof(throttling));
-        lastDecodeThreadQos = nextQos;
-      }
-      if (nextMemoryPriority != lastMemoryPriority) {
-        MEMORY_PRIORITY_INFORMATION memoryInfo{};
-        memoryInfo.MemoryPriority = nextMemoryPriority;
-        SetThreadInformation(GetCurrentThread(), ThreadMemoryPriority, &memoryInfo,
-                             sizeof(memoryInfo));
-        lastMemoryPriority = nextMemoryPriority;
-      }
-      setDecodeThreadPriority(decodeReady ? THREAD_PRIORITY_BELOW_NORMAL : THREAD_PRIORITY_IDLE);
-    };
-    applyDecodeThreadServiceHints(false, false);
-#endif
-
-    int decodeIdleSleepMs = 2;
-    while (decodePumpRunning_.load()) {
-      const bool decodeReady = decodePipeline_ && decodeOpened_.load() && decodeRunning_.load();
-      const bool warmupActive = decodeWarmupActive_.load();
-#ifdef _WIN32
-      applyDecodeThreadServiceHints(decodeReady, warmupActive);
-#else
-      decodeThreadQos_.store(static_cast<int>(warmupActive ? RuntimeThreadQos::kNormal
-                                                           : RuntimeThreadQos::kEco));
-#endif
-      if (!decodeReady) {
-        decodeIdleSleepMs = ComputeDecodePumpSleepMs(false, false, decodeIdleSleepMs,
-                                                     decodeFrameReadyNotifierAvailable_);
-        sleepInterruptible(
-            decodeIdleSleepMs,
-            ShouldPreferEventDrivenDecodePumpWait(decodeFrameReadyNotifierAvailable_, decodeReady,
-                                                  false),
-            false);
-        continue;
-      }
-      if (decodeIdleSleepMs > 2) {
-        decodeIdleSleepMs = 2;
-      }
-
-      const std::uint64_t latestDecodedSequence = latestDecodedSequence_.load(std::memory_order_acquire);
-      const std::uint64_t latestPresentedSequence =
-          latestPresentedSequence_.load(std::memory_order_acquire);
-      if (ShouldDeferDecodePumpAcquire(decodeFrameReadyNotifierAvailable_, latestDecodedSequence,
-                                       latestPresentedSequence)) {
-        const int hotSleepMs = std::max(decodePumpHotSleepMs_.load(), decodeIdleSleepMs);
-        // 已有待消费帧时改用短定时回压，避免“回调唤醒 + 主线程再唤醒”形成抖动放大。
-        sleepInterruptible(hotSleepMs, false, true);
-        continue;
-      }
-
-      FrameToken token{};
-      if (decodePipeline_->TryAcquireLatestFrame(&token)) {
-        std::lock_guard<std::mutex> lock(decodedTokenMu_);
-        latestDecodedToken_ = token;
-        hasLatestDecodedToken_ = true;
-        latestDecodedSequence_.store(token.sequence, std::memory_order_release);
-        decodeIdleSleepMs = ComputeDecodePumpSleepMs(true, true, decodeIdleSleepMs,
-                                                     decodeFrameReadyNotifierAvailable_);
-        const int hotSleepMs = decodePumpHotSleepMs_.load();
-        if (hotSleepMs > decodeIdleSleepMs) {
-          decodeIdleSleepMs = hotSleepMs;
-        }
-        sleepInterruptible(
-            decodeIdleSleepMs,
-            ShouldPreferEventDrivenDecodePumpWait(decodeFrameReadyNotifierAvailable_, decodeReady,
-                                                  true),
-            true);
-      } else {
-        decodeIdleSleepMs = ComputeDecodePumpSleepMs(true, false, decodeIdleSleepMs,
-                                                     decodeFrameReadyNotifierAvailable_);
-        sleepInterruptible(
-            decodeIdleSleepMs,
-            ShouldPreferEventDrivenDecodePumpWait(decodeFrameReadyNotifierAvailable_, decodeReady,
-                                                  false),
-            false);
-      }
-    }
-  });
-}
-
-void App::StopDecodePump() {
-  if (!decodePumpRunning_.exchange(false)) {
-    return;
-  }
-  WakeDecodePump();
-  if (decodePumpThread_.joinable()) {
-    decodePumpThread_.join();
-  }
-}
-
-void App::WakeDecodePump() {
-  bool shouldNotify = false;
-  {
-    std::lock_guard<std::mutex> lock(decodePumpWaitMu_);
-    shouldNotify = ShouldNotifyDecodePumpWake(decodePumpWakeRequested_);
-    if (shouldNotify) {
-      decodePumpWakeRequested_ = true;
-    }
-  }
-  if (!shouldNotify) {
-    return;
-  }
-  decodePumpWaitCv_.notify_one();
-}
-
-void App::OnDecodeFrameReady() { WakeDecodePump(); }
-
-void App::OnDecodeFrameReadyThunk(void* const context) {
-  if (context == nullptr) {
-    return;
-  }
-  static_cast<App*>(context)->OnDecodeFrameReady();
-}
-
-bool App::HandleTrayActions() {
-  if (!trayController_) {
-    return true;
-  }
-
-  bool configChanged = false;
-  bool trayStateChanged = false;
-  bool hadTrayInteraction = false;
-  TrayAction action;
-  while (trayController_->TryDequeueAction(&action)) {
-    switch (action.type) {
-      case TrayActionType::kExit:
-        hadTrayInteraction = true;
-        RequestStop();
-        return false;
-      case TrayActionType::kSetFps30:
-        hadTrayInteraction = true;
-        if (config_.fpsCap != 30) {
-          config_.fpsCap = 30;
-          qualityGovernor_.SetTargetFps(config_.fpsCap);
-          ApplyRenderFpsCap(qualityGovernor_.CurrentFps());
-          configChanged = true;
-          trayStateChanged = true;
-        }
-        break;
-      case TrayActionType::kSetFps60:
-        hadTrayInteraction = true;
-        if (config_.fpsCap != 60) {
-          config_.fpsCap = 60;
-          qualityGovernor_.SetTargetFps(config_.fpsCap);
-          ApplyRenderFpsCap(qualityGovernor_.CurrentFps());
-          configChanged = true;
-          trayStateChanged = true;
-        }
-        break;
-      case TrayActionType::kSelectVideo:
-        hadTrayInteraction = true;
-        if (!action.payload.empty() && ApplyVideoPath(action.payload)) {
-          configChanged = true;
-          trayStateChanged = true;
-        }
-        break;
-      case TrayActionType::kClearVideo:
-        hadTrayInteraction = true;
-        if (ApplyVideoPath({})) {
-          configChanged = true;
-          trayStateChanged = true;
-        }
-        break;
-      case TrayActionType::kEnableAutoStart:
-        hadTrayInteraction = true;
-        if (!config_.autoStart && SetAutoStartEnabled(true)) {
-          config_.autoStart = true;
-          configChanged = true;
-          trayStateChanged = true;
-        }
-        break;
-      case TrayActionType::kDisableAutoStart:
-        hadTrayInteraction = true;
-        if (config_.autoStart && SetAutoStartEnabled(false)) {
-          config_.autoStart = false;
-          configChanged = true;
-          trayStateChanged = true;
-        }
-        break;
-      case TrayActionType::kEnableAdaptiveQuality:
-        hadTrayInteraction = true;
-        if (!config_.adaptiveQuality) {
-          config_.adaptiveQuality = true;
-          qualityGovernor_.SetEnabled(true);
-          ApplyRenderFpsCap(qualityGovernor_.CurrentFps());
-          if (ShouldActivateVideoPipelineCached(config_.videoPath, false,
-                                                RenderScheduler::Clock::now()) &&
-              decodePipeline_ &&
-              decodeOpened_.load()) {
-            // 自适应质量切换后重开解码管线，让 MF 输出尺寸策略立即生效。
-            StartVideoPipelineForPath(config_.videoPath);
-          }
-          configChanged = true;
-          trayStateChanged = true;
-        }
-        break;
-      case TrayActionType::kDisableAdaptiveQuality:
-        hadTrayInteraction = true;
-        if (config_.adaptiveQuality) {
-          config_.adaptiveQuality = false;
-          qualityGovernor_.SetEnabled(false);
-          ApplyRenderFpsCap(qualityGovernor_.CurrentFps());
-          if (ShouldActivateVideoPipelineCached(config_.videoPath, false,
-                                                RenderScheduler::Clock::now()) &&
-              decodePipeline_ &&
-              decodeOpened_.load()) {
-            // 关闭后恢复全质量输出，保持行为可预期。
-            StartVideoPipelineForPath(config_.videoPath);
-          }
-          configChanged = true;
-          trayStateChanged = true;
-        }
-        break;
-      case TrayActionType::kMenuOpened:
-        trayMenuVisible_ = true;
-        break;
-      case TrayActionType::kMenuClosed:
-        trayMenuVisible_ = false;
-        hadTrayInteraction = true;
-        break;
-      case TrayActionType::kNone:
-      default:
-        break;
-    }
-  }
-
-  if (hadTrayInteraction) {
-    // 托盘菜单/文件对话框交互后短窗口内冻结上下文探测，避免桌面状态抖动误判。
-    lastTrayInteractionAt_ = RenderScheduler::Clock::now();
-  }
-
-  if (configChanged) {
-    ScheduleConfigSave();
-  }
-  if (trayStateChanged) {
-    SyncTrayMenuState();
-  }
-  return true;
 }
 
 void App::Tick() {
@@ -1171,11 +823,9 @@ void App::Tick() {
       const bool shouldWarmResume = ShouldWarmResumeDuringPause(rawShouldPause, hardSuspendedByPause_);
       if (shouldWarmResume && !resumeWarmupOpened_ && now >= nextWarmupAttemptAt_) {
         if (ShouldActivateVideoPipelineCached(config_.videoPath, true, now) &&
-            decodePipeline_->Open(config_.videoPath, DecodeOpenProfile{config_.codecPolicy,
-                                                                       config_.adaptiveQuality,
-                                                                       decodeOpenLongRunLevel_,
-                                                                       decodeOpenPreferHardwareTransforms_,
-                                                                       false})) {
+            decodePipeline_->Open(config_.videoPath,
+                                  DecodeOpenProfile{config_.codecPolicy, decodeOpenLongRunLevel_,
+                                                    decodeOpenPreferHardwareTransforms_, false})) {
           // 在退出 pause 迟滞窗口内预热 Open，恢复时只需 Start，降低解冻卡顿。
           decodeOpened_.store(true);
           decodeRunning_.store(false);
@@ -1347,10 +997,12 @@ void App::Tick() {
           UpdateSourceFrameRateState(lastDecodedTimestamp100ns_, frame.timestamp100ns,
                                      &sourceFrameRateState_);
       (void)observedSourceFps;
+      RefreshAutoTargetFps(false);
       lastDecodedTimestamp100ns_ = frame.timestamp100ns;
     } else {
       ResetSourceFrameRateState(&sourceFrameRateState_);
       lastDecodedTimestamp100ns_ = -1;
+      RefreshAutoTargetFps(true);
     }
     if (ShouldExecuteStartupWorkingSetTrim(
             wallpaperAttached_ && decodeOpened_.load() && decodeRunning_.load(), frame.decodePath,
@@ -1455,8 +1107,7 @@ void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameD
       lastWorkingSetTrimAt_ = now;
     }
   }
-  if (hasActiveVideo && config_.adaptiveQuality &&
-      IsCpuFallbackDecodePath(lastDecodePath_)) {
+  if (hasActiveVideo && IsCpuFallbackDecodePath(lastDecodePath_)) {
     const int desiredDecodeOpenLevel =
         SelectDecodeOpenLongRunLevel(longRunLoadState_.level, true, lastDecodeOutputPixels_);
     const bool desiredPreferHardwareTransforms =
@@ -1483,11 +1134,10 @@ void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameD
   }
   ApplyRenderFpsCap(effectiveFps);
   const int appliedFps = scheduler_.GetFpsCap();
-  const int targetFps = NormalizeFpsCap(config_.fpsCap);
+  const int targetFps = autoTargetFps_;
 
   if (!metricsLogFile_.Append(BuildMetricsCsvLine(NowUnixMs(), metrics, metricsSessionId_,
-                                                  targetFps, appliedFps,
-                                                  config_.adaptiveQuality, lastDecodeMode_,
+                                                  targetFps, appliedFps, lastDecodeMode_,
                                                   lastDecodePath_, longRunLoadState_.level,
                                                   decodePumpHotSleepMs_.load(),
                                                   decodeCopyBytesInWindow_,

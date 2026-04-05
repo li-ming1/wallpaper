@@ -22,14 +22,10 @@ constexpr wchar_t kTrayWindowClassName[] = L"WallpaperTrayMessageWindow";
 constexpr UINT kTrayIconMessage = WM_APP + 1;
 constexpr UINT kTrayIconId = 1;
 constexpr UINT_PTR kAppIconResourceId = 1;
-constexpr UINT_PTR kMenuSet30FpsId = 1001;
-constexpr UINT_PTR kMenuSet60FpsId = 1002;
-constexpr UINT_PTR kMenuSelectVideoId = 1003;
-constexpr UINT_PTR kMenuClearVideoId = 1004;
-constexpr UINT_PTR kMenuEnableAutoStartId = 1005;
-constexpr UINT_PTR kMenuDisableAutoStartId = 1006;
-constexpr UINT_PTR kMenuEnableAdaptiveQualityId = 1007;
-constexpr UINT_PTR kMenuDisableAdaptiveQualityId = 1008;
+constexpr UINT_PTR kMenuSelectVideoId = 1001;
+constexpr UINT_PTR kMenuClearVideoId = 1002;
+constexpr UINT_PTR kMenuEnableAutoStartId = 1003;
+constexpr UINT_PTR kMenuDisableAutoStartId = 1004;
 constexpr UINT_PTR kMenuExitId = 1099;
 
 HICON LoadAppIcon(const int width, const int height) {
@@ -224,12 +220,6 @@ class TrayControllerWin final : public ITrayController {
 
   void HandleMenuCommand(const UINT commandId) {
     switch (commandId) {
-      case kMenuSet30FpsId:
-        PushAction(TrayActionType::kSetFps30);
-        break;
-      case kMenuSet60FpsId:
-        PushAction(TrayActionType::kSetFps60);
-        break;
       case kMenuSelectVideoId: {
         const std::wstring selected = PickVideoFileFromDialog();
         if (!selected.empty()) {
@@ -245,12 +235,6 @@ class TrayControllerWin final : public ITrayController {
         break;
       case kMenuDisableAutoStartId:
         PushAction(TrayActionType::kDisableAutoStart);
-        break;
-      case kMenuEnableAdaptiveQualityId:
-        PushAction(TrayActionType::kEnableAdaptiveQuality);
-        break;
-      case kMenuDisableAdaptiveQualityId:
-        PushAction(TrayActionType::kDisableAdaptiveQuality);
         break;
       case kMenuExitId:
         PushAction(TrayActionType::kExit);
@@ -301,15 +285,6 @@ class TrayControllerWin final : public ITrayController {
     if (menu == nullptr) {
       return;
     }
-    const auto fps30Flags = static_cast<UINT>(MF_STRING |
-                                              (state.fpsCap == 30 ? MF_CHECKED : MF_UNCHECKED) |
-                                              (state.fpsCap == 30 ? MF_GRAYED : 0));
-    const auto fps60Flags = static_cast<UINT>(MF_STRING |
-                                              (state.fpsCap == 60 ? MF_CHECKED : MF_UNCHECKED) |
-                                              (state.fpsCap == 60 ? MF_GRAYED : 0));
-    AppendMenuW(menu, fps30Flags, kMenuSet30FpsId, L"Set 30 FPS");
-    AppendMenuW(menu, fps60Flags, kMenuSet60FpsId, L"Set 60 FPS");
-    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, kMenuSelectVideoId, L"Select Video...");
     const auto clearVideoFlags = static_cast<UINT>(MF_STRING | (state.hasVideo ? 0 : MF_GRAYED));
     AppendMenuW(menu, clearVideoFlags, kMenuClearVideoId, L"Clear Video");
@@ -323,19 +298,6 @@ class TrayControllerWin final : public ITrayController {
                           (!state.autoStart ? MF_GRAYED : 0));
     AppendMenuW(menu, enableAutoFlags, kMenuEnableAutoStartId, L"Enable Auto Start");
     AppendMenuW(menu, disableAutoFlags, kMenuDisableAutoStartId, L"Disable Auto Start");
-    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    const auto enableAdaptiveFlags =
-        static_cast<UINT>(MF_STRING |
-                          (state.adaptiveQuality ? MF_CHECKED : MF_UNCHECKED) |
-                          (state.adaptiveQuality ? MF_GRAYED : 0));
-    const auto disableAdaptiveFlags =
-        static_cast<UINT>(MF_STRING |
-                          (!state.adaptiveQuality ? MF_CHECKED : MF_UNCHECKED) |
-                          (!state.adaptiveQuality ? MF_GRAYED : 0));
-    AppendMenuW(menu, enableAdaptiveFlags, kMenuEnableAdaptiveQualityId,
-                L"Enable Adaptive Quality");
-    AppendMenuW(menu, disableAdaptiveFlags, kMenuDisableAdaptiveQualityId,
-                L"Disable Adaptive Quality");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, kMenuExitId, L"Exit");
 

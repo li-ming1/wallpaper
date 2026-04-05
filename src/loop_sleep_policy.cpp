@@ -89,6 +89,13 @@ int ClampRenderFpsForCompactCpuFallback(const int requestedFpsCap, const DecodeP
   return std::min(requestedFpsCap, 24);
 }
 
+int ResolveAutoTargetFps(const int sourceFps) noexcept {
+  if (sourceFps <= 0) {
+    return 60;
+  }
+  return NormalizeFpsCap(sourceFps);
+}
+
 bool ShouldWakeDecodePumpForRenderCapUpdate(const int previousHotSleepMs, const int nextHotSleepMs,
                                             const int previousFpsCap,
                                             const int nextFpsCap) noexcept {

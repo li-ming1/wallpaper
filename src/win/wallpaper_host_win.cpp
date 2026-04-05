@@ -42,8 +42,6 @@ void SafeRelease(T** ptr) {
 
 constexpr wchar_t kWallpaperWindowClassName[] = L"WallpaperRenderHostWindow";
 constexpr UINT_PTR kAppIconResourceId = 1;
-// 某些驱动/桌面组合下 waitable-object 可能引入显示回归，默认关闭，后续按设备白名单再启用。
-constexpr bool kEnableFrameLatencyWaitableObject = false;
 
 HICON LoadAppIcon(HINSTANCE instance, const int width, const int height) {
   if (instance == nullptr) {
@@ -528,7 +526,9 @@ void EnsureDesktopIconLayerVisible() {
 
 class WallpaperHostWin final : public IWallpaperHost {
  public:
-  WallpaperHostWin() = default;
+  explicit WallpaperHostWin(const FrameLatencyWaitableMode frameLatencyWaitableMode)
+      : allowFrameLatencyWaitableObject_(
+            ShouldAllowFrameLatencyWaitableObject(frameLatencyWaitableMode)) {}
 
   ~WallpaperHostWin() override { DetachFromDesktop(); }
 
@@ -905,7 +905,7 @@ class WallpaperHostWin final : public IWallpaperHost {
     const UINT height = renderViewportHeight_ > 0 ? renderViewportHeight_ : 720U;
 
     hr = E_FAIL;
-    for (const SwapChainPlan& plan : BuildSwapChainPlans(kEnableFrameLatencyWaitableObject)) {
+    for (const SwapChainPlan& plan : BuildSwapChainPlans(allowFrameLatencyWaitableObject_)) {
       DXGI_SWAP_CHAIN_DESC1 desc{};
       desc.Width = width;
       desc.Height = height;
@@ -939,7 +939,7 @@ class WallpaperHostWin final : public IWallpaperHost {
     nextOcclusionProbeAtTick_ = 0;
     frameLatencyWaitableObject_ = nullptr;
     SafeRelease(&swapChain2_);
-    if (kEnableFrameLatencyWaitableObject &&
+    if (allowFrameLatencyWaitableObject_ &&
         SUCCEEDED(swapChain_->QueryInterface(__uuidof(IDXGISwapChain2),
                                              reinterpret_cast<void**>(&swapChain2_))) &&
         swapChain2_ != nullptr) {
@@ -1644,6 +1644,7 @@ class WallpaperHostWin final : public IWallpaperHost {
   ID3D11DeviceContext* context_ = nullptr;
   IDXGISwapChain1* swapChain_ = nullptr;
   IDXGISwapChain2* swapChain2_ = nullptr;
+  bool allowFrameLatencyWaitableObject_ = false;
   HANDLE frameLatencyWaitableObject_ = nullptr;
   bool frameLatencyWaitableEnabled_ = false;
   bool frameLatencyGateArmed_ = false;
@@ -1693,8 +1694,8 @@ class WallpaperHostWin final : public IWallpaperHost {
 
 }  // namespace
 
-std::unique_ptr<IWallpaperHost> CreateWallpaperHost() {
-  return std::make_unique<WallpaperHostWin>();
+std::unique_ptr<IWallpaperHost> CreateWallpaperHost(const FrameLatencyWaitableMode mode) {
+  return std::make_unique<WallpaperHostWin>(mode);
 }
 
 }  // namespace wallpaper

@@ -2,11 +2,10 @@
 
 #include "test_support.h"
 
-TEST_CASE(DecodeOutputPolicy_AdaptiveOffKeepsDesktopHint) {
+TEST_CASE(DecodeOutputPolicy_CpuPathKeepsDesktopHint) {
   wallpaper::DecodeOutputOptions options;
   options.desktopWidth = 3840;
   options.desktopHeight = 2160;
-  options.adaptiveQualityEnabled = false;
   options.cpuFallbackPath = true;
 
   const wallpaper::DecodeOutputHint hint = wallpaper::SelectDecodeOutputHint(options);
@@ -18,7 +17,6 @@ TEST_CASE(DecodeOutputPolicy_GpuPathKeepsDesktopHint) {
   wallpaper::DecodeOutputOptions options;
   options.desktopWidth = 3840;
   options.desktopHeight = 2160;
-  options.adaptiveQualityEnabled = true;
   options.cpuFallbackPath = false;
 
   const wallpaper::DecodeOutputHint hint = wallpaper::SelectDecodeOutputHint(options);
@@ -30,7 +28,6 @@ TEST_CASE(DecodeOutputPolicy_CpuPathKeepsDesktopHintInNormalPressureWhenQualityF
   wallpaper::DecodeOutputOptions options;
   options.desktopWidth = 3840;
   options.desktopHeight = 2160;
-  options.adaptiveQualityEnabled = true;
   options.cpuFallbackPath = true;
   options.longRunLoadLevel = 0;
 
@@ -43,7 +40,6 @@ TEST_CASE(DecodeOutputPolicy_CpuPathKeepsDesktopHintAtMediumPressureWhenQualityF
   wallpaper::DecodeOutputOptions options;
   options.desktopWidth = 3840;
   options.desktopHeight = 2160;
-  options.adaptiveQualityEnabled = true;
   options.cpuFallbackPath = true;
   options.longRunLoadLevel = 1;
 
@@ -56,7 +52,6 @@ TEST_CASE(DecodeOutputPolicy_CpuPathKeepsDesktopHintAtHighPressureWhenQualityFir
   wallpaper::DecodeOutputOptions options;
   options.desktopWidth = 3840;
   options.desktopHeight = 2160;
-  options.adaptiveQualityEnabled = true;
   options.cpuFallbackPath = true;
   options.longRunLoadLevel = 2;
 
@@ -69,7 +64,6 @@ TEST_CASE(DecodeOutputPolicy_CpuPathKeepsSmallFrames) {
   wallpaper::DecodeOutputOptions options;
   options.desktopWidth = 960;
   options.desktopHeight = 540;
-  options.adaptiveQualityEnabled = true;
   options.cpuFallbackPath = true;
   options.longRunLoadLevel = 2;
 
@@ -82,7 +76,6 @@ TEST_CASE(DecodeOutputPolicy_ZeroInputReturnsZero) {
   wallpaper::DecodeOutputOptions options;
   options.desktopWidth = 0;
   options.desktopHeight = 0;
-  options.adaptiveQualityEnabled = true;
   options.cpuFallbackPath = true;
 
   const wallpaper::DecodeOutputHint hint = wallpaper::SelectDecodeOutputHint(options);
@@ -94,7 +87,6 @@ TEST_CASE(DecodeOutputPolicy_DoesNotRetryVideoProcessingWhenNegotiationAlreadyKe
   wallpaper::DecodeOutputOptions options;
   options.desktopWidth = 1920;
   options.desktopHeight = 1080;
-  options.adaptiveQualityEnabled = true;
   options.cpuFallbackPath = true;
   options.longRunLoadLevel = 0;
 
@@ -105,7 +97,6 @@ TEST_CASE(DecodeOutputPolicy_NoRetryWhenCpuFallbackNegotiationHonorsHint) {
   wallpaper::DecodeOutputOptions options;
   options.desktopWidth = 1920;
   options.desktopHeight = 1080;
-  options.adaptiveQualityEnabled = true;
   options.cpuFallbackPath = true;
   options.longRunLoadLevel = 0;
 
@@ -113,29 +104,28 @@ TEST_CASE(DecodeOutputPolicy_NoRetryWhenCpuFallbackNegotiationHonorsHint) {
       !wallpaper::ShouldRetryDecodeOpenWithVideoProcessing(options, 960, 540));
 }
 
-TEST_CASE(DecodeOutputPolicy_NoRetryWhenAdaptiveDisabledOrGpuPath) {
-  wallpaper::DecodeOutputOptions adaptiveOff;
-  adaptiveOff.desktopWidth = 1920;
-  adaptiveOff.desktopHeight = 1080;
-  adaptiveOff.adaptiveQualityEnabled = false;
-  adaptiveOff.cpuFallbackPath = true;
+TEST_CASE(DecodeOutputPolicy_CpuRetryTriggersWhenNegotiatedLarger) {
+  wallpaper::DecodeOutputOptions cpuPath;
+  cpuPath.desktopWidth = 1920;
+  cpuPath.desktopHeight = 1080;
+  cpuPath.cpuFallbackPath = true;
   EXPECT_TRUE(
-      !wallpaper::ShouldRetryDecodeOpenWithVideoProcessing(adaptiveOff, 1920, 1080));
+      wallpaper::ShouldRetryDecodeOpenWithVideoProcessing(cpuPath, 3840, 2160));
+}
 
+TEST_CASE(DecodeOutputPolicy_NoRetryWhenGpuPath) {
   wallpaper::DecodeOutputOptions gpuPath;
   gpuPath.desktopWidth = 1920;
   gpuPath.desktopHeight = 1080;
-  gpuPath.adaptiveQualityEnabled = true;
   gpuPath.cpuFallbackPath = false;
   EXPECT_TRUE(
       !wallpaper::ShouldRetryDecodeOpenWithVideoProcessing(gpuPath, 1920, 1080));
 }
 
-TEST_CASE(DecodeOutputPolicy_EnablesAdvancedVideoProcessingForAdaptiveCpuSoftwarePath) {
+TEST_CASE(DecodeOutputPolicy_EnablesAdvancedVideoProcessingForCpuSoftwarePath) {
   wallpaper::DecodeOutputOptions options;
   options.desktopWidth = 1920;
   options.desktopHeight = 1080;
-  options.adaptiveQualityEnabled = true;
   options.cpuFallbackPath = true;
   options.longRunLoadLevel = 1;
 
@@ -143,40 +133,29 @@ TEST_CASE(DecodeOutputPolicy_EnablesAdvancedVideoProcessingForAdaptiveCpuSoftwar
 }
 
 TEST_CASE(DecodeOutputPolicy_DisablesAdvancedVideoProcessingWhenConditionsNotMet) {
-  wallpaper::DecodeOutputOptions adaptiveOff;
-  adaptiveOff.desktopWidth = 1920;
-  adaptiveOff.desktopHeight = 1080;
-  adaptiveOff.adaptiveQualityEnabled = false;
-  adaptiveOff.cpuFallbackPath = true;
-  EXPECT_TRUE(!wallpaper::ShouldEnableAdvancedVideoProcessing(adaptiveOff, true));
-
   wallpaper::DecodeOutputOptions gpuPath;
   gpuPath.desktopWidth = 1920;
   gpuPath.desktopHeight = 1080;
-  gpuPath.adaptiveQualityEnabled = true;
   gpuPath.cpuFallbackPath = false;
   EXPECT_TRUE(!wallpaper::ShouldEnableAdvancedVideoProcessing(gpuPath, true));
 
   wallpaper::DecodeOutputOptions softwareOff;
   softwareOff.desktopWidth = 1920;
   softwareOff.desktopHeight = 1080;
-  softwareOff.adaptiveQualityEnabled = true;
   softwareOff.cpuFallbackPath = true;
   EXPECT_TRUE(!wallpaper::ShouldEnableAdvancedVideoProcessing(softwareOff, false));
 
   wallpaper::DecodeOutputOptions zeroSize;
   zeroSize.desktopWidth = 0;
   zeroSize.desktopHeight = 1080;
-  zeroSize.adaptiveQualityEnabled = true;
   zeroSize.cpuFallbackPath = true;
   EXPECT_TRUE(!wallpaper::ShouldEnableAdvancedVideoProcessing(zeroSize, true));
 }
 
-TEST_CASE(DecodeOutputPolicy_PreservesD3DInteropOnAdaptiveCpuRetryWhenHardwarePreferred) {
+TEST_CASE(DecodeOutputPolicy_PreservesD3DInteropOnCpuRetryWhenHardwarePreferred) {
   wallpaper::DecodeOutputOptions options;
   options.desktopWidth = 1920;
   options.desktopHeight = 1080;
-  options.adaptiveQualityEnabled = true;
   options.cpuFallbackPath = true;
   options.longRunLoadLevel = 0;
 
@@ -187,18 +166,16 @@ TEST_CASE(DecodeOutputPolicy_DoesNotForceD3DInteropWhenHardwareNotPreferred) {
   wallpaper::DecodeOutputOptions options;
   options.desktopWidth = 1920;
   options.desktopHeight = 1080;
-  options.adaptiveQualityEnabled = true;
   options.cpuFallbackPath = true;
   options.longRunLoadLevel = 0;
 
   EXPECT_TRUE(!wallpaper::ShouldPreserveD3DInteropOnVideoProcessingRetry(options, false));
 }
 
-TEST_CASE(DecodeOutputPolicy_RequiresD3DInteropBindingWhenHardwarePreferredInAdaptiveCpuPath) {
+TEST_CASE(DecodeOutputPolicy_RequiresD3DInteropBindingWhenHardwarePreferredInCpuPath) {
   wallpaper::DecodeOutputOptions options;
   options.desktopWidth = 1920;
   options.desktopHeight = 1080;
-  options.adaptiveQualityEnabled = true;
   options.cpuFallbackPath = true;
 
   EXPECT_TRUE(wallpaper::ShouldRequireD3DInteropBinding(options, true, false));
@@ -208,7 +185,6 @@ TEST_CASE(DecodeOutputPolicy_RequiresD3DInteropBindingWhenHardwareStrictlyRequir
   wallpaper::DecodeOutputOptions options;
   options.desktopWidth = 1920;
   options.desktopHeight = 1080;
-  options.adaptiveQualityEnabled = true;
   options.cpuFallbackPath = true;
 
   EXPECT_TRUE(wallpaper::ShouldRequireD3DInteropBinding(options, false, true));
@@ -218,7 +194,6 @@ TEST_CASE(DecodeOutputPolicy_DoesNotRequireD3DInteropBindingWhenNotHardwarePath)
   wallpaper::DecodeOutputOptions options;
   options.desktopWidth = 1920;
   options.desktopHeight = 1080;
-  options.adaptiveQualityEnabled = false;
   options.cpuFallbackPath = true;
 
   EXPECT_TRUE(!wallpaper::ShouldRequireD3DInteropBinding(options, false, false));

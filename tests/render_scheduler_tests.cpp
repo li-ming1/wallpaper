@@ -36,6 +36,17 @@ TEST_CASE(RenderScheduler_RespectsFpsCap24) {
   EXPECT_TRUE(scheduler.ShouldRender(t0 + 42ms));
 }
 
+TEST_CASE(RenderScheduler_RespectsFpsCap25) {
+  wallpaper::RenderScheduler scheduler(25);
+  const auto t0 = wallpaper::RenderScheduler::Clock::time_point{};
+
+  EXPECT_EQ(scheduler.GetFpsCap(), 25);
+  EXPECT_TRUE(scheduler.ShouldRender(t0));
+  EXPECT_TRUE(!scheduler.ShouldRender(t0 + 20ms));
+  EXPECT_TRUE(!scheduler.ShouldRender(t0 + 39ms));
+  EXPECT_TRUE(scheduler.ShouldRender(t0 + 40ms));
+}
+
 TEST_CASE(RenderScheduler_RespectsFpsCap16) {
   wallpaper::RenderScheduler scheduler(16);
   const auto t0 = wallpaper::RenderScheduler::Clock::time_point{};

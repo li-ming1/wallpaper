@@ -77,31 +77,36 @@ bool IsSameVideoPath(const std::string& lhsUtf8, const std::string& rhsUtf8) {
     return lhsUtf8.empty() && rhsUtf8.empty();
   }
 
-  try {
 #ifdef _WIN32
-    const std::wstring lhs = NormalizeWindowsPathForCompare(lhsUtf8);
-    const std::wstring rhs = NormalizeWindowsPathForCompare(rhsUtf8);
-    return !lhs.empty() && lhs == rhs;
-#else
-    const std::string lhs = NormalizePathForCompare(lhsUtf8);
-    const std::string rhs = NormalizePathForCompare(rhsUtf8);
-    return !lhs.empty() && lhs == rhs;
-#endif
-  } catch (...) {
-#ifdef _WIN32
-    std::string lhs = lhsUtf8;
-    std::string rhs = rhsUtf8;
-    std::replace(lhs.begin(), lhs.end(), '/', '\\');
-    std::replace(rhs.begin(), rhs.end(), '/', '\\');
-    std::transform(lhs.begin(), lhs.end(), lhs.begin(),
-                   [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-    std::transform(rhs.begin(), rhs.end(), rhs.begin(),
-                   [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+  const std::wstring lhs = NormalizeWindowsPathForCompare(lhsUtf8);
+  const std::wstring rhs = NormalizeWindowsPathForCompare(rhsUtf8);
+  if (!lhs.empty() && !rhs.empty()) {
     return lhs == rhs;
-#else
-    return lhsUtf8 == rhsUtf8;
-#endif
   }
+
+  std::string lhsFallback = lhsUtf8;
+  std::string rhsFallback = rhsUtf8;
+  std::replace(lhsFallback.begin(), lhsFallback.end(), '/', '\\');
+  std::replace(rhsFallback.begin(), rhsFallback.end(), '/', '\\');
+  std::transform(lhsFallback.begin(), lhsFallback.end(), lhsFallback.begin(),
+                 [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+  std::transform(rhsFallback.begin(), rhsFallback.end(), rhsFallback.begin(),
+                 [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+  return lhsFallback == rhsFallback;
+#else
+  const std::string lhs = NormalizePathForCompare(lhsUtf8);
+  const std::string rhs = NormalizePathForCompare(rhsUtf8);
+  if (!lhs.empty() && !rhs.empty()) {
+    return lhs == rhs;
+  }
+  std::string lhsFallback = lhsUtf8;
+  std::string rhsFallback = rhsUtf8;
+  std::transform(lhsFallback.begin(), lhsFallback.end(), lhsFallback.begin(),
+                 [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+  std::transform(rhsFallback.begin(), rhsFallback.end(), rhsFallback.begin(),
+                 [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+  return lhsFallback == rhsFallback;
+#endif
 }
 
 }  // namespace wallpaper
