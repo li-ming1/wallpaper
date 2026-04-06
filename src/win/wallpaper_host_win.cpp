@@ -3,7 +3,6 @@
 #include "wallpaper/d3d11_interop_device.h"
 #include "wallpaper/frame_bridge.h"
 #include "wallpaper/desktop_attach_policy.h"
-#include "wallpaper/frame_latency_policy.h"
 #include "wallpaper/monitor_layout_policy.h"
 #include "wallpaper/runtime_trim_policy.h"
 #include "wallpaper/swap_chain_policy.h"
@@ -526,9 +525,7 @@ void EnsureDesktopIconLayerVisible() {
 
 class WallpaperHostWin final : public IWallpaperHost {
  public:
-  explicit WallpaperHostWin(const FrameLatencyWaitableMode frameLatencyWaitableMode)
-      : allowFrameLatencyWaitableObject_(
-            ShouldAllowFrameLatencyWaitableObject(frameLatencyWaitableMode)) {}
+  WallpaperHostWin() = default;
 
   ~WallpaperHostWin() override { DetachFromDesktop(); }
 
@@ -647,30 +644,6 @@ class WallpaperHostWin final : public IWallpaperHost {
       nextOcclusionProbeAtTick_ = 0;
     }
 
-    if (frameLatencyWaitableEnabled_ && frameLatencyWaitableObject_ != nullptr &&
-        frameLatencyGateArmed_) {
-      const DWORD waitResult = WaitForSingleObjectEx(frameLatencyWaitableObject_, 0, FALSE);
-      if (waitResult == WAIT_TIMEOUT) {
-        ++frameLatencyTimeoutSkips_;
-        constexpr int kMaxTimeoutSkipsBeforeForce = 2;
-        if (ShouldSkipPresentOnWaitTimeout(frameLatencyWaitableEnabled_, frameLatencyGateArmed_,
-                                           frameLatencyTimeoutSkips_,
-                                           kMaxTimeoutSkipsBeforeForce)) {
-          // DXGI 队列仍在消费上一帧时跳过本帧，减少无效 CPU/GPU 提交。
-          return;
-        }
-        // 连续超时达到阈值后强制提交一帧，避免门控与调度相位错配导致长期不更新。
-        frameLatencyTimeoutSkips_ = 0;
-      } else if (waitResult == WAIT_OBJECT_0) {
-        frameLatencyTimeoutSkips_ = 0;
-      } else if (waitResult == WAIT_FAILED) {
-        // waitable-object 异常时降级为普通 Present 路径，优先保证可见性。
-        frameLatencyWaitableEnabled_ = false;
-        frameLatencyGateArmed_ = false;
-        frameLatencyTimeoutSkips_ = 0;
-      }
-    }
-
     if (frame.decodeMode != DecodeMode::kMediaFoundation && HasAnyVideoTexture()) {
       // 非视频解码模式下清理旧视频纹理，避免切换源后显示冻结旧帧。
       ReleaseVideoTexture();
@@ -744,14 +717,11 @@ class WallpaperHostWin final : public IWallpaperHost {
     if (presentHr == DXGI_STATUS_OCCLUDED) {
       swapChainOccluded_ = true;
       nextOcclusionProbeAtTick_ = nowTick + kOcclusionProbeIntervalMs;
-      frameLatencyGateArmed_ = false;
-      frameLatencyTimeoutSkips_ = 0;
       return;
     }
     if (SUCCEEDED(presentHr)) {
       swapChainOccluded_ = false;
       nextOcclusionProbeAtTick_ = 0;
-      frameLatencyGateArmed_ = true;
       const std::size_t decodeOutputPixels =
           frame.width > 0 && frame.height > 0
               ? static_cast<std::size_t>(frame.width) * static_cast<std::size_t>(frame.height)
@@ -905,7 +875,7 @@ class WallpaperHostWin final : public IWallpaperHost {
     const UINT height = renderViewportHeight_ > 0 ? renderViewportHeight_ : 720U;
 
     hr = E_FAIL;
-    for (const SwapChainPlan& plan : BuildSwapChainPlans(allowFrameLatencyWaitableObject_)) {
+    for (const SwapChainPlan& plan : BuildSwapChainPlans()) {
       DXGI_SWAP_CHAIN_DESC1 desc{};
       desc.Width = width;
       desc.Height = height;
@@ -916,9 +886,7 @@ class WallpaperHostWin final : public IWallpaperHost {
       desc.SwapEffect = ToDxgiSwapEffect(plan.effect);
       desc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
       desc.Scaling = DXGI_SCALING_STRETCH;
-      desc.Flags = plan.useFrameLatencyWaitableObject
-                       ? static_cast<UINT>(DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT)
-                       : 0U;
+      desc.Flags = 0U;
 
       // 优先尝试单缓冲 blt-model，目标是降低常驻页；失败后再回退到现有 flip 链路。
       hr = factory->CreateSwapChainForHwnd(device_, renderWindow_, &desc, nullptr, nullptr,
@@ -932,23 +900,13 @@ class WallpaperHostWin final : public IWallpaperHost {
       return false;
     }
 
-    frameLatencyWaitableEnabled_ = false;
-    frameLatencyGateArmed_ = false;
-    frameLatencyTimeoutSkips_ = 0;
     swapChainOccluded_ = false;
     nextOcclusionProbeAtTick_ = 0;
-    frameLatencyWaitableObject_ = nullptr;
     SafeRelease(&swapChain2_);
-    if (allowFrameLatencyWaitableObject_ &&
-        SUCCEEDED(swapChain_->QueryInterface(__uuidof(IDXGISwapChain2),
+    if (SUCCEEDED(swapChain_->QueryInterface(__uuidof(IDXGISwapChain2),
                                              reinterpret_cast<void**>(&swapChain2_))) &&
         swapChain2_ != nullptr) {
-      if (SUCCEEDED(swapChain2_->SetMaximumFrameLatency(1))) {
-        frameLatencyWaitableObject_ = swapChain2_->GetFrameLatencyWaitableObject();
-        frameLatencyWaitableEnabled_ = frameLatencyWaitableObject_ != nullptr;
-        frameLatencyGateArmed_ = false;
-        frameLatencyTimeoutSkips_ = 0;
-      }
+      swapChain2_->SetMaximumFrameLatency(1);
     }
 
     if (!CreateRenderTargetView()) {
@@ -1611,19 +1569,12 @@ class WallpaperHostWin final : public IWallpaperHost {
 
   void ReleaseD3D() {
     d3d11_interop::ClearSharedDevice(device_);
-    frameLatencyWaitableEnabled_ = false;
-    frameLatencyGateArmed_ = false;
-    frameLatencyTimeoutSkips_ = 0;
     swapChainOccluded_ = false;
     nextOcclusionProbeAtTick_ = 0;
     renderViewportWidth_ = 0;
     renderViewportHeight_ = 0;
     monitorViewports_.clear();
     lastPostPresentTrimAtTick_ = 0;
-    if (frameLatencyWaitableObject_ != nullptr) {
-      CloseHandle(frameLatencyWaitableObject_);
-      frameLatencyWaitableObject_ = nullptr;
-    }
     SafeRelease(&swapChain2_);
     ReleaseVideoTexture();
     ReleaseVideoPipeline();
@@ -1644,11 +1595,6 @@ class WallpaperHostWin final : public IWallpaperHost {
   ID3D11DeviceContext* context_ = nullptr;
   IDXGISwapChain1* swapChain_ = nullptr;
   IDXGISwapChain2* swapChain2_ = nullptr;
-  bool allowFrameLatencyWaitableObject_ = false;
-  HANDLE frameLatencyWaitableObject_ = nullptr;
-  bool frameLatencyWaitableEnabled_ = false;
-  bool frameLatencyGateArmed_ = false;
-  int frameLatencyTimeoutSkips_ = 0;
   static constexpr ULONGLONG kOcclusionProbeIntervalMs = 250;
   bool swapChainOccluded_ = false;
   ULONGLONG nextOcclusionProbeAtTick_ = 0;
@@ -1694,8 +1640,8 @@ class WallpaperHostWin final : public IWallpaperHost {
 
 }  // namespace
 
-std::unique_ptr<IWallpaperHost> CreateWallpaperHost(const FrameLatencyWaitableMode mode) {
-  return std::make_unique<WallpaperHostWin>(mode);
+std::unique_ptr<IWallpaperHost> CreateWallpaperHost() {
+  return std::make_unique<WallpaperHostWin>();
 }
 
 }  // namespace wallpaper

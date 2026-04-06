@@ -1,52 +1,97 @@
 # wallpaper
 
-Windows 动态壁纸实验项目。
+Windows 动态壁纸实验项目（托盘常驻 + 解码/渲染策略模块 + 单元测试）。
 
-当前仓库主要包含三部分：
+## 配置文件（重点）
 
-- `wallpaper_app.exe`：托盘常驻的动态壁纸程序
-- `wallpaper_tests.exe`：策略与调度逻辑的单元测试
-- 一组偏纯函数化的策略模块：用于控制解码、渲染、暂停、采样与资源治理
+### 位置
 
-## 环境
+程序启动时会读取 `config.json`，路径规则：
 
-推荐工具链：
+- 优先使用可执行文件同目录：`<wallpaper_app.exe目录>/config.json`
+- 仅在无法解析 exe 路径时回退为当前工作目录下的 `config.json`
+
+### 配置结构
+
+当前支持字段如下（不保证向后兼容，旧字段会被清理/重写）：
+
+```json
+{
+  "videoPath": "D:/videos/demo.mp4",
+  "autoStart": false,
+  "pauseWhenNotDesktopContext": true
+}
+```
+
+字段说明：
+
+- `videoPath`：视频文件路径；空字符串表示未选择视频。
+- `autoStart`：是否开机自启。
+- `pauseWhenNotDesktopContext`：前台不是桌面上下文时是否暂停。
+
+### 兼容与重写策略
+
+- 旧字段（如 `fpsCap`、`renderCapMode`、`adaptiveQuality`、`pauseOnFullscreen`、`pauseOnMaximized`、`codecPolicy`、`frameLatencyWaitableMode`）会在加载后被移除并重写为新格式。
+- 非法枚举值会回退到安全默认值并触发重写。
+- 配置写入优先异步；当异步通道不可用时会自动回退同步写盘，避免配置丢失。
+
+## 编译与测试（重点）
+
+### 推荐环境
 
 - Windows
-- MSYS2 UCRT64
+- PowerShell
+- MSYS2 UCRT64（建议）
 - `g++`
 - `windres`
-- PowerShell
 
-项目内置的日常构建脚本默认走 `MinGW g++`，不是 `MSVC`。
+示例（MSYS2）：
 
-## 构建
+```powershell
+pacman -S --needed mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-binutils
+```
 
-构建应用：
+确保 `g++`、`windres` 在 `PATH` 中可见。
+
+### 构建应用
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\build_app.ps1 -BuildDir build
 ```
 
-执行测试：
+常用参数：
+
+- `-BuildDir <dir>`：指定输出目录（默认 `build`）。
+- `-Portable`：使用便携优化参数（`-O2 -march=x86-64-v3`）。
+- `-UseCxx26` 或 `-UseCxx2c`：尝试 C++26/C++2c 编译（脚本会自动探测支持）。
+
+### 运行测试
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\run_tests.ps1 -BuildDir build
 ```
 
-默认产物位于 `build/`：
+测试脚本支持与构建脚本相同的 `-Portable`、`-UseCxx26`、`-UseCxx2c` 参数。
+
+### 产物
+
+默认位于 `build/`：
 
 - `wallpaper_app.exe`
 - `wallpaper_tests.exe`
 - `app_icon_res.o`
 
-## CMake
+## CMake 说明
 
-仓库包含 `CMakeLists.txt`，但当前日常开发链路以 `scripts/build_app.ps1` 和 `scripts/run_tests.ps1` 为准。
+仓库提供 `CMakeLists.txt`，但日常开发链路以 `scripts/build_app.ps1` 与 `scripts/run_tests.ps1` 为准（脚本参数和链接选项最完整）。
 
-如果你要切到其他生成器或工具链，先确认依赖和编码设置一致。
+## 常见问题
 
-## 目录
+- `g++ not found in PATH`：未安装或未加入环境变量。
+- `windres not found in PATH`：未安装 MinGW binutils 或未加入环境变量。
+- 切换工具链（如 MSVC）时，请先确认编译选项、字符集与链接库保持一致。
+
+## 目录结构
 
 - `include/`：头文件
 - `src/`：应用与策略实现
@@ -54,4 +99,3 @@ powershell -ExecutionPolicy Bypass -File .\scripts\run_tests.ps1 -BuildDir build
 - `resources/`：Windows 资源文件
 - `scripts/`：构建与测试脚本
 - `assets/`：项目资源
-

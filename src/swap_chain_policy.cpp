@@ -2,20 +2,14 @@
 
 namespace wallpaper {
 
-std::array<SwapChainPlan, 5> BuildSwapChainPlans(
-    const bool allowFrameLatencyWaitableObject) noexcept {
+std::array<SwapChainPlan, 5> BuildSwapChainPlans() noexcept {
   return {{
-      SwapChainPlan{2U, SwapChainEffect::kFlipDiscard, allowFrameLatencyWaitableObject},
-      SwapChainPlan{2U, SwapChainEffect::kFlipDiscard, false},
-      SwapChainPlan{2U, SwapChainEffect::kFlipSequential, false},
-      SwapChainPlan{1U, SwapChainEffect::kDiscard, false},
-      SwapChainPlan{1U, SwapChainEffect::kSequential, false},
+      SwapChainPlan{2U, SwapChainEffect::kFlipDiscard},
+      SwapChainPlan{2U, SwapChainEffect::kFlipDiscard},
+      SwapChainPlan{2U, SwapChainEffect::kFlipSequential},
+      SwapChainPlan{1U, SwapChainEffect::kDiscard},
+      SwapChainPlan{1U, SwapChainEffect::kSequential},
   }};
-}
-
-bool ShouldAllowFrameLatencyWaitableObject(
-    const FrameLatencyWaitableMode mode) noexcept {
-  return mode == FrameLatencyWaitableMode::kAuto;
 }
 
 }  // namespace wallpaper

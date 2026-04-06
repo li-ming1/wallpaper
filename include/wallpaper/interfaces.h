@@ -67,7 +67,6 @@ class IWallpaperHost {
 };
 
 struct DecodeOpenProfile final {
-  CodecPolicy codecPolicy = CodecPolicy::kH264;
   int longRunLoadLevel = 0;
   bool preferHardwareTransforms = true;
   bool requireHardwareTransforms = false;
@@ -121,7 +120,7 @@ class ITrayController {
   virtual bool TryDequeueAction(TrayAction* action) = 0;
 };
 
-std::unique_ptr<IWallpaperHost> CreateWallpaperHost(FrameLatencyWaitableMode mode);
+std::unique_ptr<IWallpaperHost> CreateWallpaperHost();
 std::unique_ptr<IDecodePipeline> CreateDecodePipeline();
 std::unique_ptr<ITrayController> CreateTrayController();
 

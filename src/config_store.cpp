@@ -194,31 +194,6 @@ std::expected<Config, ConfigStoreError> ConfigStore::LoadExpected() const {
     config.pauseWhenNotDesktopContext = flag;
   }
 
-  std::string codecValue;
-  if (ExtractString(json, "codecPolicy", &codecValue)) {
-    if (codecValue == "h264+hevc") {
-      config.codecPolicy = CodecPolicy::kH264PlusHevc;
-    } else if (codecValue == "h264") {
-      config.codecPolicy = CodecPolicy::kH264;
-    } else {
-      // 降级到 h264 作为安全默认值，避免非法配置导致启动失败。
-      config.codecPolicy = CodecPolicy::kH264;
-      requiresRewrite = true;
-    }
-  }
-
-  std::string frameLatencyModeValue;
-  if (ExtractString(json, "frameLatencyWaitableMode", &frameLatencyModeValue)) {
-    if (frameLatencyModeValue == "auto") {
-      config.frameLatencyWaitableMode = FrameLatencyWaitableMode::kAuto;
-    } else if (frameLatencyModeValue == "off") {
-      config.frameLatencyWaitableMode = FrameLatencyWaitableMode::kOff;
-    } else {
-      config.frameLatencyWaitableMode = FrameLatencyWaitableMode::kOff;
-      requiresRewrite = true;
-    }
-  }
-
   if (ContainsKey(json, "pauseOnFullscreen") || ContainsKey(json, "pauseOnMaximized")) {
     requiresRewrite = true;
   }
@@ -226,6 +201,12 @@ std::expected<Config, ConfigStoreError> ConfigStore::LoadExpected() const {
     requiresRewrite = true;
   }
   if (ContainsKey(json, "adaptiveQuality")) {
+    requiresRewrite = true;
+  }
+  if (ContainsKey(json, "frameLatencyWaitableMode")) {
+    requiresRewrite = true;
+  }
+  if (ContainsKey(json, "codecPolicy")) {
     requiresRewrite = true;
   }
 
@@ -251,21 +232,17 @@ std::expected<void, ConfigStoreError> ConfigStore::SaveExpectedInternal(
   out << "  \"videoPath\": \"" << EscapeJson(config.videoPath) << "\",\n";
   out << "  \"autoStart\": " << (config.autoStart ? "true" : "false") << ",\n";
   out << "  \"pauseWhenNotDesktopContext\": "
-      << (config.pauseWhenNotDesktopContext ? "true" : "false") << ",\n";
-  out << "  \"codecPolicy\": \""
-      << (config.codecPolicy == CodecPolicy::kH264PlusHevc ? "h264+hevc" : "h264")
-      << "\",\n";
-  out << "  \"frameLatencyWaitableMode\": \""
-      << (config.frameLatencyWaitableMode == FrameLatencyWaitableMode::kAuto ? "auto" : "off")
-      << "\"\n";
+      << (config.pauseWhenNotDesktopContext ? "true" : "false") << "\n";
   out << "}\n";
   const std::string json = out.str();
 
   if (allowAsync && writer_ != nullptr) {
     const bool enqueued =
         writer_->Enqueue(AsyncFileWriter::Task{path_, false, std::string(json)});
-    return enqueued ? std::expected<void, ConfigStoreError>{} :
-                      std::unexpected(ConfigStoreError::kWriteFailed);
+    if (enqueued) {
+      return std::expected<void, ConfigStoreError>{};
+    }
+    // 异步队列不可用时回退同步写，确保配置持久化不受后台线程状态影响。
   }
 
   std::ofstream file(path_, std::ios::binary | std::ios::trunc);

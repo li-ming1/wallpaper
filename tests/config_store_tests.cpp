@@ -1,4 +1,5 @@
 #include "wallpaper/config_store.h"
+#include "wallpaper/async_file_writer.h"
 
 #include <filesystem>
 #include <fstream>
@@ -28,8 +29,6 @@ TEST_CASE(ConfigStore_LoadsDefaultsWhenMissing) {
   EXPECT_TRUE(cfg.videoPath.empty());
   EXPECT_TRUE(cfg.pauseWhenNotDesktopContext);
   EXPECT_TRUE(!cfg.autoStart);
-  EXPECT_EQ(static_cast<int>(cfg.frameLatencyWaitableMode),
-            static_cast<int>(wallpaper::FrameLatencyWaitableMode::kOff));
 }
 
 TEST_CASE(ConfigStore_RoundTripsCoreFields) {
@@ -40,8 +39,6 @@ TEST_CASE(ConfigStore_RoundTripsCoreFields) {
   expected.videoPath = "D:/videos/demo.mp4";
   expected.autoStart = true;
   expected.pauseWhenNotDesktopContext = false;
-  expected.codecPolicy = wallpaper::CodecPolicy::kH264PlusHevc;
-  expected.frameLatencyWaitableMode = wallpaper::FrameLatencyWaitableMode::kAuto;
 
   wallpaper::ConfigStore store(path);
   store.Save(expected);
@@ -53,9 +50,6 @@ TEST_CASE(ConfigStore_RoundTripsCoreFields) {
   EXPECT_EQ(actual.videoPath, expected.videoPath);
   EXPECT_EQ(actual.autoStart, expected.autoStart);
   EXPECT_EQ(actual.pauseWhenNotDesktopContext, expected.pauseWhenNotDesktopContext);
-  EXPECT_EQ(static_cast<int>(actual.codecPolicy), static_cast<int>(expected.codecPolicy));
-  EXPECT_EQ(static_cast<int>(actual.frameLatencyWaitableMode),
-            static_cast<int>(expected.frameLatencyWaitableMode));
 }
 
 TEST_CASE(ConfigStore_DoesNotPersistManualFpsFields) {
@@ -67,8 +61,6 @@ TEST_CASE(ConfigStore_DoesNotPersistManualFpsFields) {
   cfg.videoPath = "D:/videos/demo.mp4";
   cfg.autoStart = true;
   cfg.pauseWhenNotDesktopContext = false;
-  cfg.codecPolicy = wallpaper::CodecPolicy::kH264PlusHevc;
-  cfg.frameLatencyWaitableMode = wallpaper::FrameLatencyWaitableMode::kAuto;
 
   wallpaper::ConfigStore store(path);
   store.Save(cfg);
@@ -77,6 +69,7 @@ TEST_CASE(ConfigStore_DoesNotPersistManualFpsFields) {
   EXPECT_TRUE(rewritten.find("\"fpsCap\"") == std::string::npos);
   EXPECT_TRUE(rewritten.find("\"renderCapMode\"") == std::string::npos);
   EXPECT_TRUE(rewritten.find("\"adaptiveQuality\"") == std::string::npos);
+  EXPECT_TRUE(rewritten.find("\"frameLatencyWaitableMode\"") == std::string::npos);
 
   std::filesystem::remove(path);
 }
@@ -92,12 +85,14 @@ TEST_CASE(ConfigStore_LoadRewritesLegacyPauseKeys) {
     out << "  \"pauseOnFullscreen\": true,\n";
     out << "  \"pauseOnMaximized\": true,\n";
     out << "  \"adaptiveQuality\": true,\n";
-    out << "  \"codecPolicy\": \"h264\"\n";
+    out << "  \"codecPolicy\": \"h264\",\n";
+    out << "  \"frameLatencyWaitableMode\": true\n";
     out << "}\n";
   }
 
   wallpaper::ConfigStore store(path);
   const auto cfg = store.Load();
+  (void)cfg;
 
   const std::string rewritten = ReadFile(path);
   EXPECT_TRUE(rewritten.find("\"pauseOnFullscreen\"") == std::string::npos);
@@ -105,6 +100,8 @@ TEST_CASE(ConfigStore_LoadRewritesLegacyPauseKeys) {
   EXPECT_TRUE(rewritten.find("\"pauseWhenNotDesktopContext\"") != std::string::npos);
   EXPECT_TRUE(rewritten.find("\"fpsCap\"") == std::string::npos);
   EXPECT_TRUE(rewritten.find("\"adaptiveQuality\"") == std::string::npos);
+  EXPECT_TRUE(rewritten.find("\"codecPolicy\"") == std::string::npos);
+  EXPECT_TRUE(rewritten.find("\"frameLatencyWaitableMode\"") == std::string::npos);
 
   std::filesystem::remove(path);
 }
@@ -122,22 +119,20 @@ TEST_CASE(ConfigStore_InvalidModesRewriteToDefaults) {
     out << "  \"adaptiveQuality\": true,\n";
     out << "  \"codecPolicy\": \"h264\",\n";
     out << "  \"renderCapMode\": \"warp\",\n";
-    out << "  \"frameLatencyWaitableMode\": \"maybe\"\n";
+    out << "  \"frameLatencyWaitableMode\": true\n";
     out << "}\n";
   }
 
   wallpaper::ConfigStore store(path);
   const auto cfg = store.Load();
-
-  EXPECT_EQ(static_cast<int>(cfg.frameLatencyWaitableMode),
-            static_cast<int>(wallpaper::FrameLatencyWaitableMode::kOff));
+  (void)cfg;
 
   const std::string rewritten = ReadFile(path);
   EXPECT_TRUE(rewritten.find("\"renderCapMode\"") == std::string::npos);
-  EXPECT_TRUE(rewritten.find("\"frameLatencyWaitableMode\"") != std::string::npos);
+  EXPECT_TRUE(rewritten.find("\"frameLatencyWaitableMode\"") == std::string::npos);
   EXPECT_TRUE(rewritten.find("\"warp\"") == std::string::npos);
-  EXPECT_TRUE(rewritten.find("\"maybe\"") == std::string::npos);
   EXPECT_TRUE(rewritten.find("\"adaptiveQuality\"") == std::string::npos);
+  EXPECT_TRUE(rewritten.find("\"codecPolicy\"") == std::string::npos);
 
   std::filesystem::remove(path);
 }
@@ -177,8 +172,6 @@ TEST_CASE(ConfigStore_SaveExpectedRoundTripSucceeds) {
   expected.videoPath = "D:/videos/expected_demo.mp4";
   expected.autoStart = true;
   expected.pauseWhenNotDesktopContext = false;
-  expected.codecPolicy = wallpaper::CodecPolicy::kH264PlusHevc;
-  expected.frameLatencyWaitableMode = wallpaper::FrameLatencyWaitableMode::kAuto;
 
   const auto saveResult = store.SaveExpected(expected);
   EXPECT_TRUE(saveResult.has_value());
@@ -192,9 +185,33 @@ TEST_CASE(ConfigStore_SaveExpectedRoundTripSucceeds) {
   EXPECT_EQ(actual.videoPath, expected.videoPath);
   EXPECT_EQ(actual.autoStart, expected.autoStart);
   EXPECT_EQ(actual.pauseWhenNotDesktopContext, expected.pauseWhenNotDesktopContext);
-  EXPECT_EQ(static_cast<int>(actual.codecPolicy), static_cast<int>(expected.codecPolicy));
-  EXPECT_EQ(static_cast<int>(actual.frameLatencyWaitableMode),
-            static_cast<int>(expected.frameLatencyWaitableMode));
+
+  std::filesystem::remove(path);
+}
+
+TEST_CASE(ConfigStore_SaveExpectedFallsBackToSyncWhenAsyncWriterUnavailable) {
+  const auto path =
+      std::filesystem::temp_directory_path() / "wallpaper_expected_fallback_config.json";
+  std::filesystem::remove(path);
+
+  wallpaper::AsyncFileWriter writer(8, /*startWorker=*/false);
+  writer.FlushAndStop();
+
+  wallpaper::ConfigStore store(path, &writer);
+  wallpaper::Config expected;
+  expected.videoPath = "D:/videos/fallback_demo.mp4";
+  expected.autoStart = true;
+  expected.pauseWhenNotDesktopContext = false;
+
+  const auto saveResult = store.SaveExpected(expected);
+  EXPECT_TRUE(saveResult.has_value());
+  EXPECT_TRUE(std::filesystem::exists(path));
+
+  const auto loaded = store.LoadExpected();
+  EXPECT_TRUE(loaded.has_value());
+  EXPECT_EQ(loaded->videoPath, expected.videoPath);
+  EXPECT_EQ(loaded->autoStart, expected.autoStart);
+  EXPECT_EQ(loaded->pauseWhenNotDesktopContext, expected.pauseWhenNotDesktopContext);
 
   std::filesystem::remove(path);
 }

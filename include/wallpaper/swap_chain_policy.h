@@ -3,8 +3,6 @@
 #include <array>
 #include <cstdint>
 
-#include "wallpaper/config.h"
-
 namespace wallpaper {
 
 enum class SwapChainEffect : std::uint8_t {
@@ -17,13 +15,8 @@ enum class SwapChainEffect : std::uint8_t {
 struct SwapChainPlan final {
   std::uint32_t bufferCount = 2;
   SwapChainEffect effect = SwapChainEffect::kFlipDiscard;
-  bool useFrameLatencyWaitableObject = false;
 };
 
-[[nodiscard]] std::array<SwapChainPlan, 5> BuildSwapChainPlans(
-    bool allowFrameLatencyWaitableObject) noexcept;
-
-[[nodiscard]] bool ShouldAllowFrameLatencyWaitableObject(
-    FrameLatencyWaitableMode mode) noexcept;
+[[nodiscard]] std::array<SwapChainPlan, 5> BuildSwapChainPlans() noexcept;
 
 }  // namespace wallpaper

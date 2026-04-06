@@ -55,7 +55,6 @@ $coreSources = @(
   "src/decode_output_policy.cpp",
   "src/decode_async_read_policy.cpp",
   "src/frame_buffer_policy.cpp",
-  "src/frame_latency_policy.cpp",
   "src/foreground_policy.cpp",
   "src/loop_sleep_policy.cpp",
   "src/long_run_load_policy.cpp",
@@ -87,6 +86,7 @@ $coreSources = @(
 $appSources = @(
   "src/main.cpp",
   "src/app.cpp",
+  "src/app_metrics.cpp",
   "src/app_decode_control.cpp",
   "src/app_tray.cpp",
   "src/app_autostart.cpp",

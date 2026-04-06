@@ -47,7 +47,6 @@ set(WALLPAPER_CORE_SOURCES
   src/metrics_sampler.cpp
   src/frame_bridge.cpp
   src/frame_buffer_policy.cpp
-  src/frame_latency_policy.cpp
   src/long_run_load_policy.cpp
   src/probe_cadence_policy.cpp
   src/nv12_layout_policy.cpp
@@ -67,9 +66,9 @@ target_include_directories(wallpaper_core PUBLIC include)
 add_executable(wallpaper_app WIN32
   src/main.cpp
   src/app.cpp
+  src/app_metrics.cpp
   src/app_decode_control.cpp
   src/app_tray.cpp
-  src/app_autostart.cpp
   src/platform_stubs.cpp
 )
 target_include_directories(wallpaper_app PRIVATE include)
@@ -120,7 +119,6 @@ add_executable(wallpaper_tests
   tests/decode_output_policy_tests.cpp
   tests/async_file_writer_tests.cpp
   tests/frame_buffer_policy_tests.cpp
-  tests/frame_latency_policy_tests.cpp
   tests/frame_bridge_tests.cpp
   tests/foreground_policy_tests.cpp
   tests/loop_sleep_policy_tests.cpp
