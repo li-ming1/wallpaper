@@ -47,7 +47,23 @@ TEST_CASE(AsyncFileWriter_DropsOldestWhenFull) {
   std::filesystem::remove(path, ec);
 
   AsyncFileWriter writer(1, /*startWorker=*/false);
-  EXPECT_TRUE(writer.Enqueue(AsyncFileWriter::Task{path, false, std::string("keep\n")}));
+  EXPECT_TRUE(writer.Enqueue(AsyncFileWriter::Task{path, false, std::string("old\n")}));
+  EXPECT_TRUE(writer.Enqueue(AsyncFileWriter::Task{path, true, std::string("new\n")}));
+  writer.FlushAndStop();
+
+  const std::string content = ReadAll(path);
+  EXPECT_EQ(content, "old\n");
+  EXPECT_EQ(writer.dropped_count(), static_cast<std::size_t>(1));
+  EXPECT_EQ(writer.failure_count(), static_cast<std::size_t>(0));
+}
+
+TEST_CASE(AsyncFileWriter_DropsOldestAppendTaskWhenFull) {
+  const auto path = TempPath("async_file_writer_drop_append.txt");
+  std::error_code ec;
+  std::filesystem::remove(path, ec);
+
+  AsyncFileWriter writer(1, /*startWorker=*/false);
+  EXPECT_TRUE(writer.Enqueue(AsyncFileWriter::Task{path, true, std::string("old\n")}));
   EXPECT_TRUE(writer.Enqueue(AsyncFileWriter::Task{path, true, std::string("new\n")}));
   writer.FlushAndStop();
 

@@ -2836,3 +2836,10 @@
 2026-04-05: Wrote design doc docs/superpowers/specs/2026-04-05-decode-pipeline-split-design.md (decode pipeline split into core/mf). Proceeding per user's blanket go-ahead without further approval prompts.
 2026-04-05: Tests passed after split (`scripts/run_tests.ps1 -BuildDir build_tmp`).
 2026-04-05: Rebuilt app via `scripts/build_app.ps1 -BuildDir build_tmp` after replacing decode_pipeline_stub with core/mf files; first run failed due to missing file, fixed appSources and header override, final build succeeded.
+
+## 2026-04-06
+- TDD Red：先修改 `tests/swap_chain_policy_tests.cpp` 让 `BuildSwapChainPlans()` 无参，`run_tests` 编译失败（旧签名仍要求参数），符合预期。
+- Green：删除 `Config.frameLatencyWaitableMode`、`CreateWallpaperHost(bool)` 参数、swapchain waitable-object 门控与 `frame_latency_policy` 模块。
+- Green：同步更新 `CMakeLists.txt`、`scripts/build_app.ps1`、`scripts/run_tests.ps1`、`README.md`。
+- 验证：`scripts/run_tests.ps1 -BuildDir build` 通过（258/258）。
+- 验证：`scripts/build_app.ps1 -BuildDir build` 通过。

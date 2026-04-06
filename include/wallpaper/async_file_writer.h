@@ -3,12 +3,12 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstddef>
+#include <deque>
 #include <filesystem>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <utility>
-#include <vector>
 
 namespace wallpaper {
 
@@ -39,7 +39,7 @@ class AsyncFileWriter final {
 
   const std::size_t capacity_;
   const bool workerStarted_;
-  std::vector<Task> queue_;
+  std::deque<Task> queue_;
   mutable std::mutex mu_;
   std::condition_variable cv_;
   bool stopping_ = false;

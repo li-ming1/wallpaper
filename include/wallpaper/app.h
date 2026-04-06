@@ -60,7 +60,8 @@ class App final {
   void Tick();
   void MaybeSampleAndLogMetrics(bool attemptedRender, bool frameDropped, double presentMs);
 
-  std::unique_ptr<AsyncFileWriter> fileWriter_;
+  std::unique_ptr<AsyncFileWriter> configWriter_;
+  std::unique_ptr<AsyncFileWriter> metricsWriter_;
   ConfigStore configStore_;
   Config config_{};
   RenderScheduler scheduler_;

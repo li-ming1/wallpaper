@@ -70,3 +70,16 @@ TEST_CASE(RenderScheduler_TimeUntilNextRenderTracksInterval) {
   EXPECT_TRUE(waitMs.count() >= 28);
   EXPECT_TRUE(waitMs.count() <= 29);
 }
+
+TEST_CASE(RenderScheduler_UsesSubMillisecondFrameIntervalAt60Fps) {
+  wallpaper::RenderScheduler scheduler(60);
+  const auto t0 = wallpaper::RenderScheduler::Clock::time_point{};
+  EXPECT_TRUE(scheduler.ShouldRender(t0));
+
+  const auto waitUs =
+      std::chrono::duration_cast<std::chrono::microseconds>(
+          scheduler.TimeUntilNextRender(t0 + 8ms))
+          .count();
+  EXPECT_TRUE(waitUs >= 8600);
+  EXPECT_TRUE(waitUs <= 8700);
+}

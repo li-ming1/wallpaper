@@ -1,11 +1,14 @@
 #include "wallpaper/render_scheduler.h"
 
+#include <cstdint>
+
 namespace wallpaper {
 namespace {
 
 RenderScheduler::Clock::duration BuildFrameInterval(const int fpsCap) {
   const int normalized = NormalizeFpsCap(fpsCap);
-  return std::chrono::milliseconds(1000 / normalized);
+  constexpr std::int64_t kNsPerSecond = 1'000'000'000LL;
+  return std::chrono::nanoseconds(kNsPerSecond / normalized);
 }
 
 }  // namespace

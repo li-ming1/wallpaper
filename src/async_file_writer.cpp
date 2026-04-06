@@ -1,5 +1,6 @@
 #include "wallpaper/async_file_writer.h"
 
+#include <algorithm>
 #include <fstream>
 
 namespace wallpaper {
@@ -18,7 +19,6 @@ void EnsureParentDirectory(const std::filesystem::path& path) {
 
 AsyncFileWriter::AsyncFileWriter(const std::size_t capacity, const bool startWorker)
     : capacity_(std::max<std::size_t>(1, capacity)), workerStarted_(startWorker) {
-  queue_.reserve(capacity_);
   if (workerStarted_) {
     worker_ = std::thread(&AsyncFileWriter::Run, this);
   }
@@ -32,8 +32,13 @@ bool AsyncFileWriter::Enqueue(Task task) {
     return false;
   }
   if (queue_.size() >= capacity_) {
-    queue_.erase(queue_.begin());
+    const bool dropIncoming = !queue_.empty() && task.append && !queue_.front().append;
     droppedCount_.fetch_add(1, std::memory_order_relaxed);
+    if (dropIncoming) {
+      // 满队列时优先保留 truncate（append=false）任务，避免关键配置写被日志流量挤掉。
+      return true;
+    }
+    queue_.pop_front();
   }
   queue_.push_back(std::move(task));
   cv_.notify_one();
@@ -70,7 +75,7 @@ void AsyncFileWriter::Run() {
         continue;
       }
       task = std::move(queue_.front());
-      queue_.erase(queue_.begin());
+      queue_.pop_front();
     }
     if (!WriteTask(task)) {
       failureCount_.fetch_add(1, std::memory_order_relaxed);
@@ -80,7 +85,7 @@ void AsyncFileWriter::Run() {
 }
 
 void AsyncFileWriter::DrainQueue() {
-  std::vector<Task> remaining;
+  std::deque<Task> remaining;
   {
     std::lock_guard<std::mutex> lock(mu_);
     remaining.swap(queue_);
