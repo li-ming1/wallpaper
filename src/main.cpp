@@ -1,10 +1,8 @@
 #include "wallpaper/app.h"
 #include "wallpaper/single_instance_policy.h"
 
-#ifdef _WIN32
 #include <windows.h>
 #include <objbase.h>
-#endif
 
 #include <cstring>
 #include <filesystem>
@@ -14,7 +12,6 @@
 namespace {
 
 void EnablePerMonitorDpiAwareness() {
-#ifdef _WIN32
   using SetDpiAwarenessContextFn = BOOL(WINAPI*)(HANDLE);
   const HMODULE user32 = GetModuleHandleW(L"user32.dll");
   if (user32 == nullptr) {
@@ -31,11 +28,9 @@ void EnablePerMonitorDpiAwareness() {
     return;
   }
   SetProcessDPIAware();
-#endif
 }
 
 std::filesystem::path ResolveConfigPath() {
-#ifdef _WIN32
   wchar_t exePath[MAX_PATH] = {};
   const DWORD len = GetModuleFileNameW(nullptr, exePath, MAX_PATH);
   if (len == 0 || len >= MAX_PATH) {
@@ -48,12 +43,8 @@ std::filesystem::path ResolveConfigPath() {
     return std::filesystem::path{"config.json"};
   }
   return parent / "config.json";
-#else
-  return std::filesystem::path{"config.json"};
-#endif
 }
 
-#ifdef _WIN32
 class ScopedSingleInstanceMutex final {
  public:
   ScopedSingleInstanceMutex() = default;
@@ -193,10 +184,8 @@ class ScopedComInit final {
  private:
   bool initialized_ = false;
 };
-#endif
 
 int RunWallpaperApp() {
-#ifdef _WIN32
   ScopedComInit comInit;
   ScopedSingleInstanceMutex singleInstanceMutex;
   const bool guardAcquired = singleInstanceMutex.TryAcquire();
@@ -204,7 +193,6 @@ int RunWallpaperApp() {
                                                    singleInstanceMutex.lock_file_acquired(), false)) {
     return 0;
   }
-#endif
   EnablePerMonitorDpiAwareness();
   wallpaper::App app(ResolveConfigPath());
   if (!app.Initialize()) {
@@ -215,7 +203,6 @@ int RunWallpaperApp() {
 
 }  // namespace
 
-#ifdef _WIN32
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
   return RunWallpaperApp();
 }
@@ -223,8 +210,3 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 int main() {
   return RunWallpaperApp();
 }
-#else
-int main() {
-  return RunWallpaperApp();
-}
-#endif

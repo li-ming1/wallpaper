@@ -4,10 +4,8 @@
 #include <algorithm>
 #include <chrono>
 
-#ifdef _WIN32
 #define PSAPI_VERSION 1
 #include <windows.h>
-#endif
 
 namespace wallpaper {
 
@@ -36,7 +34,6 @@ void App::StartDecodePump() {
       decodePumpWakeRequested_ = false;
     };
 
-#ifdef _WIN32
     int lastDecodeThreadPriority = THREAD_PRIORITY_NORMAL;
     RuntimeThreadQos lastDecodeThreadQos = RuntimeThreadQos::kNormal;
     ULONG lastMemoryPriority = MEMORY_PRIORITY_NORMAL;
@@ -75,18 +72,12 @@ void App::StartDecodePump() {
       setDecodeThreadPriority(decodeReady ? THREAD_PRIORITY_BELOW_NORMAL : THREAD_PRIORITY_IDLE);
     };
     applyDecodeThreadServiceHints(false, false);
-#endif
 
     int decodeIdleSleepMs = 2;
     while (decodePumpRunning_.load()) {
       const bool decodeReady = decodePipeline_ && decodeOpened_.load() && decodeRunning_.load();
       const bool warmupActive = decodeWarmupActive_.load();
-#ifdef _WIN32
       applyDecodeThreadServiceHints(decodeReady, warmupActive);
-#else
-      decodeThreadQos_.store(static_cast<int>(warmupActive ? RuntimeThreadQos::kNormal
-                                                           : RuntimeThreadQos::kEco));
-#endif
       if (!decodeReady) {
         decodeIdleSleepMs = ComputeDecodePumpSleepMs(false, false, decodeIdleSleepMs,
                                                      decodeFrameReadyNotifierAvailable_);
@@ -117,11 +108,9 @@ void App::StartDecodePump() {
         latestDecodedToken_ = token;
         hasLatestDecodedToken_ = true;
         latestDecodedSequence_.store(token.sequence, std::memory_order_release);
-#ifdef _WIN32
         if (decodeFrameReadyEvent_ != nullptr) {
           (void)SetEvent(reinterpret_cast<HANDLE>(decodeFrameReadyEvent_));
         }
-#endif
         decodeIdleSleepMs = ComputeDecodePumpSleepMs(true, true, decodeIdleSleepMs,
                                                      decodeFrameReadyNotifierAvailable_);
         const int hotSleepMs = decodePumpHotSleepMs_.load();

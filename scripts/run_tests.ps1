@@ -63,6 +63,7 @@ $testSources = @(
   "tests/pause_resource_policy_tests.cpp",
   "tests/pause_suspend_policy_tests.cpp",
   "tests/pause_transition_policy_tests.cpp",
+  "tests/playback_profile_policy_tests.cpp",
   "tests/quality_governor_tests.cpp",
   "tests/probe_cadence_policy_tests.cpp",
   "tests/render_scheduler_tests.cpp",
@@ -77,7 +78,8 @@ $testSources = @(
   "tests/upload_scale_policy_tests.cpp",
   "tests/upload_texture_policy_tests.cpp",
   "tests/video_path_probe_policy_tests.cpp",
-  "tests/video_path_matcher_tests.cpp"
+  "tests/video_path_matcher_tests.cpp",
+  "tests/win11_cleanup_tests.cpp"
 )
 
 $coreSources = @(

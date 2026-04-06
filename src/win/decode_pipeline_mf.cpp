@@ -1,6 +1,5 @@
 #include "decode_pipeline_internal.h"
 
-#ifdef _WIN32
 namespace wallpaper {
 
 AsyncSourceReaderCallback::AsyncSourceReaderCallback(DecodePipelineStub* owner) : owner_(owner) {}
@@ -114,12 +113,10 @@ bool DecodePipelineStub::TryOpenMediaFoundationLocked(const std::string& path) {
       // 优先启用硬件变换路径，降低色彩转换的 CPU 占用。
       hr = readerAttributes->SetUINT32(MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, TRUE);
     }
-#if defined(MF_SOURCE_READER_DISABLE_DXVA)
     if (SUCCEEDED(hr) && readerAttributes != nullptr && tryD3DInterop) {
       // 显式声明不禁用 DXVA，避免某些驱动配置下退回系统内存路径。
       hr = readerAttributes->SetUINT32(MF_SOURCE_READER_DISABLE_DXVA, FALSE);
     }
-#endif
 #if defined(MF_READWRITE_USE_ONLY_HARDWARE_TRANSFORMS)
     if (SUCCEEDED(hr) && readerAttributes != nullptr && openProfile_.requireHardwareTransforms) {
       hr = readerAttributes->SetUINT32(MF_READWRITE_USE_ONLY_HARDWARE_TRANSFORMS, TRUE);
@@ -132,14 +129,10 @@ bool DecodePipelineStub::TryOpenMediaFoundationLocked(const std::string& path) {
       // 仅在非 D3D-advanced 路径启用 legacy video processing，避免无意落回系统内存样本。
       hr = readerAttributes->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, TRUE);
     }
-#if defined(MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING)
     if (SUCCEEDED(hr) && readerAttributes != nullptr && enableAdvancedProcessing) {
       // advanced video processing 能更稳定地执行尺寸 hint（MF_MT_FRAME_SIZE）。
       hr = readerAttributes->SetUINT32(MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, TRUE);
     }
-#else
-    (void)enableAdvancedProcessing;
-#endif
     if (SUCCEEDED(hr) && readerAttributes != nullptr && tryD3DInterop) {
       ID3D11Device* sharedDevice = d3d11_interop::AcquireSharedDevice();
       if (sharedDevice != nullptr) {
@@ -369,8 +362,8 @@ bool DecodePipelineStub::TryOpenMediaFoundationLocked(const std::string& path) {
     }
     if (!openProfile_.requireHardwareTransforms && !attemptedSoftwareFallback) {
       // 某些设备/编码器必须启用软件视频处理才能协商到 RGB32。
-      opened = createReader(true, openProfile_.preferHardwareTransforms, enableAdvancedVideoProcessing,
-                            requireD3DOnHardwareAttempt, &reader) &&
+    opened = createReader(true, openProfile_.preferHardwareTransforms,
+                          enableAdvancedVideoProcessing, requireD3DOnHardwareAttempt, &reader) &&
                configureReader(reader, &width, &height, &retryWithVideoProcessing);
       if ((!opened || retryWithVideoProcessing) && openProfile_.preferHardwareTransforms) {
         if (reader != nullptr) {
@@ -1079,4 +1072,3 @@ bool DecodePipelineStub::TryAcquireMediaFoundationFrame(FrameToken* frame) {
 }
 
 }  // namespace wallpaper
-#endif

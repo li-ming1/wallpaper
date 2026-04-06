@@ -2,6 +2,7 @@
 
 #include "wallpaper/decode_output_policy.h"
 #include "wallpaper/metrics_log_line.h"
+#include "wallpaper/playback_profile_policy.h"
 #include "wallpaper/probe_cadence_policy.h"
 #include "wallpaper/runtime_trim_policy.h"
 
@@ -10,11 +11,9 @@
 #include <cstdint>
 #include <vector>
 
-#ifdef _WIN32
 #define PSAPI_VERSION 1
 #include <windows.h>
 #include <psapi.h>
-#endif
 
 namespace wallpaper {
 namespace {
@@ -24,7 +23,6 @@ struct ProcessMemoryUsage final {
   std::size_t workingSetBytes = 0;
 };
 
-#ifdef _WIN32
 std::uint64_t FileTimeToU64(const FILETIME& ft) {
   return (static_cast<std::uint64_t>(ft.dwHighDateTime) << 32U) |
          static_cast<std::uint64_t>(ft.dwLowDateTime);
@@ -90,11 +88,6 @@ ProcessMemoryUsage QueryProcessMemoryUsage() {
 bool TrimCurrentProcessWorkingSet() {
   return EmptyWorkingSet(GetCurrentProcess()) != FALSE;
 }
-#else
-double QueryProcessCpuPercent() { return 0.0; }
-ProcessMemoryUsage QueryProcessMemoryUsage() { return {}; }
-bool TrimCurrentProcessWorkingSet() { return false; }
-#endif
 
 double TakeP95Ms(std::vector<double>* values) {
   if (values == nullptr || values->empty()) {
@@ -161,11 +154,13 @@ void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameD
                               &longRunLoadState_);
   decodePumpDynamicBoostMs_.store(longRunDecision.decodeHotSleepBoostMs);
   if (decodePipeline_ &&
+      ShouldAllowLongRunDecodeTrimForPlaybackProfile(config_.playbackProfile) &&
       ShouldExecuteLongRunDecodeTrim(longRunDecision.requestDecodeTrim, decodeRunning_.load(),
                                      lastDecodePath_)) {
     decodePipeline_->TrimMemory();
   }
-  if (ShouldRequestWorkingSetTrim(hasActiveVideo, lastDecodePath_, metrics.workingSetBytes,
+  if (ShouldAllowWorkingSetTrimForPlaybackProfile(config_.playbackProfile) &&
+      ShouldRequestWorkingSetTrim(hasActiveVideo, lastDecodePath_, metrics.workingSetBytes,
                                   longRunLoadState_.level)) {
     const auto workingSetTrimInterval =
         SelectRuntimeWorkingSetTrimInterval(hasActiveVideo, lastDecodePath_, lastDecodeOutputPixels_,
@@ -177,11 +172,14 @@ void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameD
       lastWorkingSetTrimAt_ = now;
     }
   }
-  if (hasActiveVideo && IsCpuFallbackDecodePath(lastDecodePath_)) {
+  if (hasActiveVideo && IsCpuFallbackDecodePath(lastDecodePath_) &&
+      ShouldAllowCpuFallbackRetuneForPlaybackProfile(config_.playbackProfile)) {
     const int desiredDecodeOpenLevel =
         SelectDecodeOpenLongRunLevel(longRunLoadState_.level, true, lastDecodeOutputPixels_);
     const bool desiredPreferHardwareTransforms =
-        ShouldPreferHardwareTransformsForDecodeOpen(desiredDecodeOpenLevel, true);
+        ResolvePreferHardwareTransformsForPlaybackProfile(
+            config_.playbackProfile,
+            ShouldPreferHardwareTransformsForDecodeOpen(desiredDecodeOpenLevel, true));
     if (ShouldReopenDecodeForLongRunTuning(
             true, lastDecodeOutputPixels_, decodeOpenLongRunLevel_, desiredDecodeOpenLevel,
             decodeOpenPreferHardwareTransforms_, desiredPreferHardwareTransforms)) {

@@ -1,9 +1,6 @@
 #pragma once
 
-#ifdef _WIN32
-
 #include <d3d11.h>
-
 #include <mutex>
 
 namespace wallpaper {
@@ -52,5 +49,3 @@ inline ID3D11Device* AcquireSharedDevice() noexcept {
 
 }  // namespace d3d11_interop
 }  // namespace wallpaper
-
-#endif

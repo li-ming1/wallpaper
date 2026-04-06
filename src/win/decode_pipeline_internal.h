@@ -18,9 +18,7 @@
 #include <string>
 #include <new>
 
-#ifdef _WIN32
 #include <windows.h>
-
 #include <d3d11.h>
 #include <dxgi.h>
 #include <mfapi.h>
@@ -29,11 +27,9 @@
 #include <mfidl.h>
 #include <mfreadwrite.h>
 #include <propvarutil.h>
-#endif
 
 namespace wallpaper {
 
-#ifdef _WIN32
 class DecodePipelineStub;
 
 class AsyncSourceReaderCallback final : public IMFSourceReaderCallback {
@@ -56,7 +52,6 @@ class AsyncSourceReaderCallback final : public IMFSourceReaderCallback {
   volatile long refCount_ = 1;
   std::atomic<DecodePipelineStub*> owner_{nullptr};
 };
-#endif  // _WIN32
 
 class DecodePipelineStub final : public IDecodePipeline {
  public:
@@ -82,7 +77,6 @@ class DecodePipelineStub final : public IDecodePipeline {
     kMediaFoundation = 1,
   };
 
-#ifdef _WIN32
   struct ReadySampleSnapshot final {
     IMFSample* sample = nullptr;
     std::int64_t rawTimestamp100ns = 0;
@@ -102,12 +96,10 @@ class DecodePipelineStub final : public IDecodePipeline {
     std::uint32_t outputWidth = 0;
     std::uint32_t outputHeight = 0;
   };
-#endif
 
   bool TryAcquireFallbackFrameLocked(FrameToken* frame);
   void ResetStateLocked();
 
-#ifdef _WIN32
   static void QueryDesktopFrameHint(UINT32* outWidth, UINT32* outHeight);
   bool TryOpenMediaFoundationLocked(const std::string& path);
   bool EnsureMfStartupLocked();
@@ -126,7 +118,6 @@ class DecodePipelineStub final : public IDecodePipeline {
   PublishResult PublishSampleToBridgeUnlocked(IMFSample* sample,
                                               const ReadySampleSnapshot& snapshot);
   bool TryAcquireMediaFoundationFrame(FrameToken* frame);
-#endif
 
   mutable std::mutex mu_;
   bool opened_ = false;
@@ -140,7 +131,6 @@ class DecodePipelineStub final : public IDecodePipeline {
   DecodeFrameReadyNotifyFn frameReadyNotifyFn_ = nullptr;
   void* frameReadyNotifyContext_ = nullptr;
 
-#ifdef _WIN32
   IMFSourceReader* sourceReader_ = nullptr;
   AsyncSourceReaderCallback* sourceReaderCallback_ = nullptr;
   IMFDXGIDeviceManager* dxgiDeviceManager_ = nullptr;
@@ -164,7 +154,6 @@ class DecodePipelineStub final : public IDecodePipeline {
   ID3D11Texture2D* sharedNv12BridgeUvTexture_ = nullptr;
   UINT sharedNv12BridgeWidth_ = 0;
   UINT sharedNv12BridgeHeight_ = 0;
-#endif
 };
 
 std::unique_ptr<IDecodePipeline> CreateDecodePipeline();

@@ -5,12 +5,10 @@ namespace wallpaper {
 DecodePipelineStub::~DecodePipelineStub() {
   std::lock_guard<std::mutex> lock(mu_);
   ResetStateLocked();
-#ifdef _WIN32
   if (mfStarted_) {
     MFShutdown();
     mfStarted_ = false;
   }
-#endif
 }
 
 bool DecodePipelineStub::Open(const std::string& path, const DecodeOpenProfile& profile) {
@@ -27,12 +25,10 @@ bool DecodePipelineStub::Open(const std::string& path, const DecodeOpenProfile& 
   }
 
   mode_ = Mode::kFallbackTicker;
-#ifdef _WIN32
   // 有路径时优先尝试 MF Source Reader；失败时退回内置动态源，保证始终有动态效果。
   if (hasPath && TryOpenMediaFoundationLocked(path)) {
     mode_ = Mode::kMediaFoundation;
   }
-#endif
 
   opened_ = true;
   running_ = false;
@@ -62,12 +58,10 @@ bool DecodePipelineStub::Start() {
     }
     running_ = true;
   }
-#ifdef _WIN32
   if (mode_ == Mode::kMediaFoundation) {
     ResumeDecodeAsyncRead(&decodeAsyncReadState_);
     PumpDecodeAsyncReadsLocked();
   }
-#endif
   return true;
 }
 
@@ -77,9 +71,7 @@ void DecodePipelineStub::Pause() {
     pauseAt_ = Clock::now();
   }
   running_ = false;
-#ifdef _WIN32
   PauseDecodeAsyncRead(&decodeAsyncReadState_);
-#endif
 }
 
 void DecodePipelineStub::Stop() {
@@ -101,7 +93,6 @@ bool DecodePipelineStub::TryAcquireLatestFrame(FrameToken* frame) {
     return false;
   }
 
-#ifdef _WIN32
   bool useMediaFoundation = false;
   {
     std::lock_guard<std::mutex> lock(mu_);
@@ -114,13 +105,6 @@ bool DecodePipelineStub::TryAcquireLatestFrame(FrameToken* frame) {
     }
   }
   return TryAcquireMediaFoundationFrame(frame);
-#else
-  std::lock_guard<std::mutex> lock(mu_);
-  if (!opened_ || !running_) {
-    return false;
-  }
-  return TryAcquireFallbackFrameLocked(frame);
-#endif
 }
 
 void DecodePipelineStub::SetFrameReadyNotifier(const DecodeFrameReadyNotifyFn notifyFn,
@@ -167,9 +151,7 @@ void DecodePipelineStub::ResetStateLocked() {
   path_.clear();
   mode_ = Mode::kFallbackTicker;
   frame_bridge::ClearLatestFrame();
-#ifdef _WIN32
   ReleaseMfLocked();
-#endif
 }
 
 std::unique_ptr<IDecodePipeline> CreateDecodePipeline() {

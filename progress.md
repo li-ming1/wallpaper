@@ -2843,3 +2843,121 @@
 - Green：同步更新 `CMakeLists.txt`、`scripts/build_app.ps1`、`scripts/run_tests.ps1`、`README.md`。
 - 验证：`scripts/run_tests.ps1 -BuildDir build` 通过（258/258）。
 - 验证：`scripts/build_app.ps1 -BuildDir build` 通过。
+
+## 2026-04-06
+- 新需求调研：用户要求继续删除剩余兼容层、空壳实现以及旧字段清理逻辑。
+- 当前树复核结果：
+  - `src/platform_stubs.cpp` 仍存在，且 `CMakeLists.txt` 仍将其编进 `wallpaper_app`。
+  - `src/config_store.cpp` 仍保留 legacy 字段探测后自动重写。
+  - `tests/config_store_tests.cpp` 与 `README.md` 仍把“重写旧字段”当作正式行为。
+- 下一步：先提交收口设计并等待用户确认，再按 TDD 进入 Red -> Green。
+
+## 2026-04-06 Phase 134: 删除剩余兼容层与旧字段清理
+- Scope:
+  - 删除当前树里残留的 `platform_stubs` 空壳链路
+  - 删除 `config_store` 的旧字段自动重写逻辑
+  - 顺手收紧 `main/app` 中明显只为非 Windows fallback 保留的分支
+- Red:
+  - 新增 `tests/win11_cleanup_tests.cpp`
+  - 将 `tests/config_store_tests.cpp` 的旧预期改成“legacy/unknown 字段不会触发自动重写”
+  - 更新 `scripts/run_tests.ps1` / `CMakeLists.txt` 让新测试参与编译
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/phase134_red_cleanup` 按预期失败：
+    - `Win11Cleanup_MainlineDoesNotKeepPlatformStubs`
+    - `Win11Cleanup_MainAndAppDoNotKeepNonWindowsFallbackGuards`
+    - `ConfigStore_LoadIgnoresLegacyFieldsWithoutRewrite`
+    - `ConfigStore_LoadIgnoresUnknownFieldsWithoutRewrite`
+- Green:
+  - 删除 `src/platform_stubs.cpp`
+  - 从 `CMakeLists.txt` 与 `scripts/build_app.ps1` 移除 `src/platform_stubs.cpp`
+  - `src/main.cpp` 去掉 `_WIN32` 条件分支，直化为 Windows-only 入口
+  - `src/app.cpp` 删除 `#ifndef _WIN32` fallback helper / timer / sleep 分支，并去掉相关条件编译
+  - `src/config_store.cpp` 移除 legacy 字段探测后自动重写逻辑
+  - `README.md` 改为“旧字段/未知字段仅忽略，不自动迁移”
+- Verification:
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/phase134_green_cleanup` -> PASS（260/260）
+  - `scripts/build_app.ps1 -BuildDir build_tmp/phase134_green_cleanup` -> PASS
+
+## 2026-04-06 Phase 135: Win11-only 宏残留与空壳收口
+- Scope:
+  - 删除当前树里剩余 `_WIN32` / `#else` 平台双态与非 Windows 空壳
+  - 仅清理 Win11-only 兼容包袱，不改真实行为策略
+- Discovery:
+  - `src/app_autostart.cpp`、`src/app_decode_control.cpp`、`src/app_metrics.cpp` 仍保留非 Windows fallback
+  - `src/frame_bridge.cpp` / `include/wallpaper/frame_bridge.h` 仍用 `_WIN32` 抽象 GPU 纹理指针类型
+  - `src/video_path_matcher.cpp` / `tests/video_path_matcher_tests.cpp` 仍保留 Windows / non-Windows 双态
+  - `src/metrics_log_file.cpp` 仍保留 `localtime_s` / `localtime_r` 双态
+  - `src/win/tray_controller_win.cpp`、`src/win/wallpaper_host_win.cpp`、`src/win/decode_pipeline_internal.h`、`src/win/decode_pipeline_core.cpp`、`src/win/decode_pipeline_mf.cpp` 仍保留顶层 `_WIN32` 或 `#else` 空壳
+- Decision:
+  - 本轮 cleanup 测试只锁定真正的平台兼容残留，不碰 `compiler_assume` / `cpp26_feature_support` 这类编译器特性分支
+- Red:
+  - 扩展 `tests/win11_cleanup_tests.cpp`
+  - 新增三项约束：
+    - `Win11Cleanup_TargetedFilesDoNotKeepLegacyWin32Guards`
+    - `Win11Cleanup_TargetedFilesDoNotKeepLegacyElseStubs`
+    - `Win11Cleanup_FrameBridgeUsesTypedD3DTextures`
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/phase135_red_win11_cleanup` 按预期失败：
+    - `Win11Cleanup_TargetedFilesDoNotKeepLegacyWin32Guards`
+    - `Win11Cleanup_TargetedFilesDoNotKeepLegacyElseStubs`
+    - `Win11Cleanup_FrameBridgeUsesTypedD3DTextures`
+- Green:
+  - `app_autostart/app_decode_control/app_metrics/frame_bridge/video_path_matcher/metrics_log_file` 去掉平台双态
+  - `frame_bridge.h` / `d3d11_interop_device.h` 改为无条件 Windows 口径
+  - `tray_controller_win/wallpaper_host_win/decode_pipeline_internal/decode_pipeline_core/decode_pipeline_mf` 删除顶层 `_WIN32` 包裹与非 Windows 空壳
+  - `decode_pipeline_mf.cpp` 同步删除无效的 `defined(MF_SOURCE_READER_DISABLE_DXVA)` / `defined(MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING)` 兼容分支
+- Verification:
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/phase135_green_win11_cleanup` -> PASS（263/263）
+  - `scripts/build_app.ps1 -BuildDir build_tmp/phase135_green_win11_cleanup` -> PASS
+  - `rg -n "_WIN32|#ifndef _WIN32|#ifdef _WIN32|#else" src include tests CMakeLists.txt scripts README.md`
+    - 仅剩 `compiler_assume/cpp26_feature_support/metrics_sampler` 的特性探测分支，以及 cleanup 测试源码中的字面量断言
+
+## 2026-04-06 Phase 136: playbackProfile 配置开关
+- Scope:
+  - 为“CPU/内存平衡”和“极低 CPU / 更高内存”新增显式配置档位
+  - 最小实现：只接入 `config.json`，先不做托盘菜单
+- Red:
+  - `tests/config_store_tests.cpp` 开始要求 `Config.playbackProfile`
+  - 新增 `tests/playback_profile_policy_tests.cpp`
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/phase136_red_playback_profile` 按预期失败：
+    - `Config` 缺少 `playbackProfile`
+    - 缺少 `PlaybackProfile` 枚举
+    - 缺少 `wallpaper/playback_profile_policy.h`
+- Green:
+  - `include/wallpaper/config.h` 新增 `PlaybackProfile` 枚举、字符串序列化/解析 helper、`Config.playbackProfile`
+  - 新增 `include/wallpaper/playback_profile_policy.h`
+  - `src/config_store.cpp` 支持读写 `playbackProfile`
+  - `src/app.cpp` 启动/重开 decode 时按 profile 解析 `preferHardwareTransforms`
+  - `src/app_metrics.cpp` 按 profile 控制 long-run decode trim、working-set trim、CPU fallback retune
+  - `README.md` 更新配置文档
+- Verification:
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/phase136_green_playback_profile` -> PASS（265/265）
+  - `scripts/build_app.ps1 -BuildDir build_tmp/phase136_green_playback_profile` -> PASS
+
+## 2026-04-06 Phase 137: playbackProfile 强分叉语义
+- Scope:
+  - 修正 `balanced` 与 `low_cpu` 语义过近的问题
+  - 目标是让 `balanced` 从启动 decode open 起就偏省内存，而不是只靠后期 trim/retune 才产生差异
+- Discovery:
+  - 当前 `build/config.json` 未显式写入 `playbackProfile`，运行时回落到默认 `balanced`
+  - 当前 `balanced` 仍保留 `StartVideoPipelineForPath(... preferHardwareTransforms = true)` 的默认调用值
+  - 因此启动时两档都倾向硬件 transform，视觉上几乎同相
+- Plan:
+  - 先改 `tests/playback_profile_policy_tests.cpp`，把 `balanced` 期望改成“强制非硬件偏好”
+  - Red 确认失败后，再最小修改 `playback_profile_policy.h`
+  - 通过 tests/build 后再回写 README 文档
+- Red:
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/phase137_red_playback_profile_split` -> FAIL（符合预期）
+  - 唯一失败：
+    - `PlaybackProfilePolicy_BalancedForcesMemoryBiasedPreferenceAndAllowsBalancedTuning`
+  - 失败点：
+    - `ResolvePreferHardwareTransformsForPlaybackProfile(kBalanced, true)` 仍返回 `true`
+- Green:
+  - `include/wallpaper/playback_profile_policy.h`
+    - `balanced` 改为持续返回 `false`
+    - `low_cpu` 继续持续返回 `true`
+  - `README.md`
+    - 更新两档真实语义说明
+- Verification:
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/phase137_green_playback_profile_split` -> PASS（265/265）
+  - `scripts/build_app.ps1 -BuildDir build_tmp/phase137_green_playback_profile_split` -> PASS
+  - 产物：
+    - `build_tmp/phase137_green_playback_profile_split/wallpaper_app.exe`

@@ -69,7 +69,6 @@ add_executable(wallpaper_app WIN32
   src/app_metrics.cpp
   src/app_decode_control.cpp
   src/app_tray.cpp
-  src/platform_stubs.cpp
 )
 target_include_directories(wallpaper_app PRIVATE include)
 target_link_libraries(wallpaper_app PRIVATE wallpaper_core)
@@ -131,6 +130,7 @@ add_executable(wallpaper_tests
   tests/pause_resource_policy_tests.cpp
   tests/pause_suspend_policy_tests.cpp
   tests/pause_transition_policy_tests.cpp
+  tests/playback_profile_policy_tests.cpp
   tests/quality_governor_tests.cpp
   tests/probe_cadence_policy_tests.cpp
   tests/render_scheduler_tests.cpp
@@ -146,6 +146,7 @@ add_executable(wallpaper_tests
   tests/upload_texture_policy_tests.cpp
   tests/video_path_probe_policy_tests.cpp
   tests/video_path_matcher_tests.cpp
+  tests/win11_cleanup_tests.cpp
 )
 
 target_include_directories(wallpaper_tests PRIVATE include)

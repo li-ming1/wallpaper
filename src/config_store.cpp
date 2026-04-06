@@ -159,11 +159,6 @@ bool ExtractBool(const std::string& json, const std::string& key, bool* out) {
   return false;
 }
 
-bool ContainsKey(const std::string& json, const std::string& key) {
-  const std::string needle = "\"" + key + "\"";
-  return json.find(needle) != std::string::npos;
-}
-
 }  // namespace
 
 ConfigStore::ConfigStore(std::filesystem::path path, AsyncFileWriter* writer)
@@ -179,11 +174,16 @@ std::expected<Config, ConfigStoreError> ConfigStore::LoadExpected() const {
   if (json.empty()) {
     return std::unexpected(ConfigStoreError::kFileOpenFailed);
   }
-  bool requiresRewrite = false;
 
   std::string value;
   if (ExtractString(json, "videoPath", &value)) {
     config.videoPath = value;
+  }
+  if (ExtractString(json, "playbackProfile", &value)) {
+    PlaybackProfile parsedProfile = PlaybackProfile::kBalanced;
+    if (TryParsePlaybackProfile(value, &parsedProfile)) {
+      config.playbackProfile = parsedProfile;
+    }
   }
 
   bool flag = false;
@@ -192,29 +192,6 @@ std::expected<Config, ConfigStoreError> ConfigStore::LoadExpected() const {
   }
   if (ExtractBool(json, "pauseWhenNotDesktopContext", &flag)) {
     config.pauseWhenNotDesktopContext = flag;
-  }
-
-  if (ContainsKey(json, "pauseOnFullscreen") || ContainsKey(json, "pauseOnMaximized")) {
-    requiresRewrite = true;
-  }
-  if (ContainsKey(json, "fpsCap") || ContainsKey(json, "renderCapMode")) {
-    requiresRewrite = true;
-  }
-  if (ContainsKey(json, "adaptiveQuality")) {
-    requiresRewrite = true;
-  }
-  if (ContainsKey(json, "frameLatencyWaitableMode")) {
-    requiresRewrite = true;
-  }
-  if (ContainsKey(json, "codecPolicy")) {
-    requiresRewrite = true;
-  }
-
-  if (requiresRewrite) {
-    const auto saved = SaveExpectedInternal(config, /*allowAsync=*/false);
-    if (!saved.has_value()) {
-      return std::unexpected(saved.error());
-    }
   }
 
   return config;
@@ -230,6 +207,7 @@ std::expected<void, ConfigStoreError> ConfigStore::SaveExpectedInternal(
   std::ostringstream out;
   out << "{\n";
   out << "  \"videoPath\": \"" << EscapeJson(config.videoPath) << "\",\n";
+  out << "  \"playbackProfile\": \"" << ToConfigString(config.playbackProfile) << "\",\n";
   out << "  \"autoStart\": " << (config.autoStart ? "true" : "false") << ",\n";
   out << "  \"pauseWhenNotDesktopContext\": "
       << (config.pauseWhenNotDesktopContext ? "true" : "false") << "\n";

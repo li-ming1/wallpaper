@@ -5,9 +5,7 @@
 #include <memory>
 #include <vector>
 
-#ifdef _WIN32
 struct ID3D11Texture2D;
-#endif
 
 namespace wallpaper::frame_bridge {
 
@@ -27,13 +25,8 @@ struct LatestFrame final {
   PixelFormat pixelFormat = PixelFormat::kUnknown;
   std::uint32_t gpuSubresourceIndex = 0;
   std::uint32_t dxgiFormat = 0;
-#ifdef _WIN32
   ID3D11Texture2D* gpuTexture = nullptr;
   ID3D11Texture2D* gpuAuxTexture = nullptr;
-#else
-  void* gpuTexture = nullptr;
-  void* gpuAuxTexture = nullptr;
-#endif
   std::shared_ptr<void> gpuTextureHolder;
   std::shared_ptr<void> gpuAuxTextureHolder;
   const std::uint8_t* rgbaData = nullptr;

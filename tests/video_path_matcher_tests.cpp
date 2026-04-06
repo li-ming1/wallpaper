@@ -20,10 +20,8 @@ TEST_CASE(VideoPathMatcher_DifferentPathIsNotSame) {
   EXPECT_TRUE(!wallpaper::IsSameVideoPath("videos/a.mp4", "videos/b.mp4"));
 }
 
-#ifdef _WIN32
 TEST_CASE(VideoPathMatcher_WindowsCaseAndSeparatorInsensitive) {
   EXPECT_TRUE(
       wallpaper::IsSameVideoPath("C:\\Users\\Public\\Videos\\Demo.MP4",
                                  "c:/users/public/videos/./demo.mp4"));
 }
-#endif

@@ -10,7 +10,6 @@
 #include "wallpaper/upload_scale_policy.h"
 #include "wallpaper/upload_texture_policy.h"
 
-#ifdef _WIN32
 #include <windows.h>
 #include <d3d11.h>
 #include <d3dcompiler.h>
@@ -23,13 +22,10 @@
 #include <iterator>
 #include <span>
 #include <vector>
-#endif
 
 namespace wallpaper {
 
 namespace {
-
-#ifdef _WIN32
 
 template <typename T>
 void SafeRelease(T** ptr) {
@@ -1625,18 +1621,6 @@ class WallpaperHostWin final : public IWallpaperHost {
   bool videoNv12TextureCpuWritable_ = false;
   std::uint64_t lastVideoSequence_ = 0;
 };
-
-#else
-
-class WallpaperHostWin final : public IWallpaperHost {
- public:
-  bool AttachToDesktop() override { return false; }
-  void DetachFromDesktop() override {}
-  void ResizeForDisplays() override {}
-  void Present(const FrameToken&) override {}
-};
-
-#endif
 
 }  // namespace
 

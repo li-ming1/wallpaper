@@ -6,14 +6,11 @@
 #include <filesystem>
 #include <string>
 
-#ifdef _WIN32
 #include <windows.h>
-#endif
 
 namespace wallpaper {
 namespace {
 
-#ifdef _WIN32
 std::wstring Utf8ToWide(const std::string& text) {
   if (text.empty()) {
     return {};
@@ -28,7 +25,7 @@ std::wstring Utf8ToWide(const std::string& text) {
   return out;
 }
 
-std::wstring NormalizeWindowsPathForCompare(const std::string& utf8Path) {
+std::wstring NormalizePathForCompare(const std::string& utf8Path) {
   if (utf8Path.empty()) {
     return {};
   }
@@ -52,23 +49,6 @@ std::wstring NormalizeWindowsPathForCompare(const std::string& utf8Path) {
                  [](const wchar_t ch) { return static_cast<wchar_t>(std::towlower(ch)); });
   return normalized;
 }
-#else
-std::string NormalizePathForCompare(const std::string& utf8Path) {
-  if (utf8Path.empty()) {
-    return {};
-  }
-
-  std::filesystem::path path(utf8Path);
-  if (path.empty()) {
-    return {};
-  }
-  if (path.is_relative()) {
-    path = std::filesystem::absolute(path);
-  }
-  path = path.lexically_normal();
-  return path.generic_string();
-}
-#endif
 
 }  // namespace
 
@@ -77,9 +57,8 @@ bool IsSameVideoPath(const std::string& lhsUtf8, const std::string& rhsUtf8) {
     return lhsUtf8.empty() && rhsUtf8.empty();
   }
 
-#ifdef _WIN32
-  const std::wstring lhs = NormalizeWindowsPathForCompare(lhsUtf8);
-  const std::wstring rhs = NormalizeWindowsPathForCompare(rhsUtf8);
+  const std::wstring lhs = NormalizePathForCompare(lhsUtf8);
+  const std::wstring rhs = NormalizePathForCompare(rhsUtf8);
   if (!lhs.empty() && !rhs.empty()) {
     return lhs == rhs;
   }
@@ -93,20 +72,6 @@ bool IsSameVideoPath(const std::string& lhsUtf8, const std::string& rhsUtf8) {
   std::transform(rhsFallback.begin(), rhsFallback.end(), rhsFallback.begin(),
                  [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
   return lhsFallback == rhsFallback;
-#else
-  const std::string lhs = NormalizePathForCompare(lhsUtf8);
-  const std::string rhs = NormalizePathForCompare(rhsUtf8);
-  if (!lhs.empty() && !rhs.empty()) {
-    return lhs == rhs;
-  }
-  std::string lhsFallback = lhsUtf8;
-  std::string rhsFallback = rhsUtf8;
-  std::transform(lhsFallback.begin(), lhsFallback.end(), lhsFallback.begin(),
-                 [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-  std::transform(rhsFallback.begin(), rhsFallback.end(), rhsFallback.begin(),
-                 [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-  return lhsFallback == rhsFallback;
-#endif
 }
 
 }  // namespace wallpaper

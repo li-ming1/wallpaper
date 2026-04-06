@@ -6,6 +6,7 @@
 #include "wallpaper/long_run_load_policy.h"
 #include "wallpaper/loop_sleep_policy.h"
 #include "wallpaper/metrics_log_line.h"
+#include "wallpaper/playback_profile_policy.h"
 #include "app_autostart.h"
 #include "wallpaper/pause_suspend_policy.h"
 #include "wallpaper/pause_transition_policy.h"
@@ -24,17 +25,14 @@
 #include <string>
 #include <thread>
 
-#ifdef _WIN32
 #define PSAPI_VERSION 1
 #include <windows.h>
 #include <mmsystem.h>
 #include <psapi.h>
-#endif
 
 namespace wallpaper {
 namespace {
 
-#ifdef _WIN32
 std::wstring ExtractBaseName(std::wstring path) {
   const std::size_t pos = path.find_last_of(L"\\/");
   if (pos == std::wstring::npos) {
@@ -181,38 +179,13 @@ class ScopedHighResolutionTimer final {
  private:
   bool enabled_ = false;
 };
-#else
-bool IsSessionInteractive() { return true; }
-bool IsBatterySaverActive() { return false; }
-bool IsRemoteSessionActive() { return false; }
-bool TrimCurrentProcessWorkingSet() { return false; }
-bool SetCurrentProcessMemoryPriority(unsigned long) { return false; }
-std::uintptr_t QueryForegroundWindowHandle() { return 0; }
-bool TryDetectDesktopContextActive(std::uintptr_t, bool* outActive) {
-  if (outActive == nullptr) {
-    return false;
-  }
-  *outActive = true;
-  return true;
-}
-#endif
-
-#ifndef _WIN32
-class ScopedHighResolutionTimer final {
- public:
-  ScopedHighResolutionTimer() = default;
-  void SetEnabled(bool) {}
-};
-#endif
 
 void PumpThreadWindowMessages() {
-#ifdef _WIN32
   MSG msg{};
   while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE) != 0) {
     TranslateMessage(&msg);
     DispatchMessageW(&msg);
   }
-#endif
 }
 
 void WaitMainLoopInterval(const int sleepMs, const bool useMessageAwareWait,
@@ -220,7 +193,6 @@ void WaitMainLoopInterval(const int sleepMs, const bool useMessageAwareWait,
   if (sleepMs <= 0) {
     return;
   }
-#ifdef _WIN32
   const DWORD waitMs = static_cast<DWORD>(std::clamp(sleepMs, 1, 500));
   const HANDLE decodeEvent = reinterpret_cast<HANDLE>(frameReadyEvent);
   if (useMessageAwareWait) {
@@ -237,10 +209,6 @@ void WaitMainLoopInterval(const int sleepMs, const bool useMessageAwareWait,
     return;
   }
   Sleep(waitMs);
-#else
-  (void)frameReadyEvent;
-  std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
-#endif
 }
 
 std::int64_t NowUnixMs() {
@@ -251,9 +219,7 @@ std::int64_t NowUnixMs() {
 std::string BuildMetricsSessionId() {
   std::ostringstream out;
   out << "sess_" << NowUnixMs();
-#ifdef _WIN32
   out << '_' << static_cast<unsigned long>(GetCurrentProcessId());
-#endif
   return out.str();
 }
 
@@ -282,12 +248,10 @@ App::App(std::filesystem::path configPath)
 App::~App() {
   RequestStop();
   StopDecodePump();
-#ifdef _WIN32
   if (decodeFrameReadyEvent_ != nullptr) {
     CloseHandle(reinterpret_cast<HANDLE>(decodeFrameReadyEvent_));
     decodeFrameReadyEvent_ = nullptr;
   }
-#endif
 }
 
 bool App::Initialize() {
@@ -309,11 +273,9 @@ bool App::Initialize() {
   if (!wallpaperHost_ || !decodePipeline_ || !trayController_) {
     return false;
   }
-#ifdef _WIN32
   if (decodeFrameReadyEvent_ == nullptr) {
     decodeFrameReadyEvent_ = CreateEventW(nullptr, FALSE, FALSE, nullptr);
   }
-#endif
   decodePipeline_->SetFrameReadyNotifier(&App::OnDecodeFrameReadyThunk, this);
   decodeFrameReadyNotifierAvailable_ = decodePipeline_->SupportsFrameReadyNotifier();
 
@@ -533,7 +495,10 @@ bool App::StartVideoPipelineForPath(const std::string& path, const int longRunLo
   }
   DecodeOpenProfile openProfile;
   openProfile.longRunLoadLevel = longRunLoadLevel;
-  openProfile.preferHardwareTransforms = preferHardwareTransforms;
+  const bool effectivePreferHardwareTransforms =
+      ResolvePreferHardwareTransformsForPlaybackProfile(config_.playbackProfile,
+                                                        preferHardwareTransforms);
+  openProfile.preferHardwareTransforms = effectivePreferHardwareTransforms;
   openProfile.requireHardwareTransforms = false;
   if (!decodePipeline_->Open(path, openProfile)) {
     decodeOpened_.store(false);
@@ -558,7 +523,7 @@ bool App::StartVideoPipelineForPath(const std::string& path, const int longRunLo
   }
   ResetPlaybackState(resetLongRunState);
   decodeOpenLongRunLevel_ = longRunLoadLevel;
-  decodeOpenPreferHardwareTransforms_ = preferHardwareTransforms;
+  decodeOpenPreferHardwareTransforms_ = effectivePreferHardwareTransforms;
   if (startDecodeImmediately) {
     WakeDecodePump();
   }
@@ -599,15 +564,11 @@ void App::ApplyRenderFpsCap(const int governorFps) {
 
 void App::Tick() {
   const auto applyProcessMemoryPriority = [this](const bool aggressive) {
-#ifdef _WIN32
     const ULONG desiredPriority = aggressive ? MEMORY_PRIORITY_VERY_LOW : MEMORY_PRIORITY_NORMAL;
     if (processMemoryPriority_ != desiredPriority &&
         SetCurrentProcessMemoryPriority(desiredPriority)) {
       processMemoryPriority_ = desiredPriority;
     }
-#else
-    (void)aggressive;
-#endif
   };
 
   if (!decodePipeline_ || !wallpaperHost_ || !wallpaperAttached_) {

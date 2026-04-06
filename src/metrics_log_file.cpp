@@ -18,15 +18,9 @@ std::string BuildLocalDateKey() {
   const auto now = std::chrono::system_clock::now();
   const std::time_t nowTime = std::chrono::system_clock::to_time_t(now);
   std::tm localTm{};
-#ifdef _WIN32
   if (localtime_s(&localTm, &nowTime) != 0) {
     return {};
   }
-#else
-  if (localtime_r(&nowTime, &localTm) == nullptr) {
-    return {};
-  }
-#endif
 
   std::array<char, 9> buffer{};
   const std::size_t written = std::strftime(buffer.data(), buffer.size(), "%Y%m%d", &localTm);

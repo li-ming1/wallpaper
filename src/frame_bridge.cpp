@@ -147,13 +147,8 @@ void PublishLatestGpuFrame(const int width, const int height, const std::int64_t
   payload->frame.pixelFormat = PixelFormat::kRgba32;
   payload->frame.gpuSubresourceIndex = subresourceIndex;
   payload->frame.dxgiFormat = dxgiFormat;
-#ifdef _WIN32
   payload->frame.gpuTexture = static_cast<ID3D11Texture2D*>(gpuTextureHolder.get());
   payload->frame.gpuAuxTexture = nullptr;
-#else
-  payload->frame.gpuTexture = gpuTextureHolder.get();
-  payload->frame.gpuAuxTexture = nullptr;
-#endif
   payload->frame.gpuTextureHolder = std::move(gpuTextureHolder);
   payload->frame.gpuAuxTextureHolder.reset();
   payload->frame.rgbaData = nullptr;
@@ -181,13 +176,8 @@ void PublishLatestGpuNv12Frame(const int width, const int height,
   payload->frame.pixelFormat = PixelFormat::kNv12;
   payload->frame.gpuSubresourceIndex = 0;
   payload->frame.dxgiFormat = 0;
-#ifdef _WIN32
   payload->frame.gpuTexture = static_cast<ID3D11Texture2D*>(yTextureHolder.get());
   payload->frame.gpuAuxTexture = static_cast<ID3D11Texture2D*>(uvTextureHolder.get());
-#else
-  payload->frame.gpuTexture = yTextureHolder.get();
-  payload->frame.gpuAuxTexture = uvTextureHolder.get();
-#endif
   payload->frame.gpuTextureHolder = std::move(yTextureHolder);
   payload->frame.gpuAuxTextureHolder = std::move(uvTextureHolder);
   payload->frame.rgbaData = nullptr;

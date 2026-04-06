@@ -1,7 +1,7 @@
 #include "app_autostart.h"
 
-#ifdef _WIN32
 #include <windows.h>
+
 #include <string>
 
 namespace wallpaper {
@@ -36,10 +36,3 @@ bool SetAutoStartEnabled(const bool enabled) {
 }
 
 }  // namespace wallpaper
-#else
-
-namespace wallpaper {
-bool SetAutoStartEnabled(bool) { return true; }
-}  // namespace wallpaper
-
-#endif

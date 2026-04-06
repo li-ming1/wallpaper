@@ -1,11 +1,9 @@
 #include "wallpaper/interfaces.h"
 #include "wallpaper/tray_thread_stop_policy.h"
 
-#ifdef _WIN32
 #include <windows.h>
 #include <commdlg.h>
 #include <shellapi.h>
-#endif
 
 #include <atomic>
 #include <deque>
@@ -15,8 +13,6 @@
 
 namespace wallpaper {
 namespace {
-
-#ifdef _WIN32
 
 constexpr wchar_t kTrayWindowClassName[] = L"WallpaperTrayMessageWindow";
 constexpr UINT kTrayIconMessage = WM_APP + 1;
@@ -327,19 +323,6 @@ class TrayControllerWin final : public ITrayController {
   std::mutex menuStateMu_;
   TrayMenuState menuState_{};
 };
-
-#else
-
-class TrayControllerWin final : public ITrayController {
- public:
-  void StartMessageLoop() override {}
-  void StopMessageLoop() override {}
-  void UpdateMenuState(const TrayMenuState&) override {}
-  [[nodiscard]] bool IsExitRequested() const override { return false; }
-  bool TryDequeueAction(TrayAction*) override { return false; }
-};
-
-#endif
 
 }  // namespace
 
