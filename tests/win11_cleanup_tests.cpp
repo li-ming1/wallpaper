@@ -94,3 +94,16 @@ TEST_CASE(Win11Cleanup_FrameBridgeUsesTypedD3DTextures) {
   const auto frameBridgeHeader = repoRoot / "include" / "wallpaper" / "frame_bridge.h";
   ExpectFileDoesNotContain(frameBridgeHeader, {"void* gpuTexture", "void* gpuAuxTexture"});
 }
+
+TEST_CASE(Win11Cleanup_StartupPolicyDoesNotKeepStaleFrameKeepAliveDeadLogic) {
+  const auto repoRoot = std::filesystem::current_path();
+  const auto startupPolicyHeader = repoRoot / "include" / "wallpaper" / "startup_policy.h";
+  const auto startupPolicySource = repoRoot / "src" / "startup_policy.cpp";
+  const auto appSource = repoRoot / "src" / "app.cpp";
+
+  ExpectFileDoesNotContain(startupPolicyHeader,
+                           {"staleFramePresentDue", "ShouldPresentStaleFrame"});
+  ExpectFileDoesNotContain(startupPolicySource,
+                           {"staleFramePresentDue", "ShouldPresentStaleFrame"});
+  ExpectFileDoesNotContain(appSource, {"ShouldPresentStaleFrame(", "kStaleFrameKeepAliveInterval"});
+}

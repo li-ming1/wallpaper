@@ -902,10 +902,7 @@ void App::Tick() {
     return;
   }
 
-  constexpr std::chrono::milliseconds kStaleFrameKeepAliveInterval(250);
-  const bool staleFramePresentDue =
-      ShouldPresentStaleFrame(now, lastPresentedAt_, kStaleFrameKeepAliveInterval);
-  if (!ShouldPresentFrame(hasNewDecodedToken, hasLastPresentedFrame_, staleFramePresentDue)) {
+  if (!ShouldPresentFrame(hasNewDecodedToken)) {
     MaybeSampleAndLogMetrics(false, false, 0.0);
     return;
   }

@@ -2961,3 +2961,32 @@
   - `scripts/build_app.ps1 -BuildDir build_tmp/phase137_green_playback_profile_split` -> PASS
   - 产物：
     - `build_tmp/phase137_green_playback_profile_split/wallpaper_app.exe`
+
+## 2026-04-06 Phase 138: 删除 stale-frame keepalive 死逻辑
+- Scope:
+  - 删除渲染热路径里已经失效的 stale-frame keepalive 逻辑
+  - 保持现有运行语义不变：仍然只在拿到新解码帧时才 present
+- Red:
+  - 扩展 `tests/win11_cleanup_tests.cpp`
+  - 新增 `Win11Cleanup_StartupPolicyDoesNotKeepStaleFrameKeepAliveDeadLogic`
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/phase138_red_stale_keepalive_cleanup` -> FAIL（符合预期）
+  - 唯一失败：
+    - `Win11Cleanup_StartupPolicyDoesNotKeepStaleFrameKeepAliveDeadLogic`
+- Green:
+  - `include/wallpaper/startup_policy.h`
+    - `ShouldPresentFrame` 收口为单参数版本
+    - 删除 `ShouldPresentStaleFrame` 声明
+  - `src/startup_policy.cpp`
+    - 删除 stale helper 实现
+  - `src/app.cpp`
+    - 删除 `kStaleFrameKeepAliveInterval`
+    - 删除 `ShouldPresentStaleFrame()` 调用
+    - 直接按 `ShouldPresentFrame(hasNewDecodedToken)` 判断
+  - `tests/startup_policy_tests.cpp`
+    - 删除 stale keepalive 相关旧测试
+    - 保留并重命名为“无新解码帧不 present”的简化测试
+- Verification:
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/phase138_green_stale_keepalive_cleanup` -> PASS（263/263）
+  - `scripts/build_app.ps1 -BuildDir build_tmp/phase138_green_stale_keepalive_cleanup` -> PASS
+  - 产物：
+    - `build_tmp/phase138_green_stale_keepalive_cleanup/wallpaper_app.exe`
