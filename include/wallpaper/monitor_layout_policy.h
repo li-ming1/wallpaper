@@ -18,7 +18,19 @@ struct RenderViewport final {
   int height = 0;
 };
 
+struct DisplaySize final {
+  int width = 0;
+  int height = 0;
+};
+
 [[nodiscard]] std::vector<RenderViewport> BuildRenderMonitorViewports(
+    const DisplayRect& virtualDesktop, const std::vector<DisplayRect>& monitors) noexcept;
+
+[[nodiscard]] std::vector<RenderViewport> BuildScaledRenderMonitorViewports(
+    const DisplayRect& virtualDesktop, const std::vector<DisplayRect>& monitors,
+    int renderTargetWidth, int renderTargetHeight) noexcept;
+
+[[nodiscard]] DisplaySize SelectRepeatedFrameRenderSize(
     const DisplayRect& virtualDesktop, const std::vector<DisplayRect>& monitors) noexcept;
 
 }  // namespace wallpaper

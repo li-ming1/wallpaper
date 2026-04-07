@@ -72,3 +72,63 @@ TEST_CASE(MonitorLayoutPolicy_InvalidOrEmptyInputReturnsNoViewport) {
   EXPECT_TRUE(fromEmpty.empty());
   EXPECT_TRUE(fromInvalid.empty());
 }
+
+TEST_CASE(MonitorLayoutPolicy_RepeatedFrameUsesLargestMonitorSizeForMultiDisplayLayouts) {
+  const wallpaper::DisplayRect virtualDesktop{-1920, 0, 1920, 1080};
+  const std::vector<wallpaper::DisplayRect> monitors = {
+      wallpaper::DisplayRect{-1920, 0, 0, 1080},
+      wallpaper::DisplayRect{0, 0, 1920, 1080},
+  };
+
+  const wallpaper::DisplaySize repeatedFrameSize =
+      wallpaper::SelectRepeatedFrameRenderSize(virtualDesktop, monitors);
+
+  EXPECT_EQ(repeatedFrameSize.width, 1920);
+  EXPECT_EQ(repeatedFrameSize.height, 1080);
+}
+
+TEST_CASE(MonitorLayoutPolicy_RepeatedFrameKeepsVirtualDesktopSizeForSingleDisplay) {
+  const wallpaper::DisplayRect virtualDesktop{0, 0, 3840, 1080};
+  const std::vector<wallpaper::DisplayRect> monitors = {
+      wallpaper::DisplayRect{0, 0, 3840, 1080},
+  };
+
+  const wallpaper::DisplaySize repeatedFrameSize =
+      wallpaper::SelectRepeatedFrameRenderSize(virtualDesktop, monitors);
+
+  EXPECT_EQ(repeatedFrameSize.width, 3840);
+  EXPECT_EQ(repeatedFrameSize.height, 1080);
+}
+
+TEST_CASE(MonitorLayoutPolicy_ScalesViewportsToCurrentRenderTargetSize) {
+  const wallpaper::DisplayRect virtualDesktop{-1920, 0, 1920, 1080};
+  const std::vector<wallpaper::DisplayRect> monitors = {
+      wallpaper::DisplayRect{-1920, 0, 0, 1080},
+      wallpaper::DisplayRect{0, 0, 1920, 1080},
+  };
+
+  const std::vector<wallpaper::RenderViewport> viewports =
+      wallpaper::BuildScaledRenderMonitorViewports(virtualDesktop, monitors, 1920, 1080);
+
+  EXPECT_EQ(viewports.size(), static_cast<std::size_t>(2));
+  EXPECT_EQ(viewports[0].left, 0);
+  EXPECT_EQ(viewports[0].top, 0);
+  EXPECT_EQ(viewports[0].width, 960);
+  EXPECT_EQ(viewports[0].height, 1080);
+  EXPECT_EQ(viewports[1].left, 960);
+  EXPECT_EQ(viewports[1].top, 0);
+  EXPECT_EQ(viewports[1].width, 960);
+  EXPECT_EQ(viewports[1].height, 1080);
+}
+
+TEST_CASE(MonitorLayoutPolicy_ScaledViewportFallbacksToSingleViewForInvalidRenderTarget) {
+  const wallpaper::DisplayRect virtualDesktop{0, 0, 1920, 1080};
+  const std::vector<wallpaper::DisplayRect> monitors = {
+      wallpaper::DisplayRect{0, 0, 1920, 1080},
+  };
+
+  const std::vector<wallpaper::RenderViewport> viewports =
+      wallpaper::BuildScaledRenderMonitorViewports(virtualDesktop, monitors, 0, 1080);
+
+  EXPECT_TRUE(viewports.empty());
+}

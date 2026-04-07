@@ -1,6 +1,35 @@
 #include "decode_pipeline_internal.h"
 
+#include "wallpaper/monitor_layout_policy.h"
+
+#include <vector>
+
 namespace wallpaper {
+
+namespace {
+
+BOOL CALLBACK CollectMonitorRect(HMONITOR, HDC, LPRECT monitorRect, LPARAM userData) {
+  if (monitorRect == nullptr || userData == 0) {
+    return TRUE;
+  }
+  auto* monitors = reinterpret_cast<std::vector<DisplayRect>*>(userData);
+  monitors->push_back(DisplayRect{
+      monitorRect->left,
+      monitorRect->top,
+      monitorRect->right,
+      monitorRect->bottom,
+  });
+  return TRUE;
+}
+
+[[nodiscard]] std::vector<DisplayRect> EnumerateMonitorRects() {
+  std::vector<DisplayRect> monitors;
+  EnumDisplayMonitors(nullptr, nullptr, CollectMonitorRect,
+                      reinterpret_cast<LPARAM>(&monitors));
+  return monitors;
+}
+
+}  // namespace
 
 AsyncSourceReaderCallback::AsyncSourceReaderCallback(DecodePipelineStub* owner) : owner_(owner) {}
 
@@ -49,11 +78,18 @@ void DecodePipelineStub::QueryDesktopFrameHint(UINT32* outWidth, UINT32* outHeig
   if (outWidth == nullptr || outHeight == nullptr) {
     return;
   }
-  const int width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-  const int height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-  if (width > 0 && height > 0) {
-    *outWidth = static_cast<UINT32>(width);
-    *outHeight = static_cast<UINT32>(height);
+
+  const DisplayRect virtualDesktop{
+      GetSystemMetrics(SM_XVIRTUALSCREEN),
+      GetSystemMetrics(SM_YVIRTUALSCREEN),
+      GetSystemMetrics(SM_XVIRTUALSCREEN) + GetSystemMetrics(SM_CXVIRTUALSCREEN),
+      GetSystemMetrics(SM_YVIRTUALSCREEN) + GetSystemMetrics(SM_CYVIRTUALSCREEN),
+  };
+  const DisplaySize hintSize =
+      SelectRepeatedFrameRenderSize(virtualDesktop, EnumerateMonitorRects());
+  if (hintSize.width > 0 && hintSize.height > 0) {
+    *outWidth = static_cast<UINT32>(hintSize.width);
+    *outHeight = static_cast<UINT32>(hintSize.height);
     return;
   }
   *outWidth = 0;

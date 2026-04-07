@@ -339,15 +339,6 @@ RenderViewport BuildFullscreenViewport(const UINT width, const UINT height) {
   };
 }
 
-bool RenderTargetMatchesVirtualDesktop(const UINT renderWidth, const UINT renderHeight) {
-  const RECT virtualRect = GetVirtualScreenRect();
-  const int virtualWidth = virtualRect.right - virtualRect.left;
-  const int virtualHeight = virtualRect.bottom - virtualRect.top;
-  return virtualWidth > 0 && virtualHeight > 0 &&
-         static_cast<UINT>(virtualWidth) == renderWidth &&
-         static_cast<UINT>(virtualHeight) == renderHeight;
-}
-
 DXGI_SWAP_EFFECT ToDxgiSwapEffect(const SwapChainEffect effect) {
   switch (effect) {
     case SwapChainEffect::kDiscard:
@@ -765,16 +756,11 @@ class WallpaperHostWin final : public IWallpaperHost {
       return;
     }
 
-    // 只有当渲染目标与虚拟桌面一致时，按物理显示器拆分视口才有确定映射关系。
-    if (!RenderTargetMatchesVirtualDesktop(renderViewportWidth_, renderViewportHeight_)) {
-      monitorViewports_.push_back(
-          BuildFullscreenViewport(renderViewportWidth_, renderViewportHeight_));
-      return;
-    }
-
     const RECT virtualRect = GetVirtualScreenRect();
     const std::vector<DisplayRect> monitors = EnumerateMonitorRects();
-    monitorViewports_ = BuildRenderMonitorViewports(ToDisplayRect(virtualRect), monitors);
+    monitorViewports_ = BuildScaledRenderMonitorViewports(
+        ToDisplayRect(virtualRect), monitors, static_cast<int>(renderViewportWidth_),
+        static_cast<int>(renderViewportHeight_));
     if (monitorViewports_.empty()) {
       // 兜底回退到单视口，确保显示链路可用。
       monitorViewports_.push_back(
