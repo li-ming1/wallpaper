@@ -57,25 +57,6 @@ void PublishFrame(LatestFrame frame) {
 
 }  // namespace
 
-void PublishLatestFrame(const int width, const int height, const int strideBytes,
-                        const std::int64_t timestamp100ns, const std::uint64_t sequence,
-                        std::shared_ptr<const std::vector<std::uint8_t>> rgbaPixels) {
-  if (rgbaPixels == nullptr || width <= 0 || height <= 0 || strideBytes <= 0) {
-    return;
-  }
-
-  LatestFrame frame = MakeFrameBase(width, height, strideBytes, timestamp100ns, sequence);
-  frame.gpuBacked = false;
-  frame.pixelFormat = PixelFormat::kRgba32;
-  if (!rgbaPixels->empty()) {
-    frame.rgbaData = rgbaPixels->data();
-    frame.rgbaDataBytes = rgbaPixels->size();
-    frame.rgbaDataHolder =
-        std::shared_ptr<void>(std::move(rgbaPixels), const_cast<std::uint8_t*>(frame.rgbaData));
-  }
-  PublishFrame(std::move(frame));
-}
-
 void PublishLatestFrameView(const int width, const int height, const int strideBytes,
                             const std::int64_t timestamp100ns, const std::uint64_t sequence,
                             const std::uint8_t* rgbaData, const std::size_t rgbaDataBytes,

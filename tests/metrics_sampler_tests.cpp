@@ -19,11 +19,10 @@ TEST_CASE(MetricsSampler_RingBufferKeepsOnlyLatestSamples) {
   sampler.PushSample(sample3);
   sampler.PushSample(sample4);
 
-  const auto snapshot = sampler.Snapshot();
-  EXPECT_EQ(snapshot.size(), static_cast<std::size_t>(3));
-  EXPECT_EQ(snapshot[0].cpuPercent, 2.0);
-  EXPECT_EQ(snapshot[1].cpuPercent, 3.0);
-  EXPECT_EQ(snapshot[2].cpuPercent, 4.0);
+  EXPECT_EQ(sampler.Size(), static_cast<std::size_t>(3));
+  EXPECT_EQ(sampler.SampleAtOldestOffset(0).cpuPercent, 2.0);
+  EXPECT_EQ(sampler.SampleAtOldestOffset(1).cpuPercent, 3.0);
+  EXPECT_EQ(sampler.SampleAtOldestOffset(2).cpuPercent, 4.0);
 }
 
 TEST_CASE(MetricsSampler_LatestReturnsNewestSample) {

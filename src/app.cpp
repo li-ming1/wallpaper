@@ -10,6 +10,7 @@
 #include "app_autostart.h"
 #include "wallpaper/pause_suspend_policy.h"
 #include "wallpaper/pause_transition_policy.h"
+#include "wallpaper/process_name_cache.h"
 #include "wallpaper/probe_cadence_policy.h"
 #include "wallpaper/runtime_trim_policy.h"
 #include "wallpaper/startup_policy.h"
@@ -52,22 +53,19 @@ bool TryQueryForegroundProcessBaseName(const HWND hwnd, std::wstring* outProcess
     return false;
   }
 
-  static DWORD lastProcessId = 0;
-  static bool lastLookupOk = false;
-  static std::wstring lastProcessName;
-  if (processId == lastProcessId) {
-    if (!lastLookupOk) {
+  static ProcessNameCache processNameCache;
+  switch (processNameCache.TryGet(processId, outProcessName)) {
+    case ProcessNameCacheLookup::kHit:
+      return true;
+    case ProcessNameCacheLookup::kKnownFailure:
       return false;
-    }
-    *outProcessName = lastProcessName;
-    return true;
+    case ProcessNameCacheLookup::kMiss:
+      break;
   }
 
   HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
   if (process == nullptr) {
-    lastProcessId = processId;
-    lastLookupOk = false;
-    lastProcessName.clear();
+    processNameCache.RememberFailure(processId);
     return false;
   }
 
@@ -76,16 +74,13 @@ bool TryQueryForegroundProcessBaseName(const HWND hwnd, std::wstring* outProcess
   const bool ok = QueryFullProcessImageNameW(process, 0, processPath, &length) != FALSE;
   CloseHandle(process);
   if (!ok || length == 0) {
-    lastProcessId = processId;
-    lastLookupOk = false;
-    lastProcessName.clear();
+    processNameCache.RememberFailure(processId);
     return false;
   }
 
-  lastProcessId = processId;
-  lastLookupOk = true;
-  lastProcessName = ExtractBaseName(std::wstring(processPath, length));
-  *outProcessName = lastProcessName;
+  std::wstring processName = ExtractBaseName(std::wstring(processPath, length));
+  processNameCache.RememberSuccess(processId, processName);
+  *outProcessName = processName;
   return true;
 }
 

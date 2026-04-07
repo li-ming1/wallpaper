@@ -2,8 +2,6 @@
 
 #include "wallpaper/monitor_layout_policy.h"
 
-#include <vector>
-
 namespace wallpaper {
 
 namespace {
@@ -12,18 +10,20 @@ BOOL CALLBACK CollectMonitorRect(HMONITOR, HDC, LPRECT monitorRect, LPARAM userD
   if (monitorRect == nullptr || userData == 0) {
     return TRUE;
   }
-  auto* monitors = reinterpret_cast<std::vector<DisplayRect>*>(userData);
-  monitors->push_back(DisplayRect{
+  auto* monitors = reinterpret_cast<DisplayRectPlan*>(userData);
+  if (!monitors->PushBack(DisplayRect{
       monitorRect->left,
       monitorRect->top,
       monitorRect->right,
       monitorRect->bottom,
-  });
+  })) {
+    return FALSE;
+  }
   return TRUE;
 }
 
-[[nodiscard]] std::vector<DisplayRect> EnumerateMonitorRects() {
-  std::vector<DisplayRect> monitors;
+[[nodiscard]] DisplayRectPlan EnumerateMonitorRects() {
+  DisplayRectPlan monitors;
   EnumDisplayMonitors(nullptr, nullptr, CollectMonitorRect,
                       reinterpret_cast<LPARAM>(&monitors));
   return monitors;
@@ -818,15 +818,15 @@ DecodePipelineStub::PublishResult DecodePipelineStub::PublishSampleToBridgeUnloc
       return {};
     }
 
-    std::shared_ptr<const std::vector<std::uint8_t>> scaledBytes =
-        std::make_shared<std::vector<std::uint8_t>>(std::move(scaledBuffer.bytes));
+    auto scaledBytes = std::make_shared<std::vector<std::uint8_t>>(std::move(scaledBuffer.bytes));
     if (scaledBytes == nullptr || scaledBytes->empty()) {
       return {};
     }
 
-    frame_bridge::PublishLatestFrame(scaledBuffer.width, scaledBuffer.height,
-                                     scaledBuffer.primaryStrideBytes, snapshot.outputTimestamp100ns,
-                                     snapshot.sequence, scaledBytes);
+    frame_bridge::PublishLatestFrameView(
+        scaledBuffer.width, scaledBuffer.height, scaledBuffer.primaryStrideBytes,
+        snapshot.outputTimestamp100ns, snapshot.sequence, scaledBytes->data(), scaledBytes->size(),
+        std::shared_ptr<void>(scaledBytes, scaledBytes->data()));
     return PublishResult{true, false, scaledBytes->size(), static_cast<std::uint32_t>(scaledBuffer.width),
                          static_cast<std::uint32_t>(scaledBuffer.height)};
   };

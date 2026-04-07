@@ -42,8 +42,9 @@ class MetricsSampler final {
 #else
   [[nodiscard]] std::size_t Capacity() const noexcept { return maxSamples_; }
 #endif
+  [[nodiscard]] std::size_t Size() const noexcept { return size_; }
   [[nodiscard]] RuntimeMetrics Latest() const;
-  [[nodiscard]] std::vector<RuntimeMetrics> Snapshot() const;
+  [[nodiscard]] RuntimeMetrics SampleAtOldestOffset(std::size_t index) const;
 
  private:
   std::size_t maxSamples_;

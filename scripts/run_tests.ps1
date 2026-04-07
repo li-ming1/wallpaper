@@ -68,6 +68,7 @@ $testSources = @(
   "tests/pause_transition_policy_tests.cpp",
   "tests/playback_profile_policy_tests.cpp",
   "tests/present_sample_window_tests.cpp",
+  "tests/process_name_cache_tests.cpp",
   "tests/quality_governor_tests.cpp",
   "tests/probe_cadence_policy_tests.cpp",
   "tests/render_scheduler_tests.cpp",

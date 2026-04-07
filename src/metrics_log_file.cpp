@@ -9,6 +9,7 @@
 #include <ctime>
 #include <fstream>
 #include <system_error>
+#include <vector>
 
 namespace wallpaper {
 namespace {
@@ -211,6 +212,8 @@ void MetricsLogFile::PruneShards(const std::filesystem::path& activePath) const 
                                                    : basePath_.parent_path();
 
   MetricsShardRetainSet retainSet(keepDays_);
+  std::vector<MetricsShardCandidate> candidates;
+  candidates.reserve(keepDays_ + 4U);
   std::error_code ec;
   for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
     if (ec) {
@@ -218,19 +221,12 @@ void MetricsLogFile::PruneShards(const std::filesystem::path& activePath) const 
     }
     MetricsShardCandidate candidate;
     if (TryParseMetricsShardCandidate(entry, prefix, ext, &candidate)) {
-      retainSet.Consider(std::move(candidate));
+      retainSet.Consider(candidate);
+      candidates.push_back(std::move(candidate));
     }
   }
 
-  ec.clear();
-  for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
-    if (ec) {
-      continue;
-    }
-    MetricsShardCandidate candidate;
-    if (!TryParseMetricsShardCandidate(entry, prefix, ext, &candidate)) {
-      continue;
-    }
+  for (const MetricsShardCandidate& candidate : candidates) {
     if (candidate.path == activePath || retainSet.Contains(candidate.key, candidate.path)) {
       continue;
     }

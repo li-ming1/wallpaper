@@ -1,5 +1,21 @@
 # Progress Log
 
+## 2026-04-07
+- 继续 `wallpaper_host_win.cpp` 热路径职责净化，确认本轮不再做容器替换，而是收口 `Present()` 里剩余的 route 执行与 consumed-frame 提交。
+- TDD Red：扩展 `tests/win11_cleanup_tests.cpp`，要求 `Present()` 不再内联 `consumeLatestVideoFrame` lambda 与 `switch (routePlan.routes[routeIndex])`；`build_tmp/phase13_wallpaper_host_present_red` 按预期失败。
+- Green：
+  - `src/win/wallpaper_host_win.cpp`
+    - `Present()` 改为调用 `TryDrawLatestVideoFrame(...)`
+    - 新增 `ExecuteVideoFrameRoutePlan(...)`
+    - 新增 `ExecuteVideoFrameRoute(...)`
+    - 新增 `CommitConsumedLatestVideoFrame(...)`
+  - `tests/win11_cleanup_tests.cpp`
+    - 新增 `Win11Cleanup_WallpaperHostPresentDoesNotInlineVideoRouteExecution`
+- Verification：
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/phase13_wallpaper_host_present_green` -> PASS（299/299）
+  - `scripts/build_app.ps1 -BuildDir build_tmp/phase13_wallpaper_host_present_app` -> PASS
+  - 仅剩既有 `-flto` 串行 LTRANS 提示，无新增告警
+
 ## Session: 2026-04-07 Decode Publish Strategy Cache
 
 ### Phase 1: 计划恢复与热路径复核
@@ -23,6 +39,52 @@
   - `scripts/run_tests.ps1 -BuildDir build_tmp/phase7_video_frame_route_green` -> PASS（290/290）
   - `scripts/run_tests.ps1 -BuildDir build_tmp/phase7_video_frame_route_refactor` -> PASS（290/290）
   - `scripts/build_app.ps1 -BuildDir build_tmp/phase7_video_frame_route_app` -> PASS
+
+## 2026-04-07
+- 新一轮数据结构复查开始：目标是重新扫描所有代码文件中的容器、排序、缓存和队列用法，只保留真正值得替换的点。
+- 复查结论已经收敛：
+  - 唯一明确仍值得继续做的数据结构替代点，是多显示器 `DisplayRect/RenderViewport` 链从 `std::vector` 收口成小定长 plan。
+  - `FixedTaskQueue` / `MetricsSampler` / `MetricsShardRetainSet` 当前形态已足够贴近最优，继续换容器收益很低。
+- TDD Red：`scripts/run_tests.ps1 -BuildDir build_tmp/phase8_monitor_plan_red` 按预期失败，缺少 `DisplayRectPlan/RenderViewportPlan` 新接口。
+- Green：
+  - `monitor_layout_policy` 改为 fixed plan API
+  - `wallpaper_host_win.cpp` 和 `decode_pipeline_mf.cpp` 的显示器枚举改为返回 fixed plan
+  - 补 `MonitorLayoutPolicy_DisplayRectPlanStopsGrowingAtFixedCapacity` 测试
+  - `tests/test_support.h` 增加 `EXPECT_FALSE`
+- Verification：
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/phase8_monitor_plan_green` -> PASS（291/291）
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/phase8_monitor_plan_final` -> PASS（291/291）
+  - `scripts/build_app.ps1 -BuildDir build_tmp/phase8_monitor_plan_app_final` -> PASS
+
+## 2026-04-07
+- TDD Red：扩展 cleanup 测试，要求 `frame_bridge` 不再保留 RGBA vector 特化发布入口；`build_tmp/phase9_frame_bridge_api_red` 按预期失败。
+- Green：
+  - `frame_bridge.h/.cpp` 删除 `PublishLatestFrame(... shared_ptr<vector<...>>)` 专用入口
+  - `tests/frame_bridge_tests.cpp` 全部改走 `PublishLatestFrameView`
+  - `src/win/decode_pipeline_mf.cpp` 的 RGBA 缩放发布改为直接传 `data + size + opaque holder`
+- Verification：
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/phase9_frame_bridge_api_green` -> PASS（292/292）
+  - `scripts/build_app.ps1 -BuildDir build_tmp/phase9_frame_bridge_api_app` -> PASS
+
+## 2026-04-07
+- TDD Red：新增 cleanup 测试，要求 `metrics_log_file.cpp` 不再保留两次 `directory_iterator`；`build_tmp/phase10_metrics_prune_red` 按预期失败。
+- Green：
+  - `MetricsLogFile::PruneShards()` 改为单次目录扫描
+  - 扫描时同步收集候选与构建 retain set，后续直接在候选集上删除旧 shard
+- Verification：
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/phase10_metrics_prune_green` -> PASS（293/293）
+  - `scripts/build_app.ps1 -BuildDir build_tmp/phase10_metrics_prune_app` -> PASS
+
+## 2026-04-07
+- TDD Red：新增 `tests/process_name_cache_tests.cpp`，要求前台进程名缓存具备多项命中、失败缓存和固定容量淘汰；`build_tmp/phase11_process_name_cache_red` 按预期失败，缺少新模块。
+- Green：
+  - 新增 `include/wallpaper/process_name_cache.h`
+  - `src/app.cpp` 的 `TryQueryForegroundProcessBaseName()` 从单项静态缓存切到 4 项 fixed cache
+  - `CMakeLists.txt` / `scripts/run_tests.ps1` 接入新测试
+- Verification：
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/phase11_process_name_cache_green` -> PASS（297/297）
+  - `scripts/build_app.ps1 -BuildDir build_tmp/phase11_process_name_cache_app` -> PASS
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/phase11_process_name_cache_clean` -> PASS（仅剩 LTO 串行提示，无新增告警）
 
 ### Phase 2: 发布策略缓存
 - **Status:** complete

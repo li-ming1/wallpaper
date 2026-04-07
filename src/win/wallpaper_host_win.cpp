@@ -22,8 +22,6 @@
 #include <cstring>
 #include <iterator>
 #include <span>
-#include <vector>
-
 namespace wallpaper {
 
 namespace {
@@ -373,17 +371,19 @@ BOOL CALLBACK CollectMonitorRect(HMONITOR, HDC, LPRECT monitorRect, LPARAM userD
   if (monitorRect == nullptr || userData == 0) {
     return TRUE;
   }
-  auto* monitors = reinterpret_cast<std::vector<DisplayRect>*>(userData);
+  auto* monitors = reinterpret_cast<DisplayRectPlan*>(userData);
   const DisplayRect rect = ToDisplayRect(*monitorRect);
   if (rect.right <= rect.left || rect.bottom <= rect.top) {
     return TRUE;
   }
-  monitors->push_back(rect);
+  if (!monitors->PushBack(rect)) {
+    return FALSE;
+  }
   return TRUE;
 }
 
-std::vector<DisplayRect> EnumerateMonitorRects() {
-  std::vector<DisplayRect> monitors;
+DisplayRectPlan EnumerateMonitorRects() {
+  DisplayRectPlan monitors;
   EnumDisplayMonitors(nullptr, nullptr, CollectMonitorRect,
                       reinterpret_cast<LPARAM>(&monitors));
   return monitors;
@@ -592,7 +592,7 @@ class WallpaperHostWin final : public IWallpaperHost {
     renderWindowVisible_ = false;
     renderViewportWidth_ = 0;
     renderViewportHeight_ = 0;
-    monitorViewports_.clear();
+    monitorViewports_.Clear();
   }
 
   void ResizeForDisplays() override {
@@ -640,56 +640,8 @@ class WallpaperHostWin final : public IWallpaperHost {
 
     bool drewVideo = false;
     bool hasVideoTexture = HasAnyVideoTexture();
-    frame_bridge::LatestFrame latestFrame;
-    if (frame_bridge::TryGetLatestFrameIfNewer(lastVideoSequence_, &latestFrame)) {
-      const ResolvedUploadScalePlan uploadScalePlan = ResolveUploadScalePlan(frame, latestFrame);
-      const std::size_t uploadPixels =
-          static_cast<std::size_t>(uploadScalePlan.targetWidth) *
-          static_cast<std::size_t>(uploadScalePlan.targetHeight);
-      const bool useDefaultTextureUpload = ShouldUseDefaultTextureUpload(
-          frame.decodePath, uploadPixels, uploadScalePlan.scaled);
-      const VideoFrameRoutePlan routePlan = BuildVideoFrameRoutePlan(latestFrame);
-      const auto consumeLatestVideoFrame = [&]() {
-        lastVideoSequence_ = latestFrame.sequence;
-        frame_bridge::ReleaseLatestFrameIfSequenceConsumed(lastVideoSequence_);
-        hasVideoTexture = true;
-        drewVideo = true;
-      };
-
-      for (std::size_t routeIndex = 0; routeIndex < routePlan.count && !drewVideo; ++routeIndex) {
-        switch (routePlan.routes[routeIndex]) {
-          case VideoFrameRoute::kExternalGpuNv12:
-            if (EnsureVideoTextureForExternalNv12(latestFrame) && DrawVideoNv12Texture()) {
-              consumeLatestVideoFrame();
-            }
-            break;
-          case VideoFrameRoute::kGpuTextureCopy:
-            if (EnsureVideoTextureForGpu(static_cast<UINT>(latestFrame.width),
-                                         static_cast<UINT>(latestFrame.height),
-                                         static_cast<DXGI_FORMAT>(latestFrame.dxgiFormat)) &&
-                CopyGpuVideoFrame(latestFrame) && DrawVideoTexture()) {
-              consumeLatestVideoFrame();
-            }
-            break;
-          case VideoFrameRoute::kCpuNv12Upload:
-            if (EnsureVideoTextureForNv12(uploadScalePlan.targetWidth,
-                                          uploadScalePlan.targetHeight,
-                                          !useDefaultTextureUpload) &&
-                UploadVideoFrameNv12(latestFrame, uploadScalePlan) &&
-                DrawVideoNv12Texture()) {
-              consumeLatestVideoFrame();
-            }
-            break;
-          case VideoFrameRoute::kCpuRgbaUpload:
-            if (EnsureVideoTextureForCpu(uploadScalePlan.targetWidth,
-                                         uploadScalePlan.targetHeight,
-                                         !useDefaultTextureUpload) &&
-                UploadVideoFrame(latestFrame, uploadScalePlan) && DrawVideoTexture()) {
-              consumeLatestVideoFrame();
-            }
-            break;
-        }
-      }
+    if (TryDrawLatestVideoFrame(frame, &hasVideoTexture)) {
+      drewVideo = true;
     }
 
     if (!drewVideo && hasVideoTexture && DrawCachedVideoTexture()) {
@@ -747,6 +699,72 @@ class WallpaperHostWin final : public IWallpaperHost {
   [[nodiscard]] bool IsOccluded() const override { return swapChainOccluded_; }
 
  private:
+  bool TryDrawLatestVideoFrame(const FrameToken& frame, bool* const hasVideoTexture) {
+    frame_bridge::LatestFrame latestFrame;
+    if (!frame_bridge::TryGetLatestFrameIfNewer(lastVideoSequence_, &latestFrame)) {
+      return false;
+    }
+
+    const ResolvedUploadScalePlan uploadScalePlan = ResolveUploadScalePlan(frame, latestFrame);
+    const std::size_t uploadPixels = static_cast<std::size_t>(uploadScalePlan.targetWidth) *
+                                     static_cast<std::size_t>(uploadScalePlan.targetHeight);
+    const bool useDefaultTextureUpload =
+        ShouldUseDefaultTextureUpload(frame.decodePath, uploadPixels, uploadScalePlan.scaled);
+    const VideoFrameRoutePlan routePlan = BuildVideoFrameRoutePlan(latestFrame);
+    if (!ExecuteVideoFrameRoutePlan(routePlan, latestFrame, uploadScalePlan,
+                                    useDefaultTextureUpload)) {
+      return false;
+    }
+
+    CommitConsumedLatestVideoFrame(latestFrame);
+    if (hasVideoTexture != nullptr) {
+      *hasVideoTexture = true;
+    }
+    return true;
+  }
+
+  bool ExecuteVideoFrameRoutePlan(const VideoFrameRoutePlan& routePlan,
+                                  const frame_bridge::LatestFrame& latestFrame,
+                                  const ResolvedUploadScalePlan& uploadScalePlan,
+                                  const bool useDefaultTextureUpload) {
+    for (std::size_t routeIndex = 0; routeIndex < routePlan.count; ++routeIndex) {
+      if (ExecuteVideoFrameRoute(routePlan.routes[routeIndex], latestFrame, uploadScalePlan,
+                                 useDefaultTextureUpload)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool ExecuteVideoFrameRoute(const VideoFrameRoute route,
+                              const frame_bridge::LatestFrame& latestFrame,
+                              const ResolvedUploadScalePlan& uploadScalePlan,
+                              const bool useDefaultTextureUpload) {
+    switch (route) {
+      case VideoFrameRoute::kExternalGpuNv12:
+        return EnsureVideoTextureForExternalNv12(latestFrame) && DrawVideoNv12Texture();
+      case VideoFrameRoute::kGpuTextureCopy:
+        return EnsureVideoTextureForGpu(static_cast<UINT>(latestFrame.width),
+                                        static_cast<UINT>(latestFrame.height),
+                                        static_cast<DXGI_FORMAT>(latestFrame.dxgiFormat)) &&
+               CopyGpuVideoFrame(latestFrame) && DrawVideoTexture();
+      case VideoFrameRoute::kCpuNv12Upload:
+        return EnsureVideoTextureForNv12(uploadScalePlan.targetWidth, uploadScalePlan.targetHeight,
+                                         !useDefaultTextureUpload) &&
+               UploadVideoFrameNv12(latestFrame, uploadScalePlan) && DrawVideoNv12Texture();
+      case VideoFrameRoute::kCpuRgbaUpload:
+        return EnsureVideoTextureForCpu(uploadScalePlan.targetWidth, uploadScalePlan.targetHeight,
+                                        !useDefaultTextureUpload) &&
+               UploadVideoFrame(latestFrame, uploadScalePlan) && DrawVideoTexture();
+    }
+    return false;
+  }
+
+  void CommitConsumedLatestVideoFrame(const frame_bridge::LatestFrame& latestFrame) {
+    lastVideoSequence_ = latestFrame.sequence;
+    frame_bridge::ReleaseLatestFrameIfSequenceConsumed(lastVideoSequence_);
+  }
+
   void UpdateRenderViewportCache(const UINT width, const UINT height) {
     if (width == 0 || height == 0) {
       return;
@@ -757,20 +775,21 @@ class WallpaperHostWin final : public IWallpaperHost {
   }
 
   void RebuildMonitorViewports() {
-    monitorViewports_.clear();
+    monitorViewports_.Clear();
     if (renderViewportWidth_ == 0 || renderViewportHeight_ == 0) {
       return;
     }
 
     const RECT virtualRect = GetVirtualScreenRect();
-    const std::vector<DisplayRect> monitors = EnumerateMonitorRects();
+    const DisplayRectPlan monitors = EnumerateMonitorRects();
     monitorViewports_ = BuildScaledRenderMonitorViewports(
         ToDisplayRect(virtualRect), monitors, static_cast<int>(renderViewportWidth_),
         static_cast<int>(renderViewportHeight_));
-    if (monitorViewports_.empty()) {
+    if (monitorViewports_.Empty()) {
       // 兜底回退到单视口，确保显示链路可用。
-      monitorViewports_.push_back(
+      const bool appendedFallbackViewport = monitorViewports_.PushBack(
           BuildFullscreenViewport(renderViewportWidth_, renderViewportHeight_));
+      (void)appendedFallbackViewport;
     }
   }
 
@@ -1483,12 +1502,12 @@ class WallpaperHostWin final : public IWallpaperHost {
     context_->PSSetSamplers(0, 1, &videoSampler_);
     context_->PSSetShaderResources(0, srvCount, srvs);
 
-    if (monitorViewports_.empty()) {
+    if (monitorViewports_.Empty()) {
       RebuildMonitorViewports();
     }
 
     bool drewAnyViewport = false;
-    for (const RenderViewport& viewportRect : monitorViewports_) {
+    for (const RenderViewport& viewportRect : monitorViewports_.Items()) {
       if (viewportRect.width <= 0 || viewportRect.height <= 0) {
         continue;
       }
@@ -1561,7 +1580,7 @@ class WallpaperHostWin final : public IWallpaperHost {
     nextOcclusionProbeAtTick_ = 0;
     renderViewportWidth_ = 0;
     renderViewportHeight_ = 0;
-    monitorViewports_.clear();
+    monitorViewports_.Clear();
     lastPostPresentTrimAtTick_ = 0;
     SafeRelease(&swapChain2_);
     ReleaseVideoTexture();
@@ -1589,7 +1608,7 @@ class WallpaperHostWin final : public IWallpaperHost {
   ID3D11RenderTargetView* renderTargetView_ = nullptr;
   UINT renderViewportWidth_ = 0;
   UINT renderViewportHeight_ = 0;
-  std::vector<RenderViewport> monitorViewports_;
+  RenderViewportPlan monitorViewports_;
 
   bool videoPipelineReady_ = false;
   ID3D11VertexShader* videoVertexShader_ = nullptr;

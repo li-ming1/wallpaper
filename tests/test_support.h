@@ -38,4 +38,5 @@ inline void Expect(bool cond, const std::string& message) {
   static void name()
 
 #define EXPECT_TRUE(cond) test::Expect((cond), "EXPECT_TRUE failed: " #cond)
+#define EXPECT_FALSE(cond) test::Expect(!(cond), "EXPECT_FALSE failed: " #cond)
 #define EXPECT_EQ(a, b) test::Expect(((a) == (b)), "EXPECT_EQ failed: " #a " vs " #b)

@@ -39,15 +39,14 @@ namespace {
 
 }  // namespace
 
-std::vector<RenderViewport> BuildRenderMonitorViewports(
-    const DisplayRect& virtualDesktop, const std::vector<DisplayRect>& monitors) noexcept {
-  std::vector<RenderViewport> viewports;
-  if (!IsValidRect(virtualDesktop) || monitors.empty()) {
+RenderViewportPlan BuildRenderMonitorViewports(const DisplayRect& virtualDesktop,
+                                               const DisplayRectPlan& monitors) noexcept {
+  RenderViewportPlan viewports;
+  if (!IsValidRect(virtualDesktop) || monitors.Empty()) {
     return viewports;
   }
 
-  viewports.reserve(monitors.size());
-  for (const DisplayRect& monitor : monitors) {
+  for (const DisplayRect& monitor : monitors.Items()) {
     if (!IsValidRect(monitor)) {
       continue;
     }
@@ -64,27 +63,24 @@ std::vector<RenderViewport> BuildRenderMonitorViewports(
       continue;
     }
 
-    viewports.push_back(RenderViewport{
+    if (!viewports.PushBack(RenderViewport{
         clipped.left - virtualDesktop.left,
         clipped.top - virtualDesktop.top,
         width,
         height,
-    });
+    })) {
+      break;
+    }
   }
   return viewports;
 }
 
-std::vector<RenderViewport> BuildScaledRenderMonitorViewports(
-    const DisplayRect& virtualDesktop, const std::vector<DisplayRect>& monitors,
-    const int renderTargetWidth, const int renderTargetHeight) noexcept {
-  std::vector<RenderViewport> scaledViewports;
+RenderViewportPlan BuildScaledRenderMonitorViewports(const DisplayRect& virtualDesktop,
+                                                     const DisplayRectPlan& monitors,
+                                                     const int renderTargetWidth,
+                                                     const int renderTargetHeight) noexcept {
+  RenderViewportPlan scaledViewports;
   if (renderTargetWidth <= 0 || renderTargetHeight <= 0) {
-    return scaledViewports;
-  }
-
-  const std::vector<RenderViewport> baseViewports =
-      BuildRenderMonitorViewports(virtualDesktop, monitors);
-  if (baseViewports.empty()) {
     return scaledViewports;
   }
 
@@ -93,36 +89,47 @@ std::vector<RenderViewport> BuildScaledRenderMonitorViewports(
     return scaledViewports;
   }
 
-  scaledViewports.reserve(baseViewports.size());
-  for (const RenderViewport& viewport : baseViewports) {
-    if (viewport.width <= 0 || viewport.height <= 0) {
+  for (const DisplayRect& monitor : monitors.Items()) {
+    if (!IsValidRect(monitor)) {
       continue;
     }
 
-    const int left = ScaleAxisToRenderTarget(viewport.left, virtualSize.width, renderTargetWidth);
-    const int top = ScaleAxisToRenderTarget(viewport.top, virtualSize.height, renderTargetHeight);
+    const DisplayRect clipped = ClipRect(monitor, virtualDesktop);
+    if (!IsValidRect(clipped)) {
+      continue;
+    }
+
+    const int unclampedLeft = clipped.left - virtualDesktop.left;
+    const int unclampedTop = clipped.top - virtualDesktop.top;
+    const int unclampedRight = clipped.right - virtualDesktop.left;
+    const int unclampedBottom = clipped.bottom - virtualDesktop.top;
+    const int left =
+        ScaleAxisToRenderTarget(unclampedLeft, virtualSize.width, renderTargetWidth);
+    const int top = ScaleAxisToRenderTarget(unclampedTop, virtualSize.height, renderTargetHeight);
     const int right =
-        ScaleAxisToRenderTarget(viewport.left + viewport.width, virtualSize.width, renderTargetWidth);
-    const int bottom = ScaleAxisToRenderTarget(viewport.top + viewport.height, virtualSize.height,
-                                               renderTargetHeight);
+        ScaleAxisToRenderTarget(unclampedRight, virtualSize.width, renderTargetWidth);
+    const int bottom =
+        ScaleAxisToRenderTarget(unclampedBottom, virtualSize.height, renderTargetHeight);
     const int width = right - left;
     const int height = bottom - top;
     if (width <= 0 || height <= 0) {
       continue;
     }
 
-    scaledViewports.push_back(RenderViewport{
+    if (!scaledViewports.PushBack(RenderViewport{
         left,
         top,
         width,
         height,
-    });
+    })) {
+      break;
+    }
   }
   return scaledViewports;
 }
 
 DisplaySize SelectRepeatedFrameRenderSize(const DisplayRect& virtualDesktop,
-                                          const std::vector<DisplayRect>& monitors) noexcept {
+                                          const DisplayRectPlan& monitors) noexcept {
   const DisplaySize virtualSize = ToDisplaySize(virtualDesktop);
   if (virtualSize.width <= 0 || virtualSize.height <= 0) {
     return {};
@@ -131,7 +138,7 @@ DisplaySize SelectRepeatedFrameRenderSize(const DisplayRect& virtualDesktop,
   DisplaySize largestMonitorSize{};
   int validMonitorCount = 0;
   long long largestMonitorArea = 0;
-  for (const DisplayRect& monitor : monitors) {
+  for (const DisplayRect& monitor : monitors.Items()) {
     if (!IsValidRect(monitor)) {
       continue;
     }

@@ -16,6 +16,20 @@ std::string ReadTextFile(const std::filesystem::path& path) {
   return out.str();
 }
 
+std::size_t CountOccurrences(const std::string& content, const std::string_view pattern) {
+  if (pattern.empty()) {
+    return 0;
+  }
+
+  std::size_t count = 0;
+  std::size_t pos = 0;
+  while ((pos = content.find(pattern, pos)) != std::string::npos) {
+    ++count;
+    pos += pattern.size();
+  }
+  return count;
+}
+
 void ExpectFileDoesNotContain(const std::filesystem::path& path,
                               const std::vector<std::string_view>& patterns) {
   const std::string content = ReadTextFile(path);
@@ -93,6 +107,50 @@ TEST_CASE(Win11Cleanup_FrameBridgeUsesTypedD3DTextures) {
   const auto repoRoot = std::filesystem::current_path();
   const auto frameBridgeHeader = repoRoot / "include" / "wallpaper" / "frame_bridge.h";
   ExpectFileDoesNotContain(frameBridgeHeader, {"void* gpuTexture", "void* gpuAuxTexture"});
+}
+
+TEST_CASE(Win11Cleanup_FrameBridgeDoesNotKeepVectorSpecialCaseForRgbaPublish) {
+  const auto repoRoot = std::filesystem::current_path();
+  const auto frameBridgeHeader = repoRoot / "include" / "wallpaper" / "frame_bridge.h";
+  const auto frameBridgeSource = repoRoot / "src" / "frame_bridge.cpp";
+
+  ExpectFileDoesNotContain(frameBridgeHeader,
+                           {"std::shared_ptr<const std::vector<std::uint8_t>> rgbaPixels",
+                            "void PublishLatestFrame("});
+  ExpectFileDoesNotContain(frameBridgeSource,
+                           {"std::shared_ptr<const std::vector<std::uint8_t>> rgbaPixels",
+                            "void PublishLatestFrame("});
+}
+
+TEST_CASE(Win11Cleanup_MetricsLogFilePruneDoesNotEnumerateDirectoryTwice) {
+  const auto repoRoot = std::filesystem::current_path();
+  const std::string metricsLogSource = ReadTextFile(repoRoot / "src" / "metrics_log_file.cpp");
+
+  EXPECT_EQ(CountOccurrences(metricsLogSource, "std::filesystem::directory_iterator("),
+            static_cast<std::size_t>(1));
+}
+
+TEST_CASE(Win11Cleanup_MetricsSamplerDoesNotKeepSnapshotCopyApi) {
+  const auto repoRoot = std::filesystem::current_path();
+  const auto metricsSamplerHeader = repoRoot / "include" / "wallpaper" / "metrics_sampler.h";
+  const auto metricsSamplerSource = repoRoot / "src" / "metrics_sampler.cpp";
+
+  ExpectFileDoesNotContain(metricsSamplerHeader, {"Snapshot()"});
+  ExpectFileDoesNotContain(metricsSamplerSource, {"Snapshot()"});
+}
+
+TEST_CASE(Win11Cleanup_WallpaperHostPresentDoesNotInlineVideoRouteExecution) {
+  const auto repoRoot = std::filesystem::current_path();
+  const std::string wallpaperHostSource =
+      ReadTextFile(repoRoot / "src" / "win" / "wallpaper_host_win.cpp");
+
+  ExpectFileDoesNotContain(repoRoot / "src" / "win" / "wallpaper_host_win.cpp",
+                           {"const auto consumeLatestVideoFrame = [&]()",
+                            "switch (routePlan.routes[routeIndex])"});
+  EXPECT_TRUE(wallpaperHostSource.find("bool TryDrawLatestVideoFrame(") != std::string::npos);
+  EXPECT_TRUE(wallpaperHostSource.find("bool ExecuteVideoFrameRoutePlan(") != std::string::npos);
+  EXPECT_TRUE(wallpaperHostSource.find("void CommitConsumedLatestVideoFrame(") !=
+              std::string::npos);
 }
 
 TEST_CASE(Win11Cleanup_StartupPolicyDoesNotKeepStaleFrameKeepAliveDeadLogic) {

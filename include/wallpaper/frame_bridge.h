@@ -3,7 +3,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <vector>
 
 struct ID3D11Texture2D;
 
@@ -40,9 +39,6 @@ struct LatestFrame final {
   int uvPlaneStrideBytes = 0;
 };
 
-void PublishLatestFrame(int width, int height, int strideBytes, std::int64_t timestamp100ns,
-                        std::uint64_t sequence,
-                        std::shared_ptr<const std::vector<std::uint8_t>> rgbaPixels);
 void PublishLatestFrameView(int width, int height, int strideBytes, std::int64_t timestamp100ns,
                             std::uint64_t sequence, const std::uint8_t* rgbaData,
                             std::size_t rgbaDataBytes, std::shared_ptr<void> rgbaDataHolder);

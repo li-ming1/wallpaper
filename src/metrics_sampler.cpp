@@ -23,19 +23,13 @@ RuntimeMetrics MetricsSampler::Latest() const {
   return samples_[lastIndex];
 }
 
-std::vector<RuntimeMetrics> MetricsSampler::Snapshot() const {
-  std::vector<RuntimeMetrics> snapshot;
-  snapshot.reserve(size_);
-  if (size_ == 0) {
-    return snapshot;
+RuntimeMetrics MetricsSampler::SampleAtOldestOffset(const std::size_t index) const {
+  if (index >= size_) {
+    return {};
   }
 
   const std::size_t oldestIndex = (head_ + maxSamples_ - size_) % maxSamples_;
-  for (std::size_t i = 0; i < size_; ++i) {
-    const std::size_t index = (oldestIndex + i) % maxSamples_;
-    snapshot.push_back(samples_[index]);
-  }
-  return snapshot;
+  return samples_[(oldestIndex + index) % maxSamples_];
 }
 
 }  // namespace wallpaper

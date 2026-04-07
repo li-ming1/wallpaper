@@ -7,12 +7,26 @@
 
 #include "test_support.h"
 
+namespace {
+
+std::shared_ptr<std::vector<std::uint8_t>> MakePixels(const std::size_t size,
+                                                      const std::uint8_t fill) {
+  return std::make_shared<std::vector<std::uint8_t>>(size, fill);
+}
+
+std::shared_ptr<void> MakePixelHolder(
+    const std::shared_ptr<std::vector<std::uint8_t>>& pixels) {
+  return std::shared_ptr<void>(pixels, pixels->data());
+}
+
+}  // namespace
+
 TEST_CASE(FrameBridge_PublishAndReadLatestFrame) {
   wallpaper::frame_bridge::ClearLatestFrame();
 
-  auto pixels = std::make_shared<const std::vector<std::uint8_t>>(
-      std::vector<std::uint8_t>(16, static_cast<std::uint8_t>(7)));
-  wallpaper::frame_bridge::PublishLatestFrame(2, 2, 8, 1000, 1, pixels);
+  const auto pixels = MakePixels(16, static_cast<std::uint8_t>(7));
+  wallpaper::frame_bridge::PublishLatestFrameView(2, 2, 8, 1000, 1, pixels->data(),
+                                                  pixels->size(), MakePixelHolder(pixels));
 
   wallpaper::frame_bridge::LatestFrame latest;
   EXPECT_TRUE(wallpaper::frame_bridge::TryGetLatestFrame(&latest));
@@ -26,9 +40,9 @@ TEST_CASE(FrameBridge_PublishAndReadLatestFrame) {
 }
 
 TEST_CASE(FrameBridge_ClearRemovesFrame) {
-  auto pixels = std::make_shared<const std::vector<std::uint8_t>>(
-      std::vector<std::uint8_t>(4, static_cast<std::uint8_t>(1)));
-  wallpaper::frame_bridge::PublishLatestFrame(1, 1, 4, 100, 3, pixels);
+  const auto pixels = MakePixels(4, static_cast<std::uint8_t>(1));
+  wallpaper::frame_bridge::PublishLatestFrameView(1, 1, 4, 100, 3, pixels->data(), pixels->size(),
+                                                  MakePixelHolder(pixels));
   wallpaper::frame_bridge::ClearLatestFrame();
 
   wallpaper::frame_bridge::LatestFrame latest;
@@ -101,9 +115,9 @@ TEST_CASE(FrameBridge_PublishAndReadLatestGpuNv12Frame) {
 TEST_CASE(FrameBridge_TryGetLatestFrameIfNewerSkipsSameSequence) {
   wallpaper::frame_bridge::ClearLatestFrame();
 
-  auto pixels = std::make_shared<const std::vector<std::uint8_t>>(
-      std::vector<std::uint8_t>(16, static_cast<std::uint8_t>(5)));
-  wallpaper::frame_bridge::PublishLatestFrame(2, 2, 8, 2000, 11, pixels);
+  const auto pixels = MakePixels(16, static_cast<std::uint8_t>(5));
+  wallpaper::frame_bridge::PublishLatestFrameView(2, 2, 8, 2000, 11, pixels->data(),
+                                                  pixels->size(), MakePixelHolder(pixels));
 
   wallpaper::frame_bridge::LatestFrame latest;
   EXPECT_TRUE(wallpaper::frame_bridge::TryGetLatestFrameIfNewer(10, &latest));
@@ -114,9 +128,9 @@ TEST_CASE(FrameBridge_TryGetLatestFrameIfNewerSkipsSameSequence) {
 TEST_CASE(FrameBridge_ReleaseConsumedKeepsNewerFrameIntact) {
   wallpaper::frame_bridge::ClearLatestFrame();
 
-  auto pixels = std::make_shared<const std::vector<std::uint8_t>>(
-      std::vector<std::uint8_t>(16, static_cast<std::uint8_t>(3)));
-  wallpaper::frame_bridge::PublishLatestFrame(2, 2, 8, 2000, 21, pixels);
+  const auto pixels = MakePixels(16, static_cast<std::uint8_t>(3));
+  wallpaper::frame_bridge::PublishLatestFrameView(2, 2, 8, 2000, 21, pixels->data(),
+                                                  pixels->size(), MakePixelHolder(pixels));
   wallpaper::frame_bridge::ReleaseLatestFrameIfSequenceConsumed(20);
 
   wallpaper::frame_bridge::LatestFrame latest;
@@ -127,9 +141,9 @@ TEST_CASE(FrameBridge_ReleaseConsumedKeepsNewerFrameIntact) {
 TEST_CASE(FrameBridge_ReleaseConsumedDropsMatchedFrame) {
   wallpaper::frame_bridge::ClearLatestFrame();
 
-  auto pixels = std::make_shared<const std::vector<std::uint8_t>>(
-      std::vector<std::uint8_t>(16, static_cast<std::uint8_t>(4)));
-  wallpaper::frame_bridge::PublishLatestFrame(2, 2, 8, 2000, 31, pixels);
+  const auto pixels = MakePixels(16, static_cast<std::uint8_t>(4));
+  wallpaper::frame_bridge::PublishLatestFrameView(2, 2, 8, 2000, 31, pixels->data(),
+                                                  pixels->size(), MakePixelHolder(pixels));
   wallpaper::frame_bridge::ReleaseLatestFrameIfSequenceConsumed(31);
 
   wallpaper::frame_bridge::LatestFrame latest;
