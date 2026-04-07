@@ -486,9 +486,11 @@ void DecodePipelineStub::ReleaseMfLocked() {
   mfLastRawTimestamp100ns_ = -1;
   mfLastOutputTimestamp100ns_ = -1;
   ResetDecodeAsyncRead(&decodeAsyncReadState_);
+  samplePublishStrategyCache_.Reset();
   interopStage_ = DecodeInteropStage::kNotAttempted;
   interopHresult_ = 0;
   ReleaseSharedNv12BridgeTexturesLocked();
+  ReleaseSharedNv12BridgeDeviceCacheLocked();
 }
 
 void DecodePipelineStub::ReleaseSharedNv12BridgeTexturesLocked() {
@@ -502,6 +504,56 @@ void DecodePipelineStub::ReleaseSharedNv12BridgeTexturesLocked() {
   }
   sharedNv12BridgeWidth_ = 0;
   sharedNv12BridgeHeight_ = 0;
+}
+
+bool DecodePipelineStub::EnsureSharedNv12BridgeDeviceCacheLocked() {
+  const SharedDeviceCacheDecision decision = ResolveSharedDeviceCacheDecision(
+      sharedNv12BridgeDevice_ != nullptr, sharedNv12BridgeContext_ != nullptr,
+      sharedNv12BridgeDeviceRevision_, d3d11_interop::QuerySharedDeviceRevision());
+  if (!decision.refreshRequired) {
+    return true;
+  }
+
+  ID3D11Device* sharedDevice = d3d11_interop::AcquireSharedDevice();
+  if (sharedDevice == nullptr) {
+    if (decision.releaseBridgeTextures) {
+      ReleaseSharedNv12BridgeTexturesLocked();
+    }
+    ReleaseSharedNv12BridgeDeviceCacheLocked();
+    return false;
+  }
+
+  ID3D11DeviceContext* sharedContext = nullptr;
+  sharedDevice->GetImmediateContext(&sharedContext);
+  if (sharedContext == nullptr) {
+    sharedDevice->Release();
+    if (decision.releaseBridgeTextures) {
+      ReleaseSharedNv12BridgeTexturesLocked();
+    }
+    ReleaseSharedNv12BridgeDeviceCacheLocked();
+    return false;
+  }
+
+  if (decision.releaseBridgeTextures) {
+    ReleaseSharedNv12BridgeTexturesLocked();
+  }
+  ReleaseSharedNv12BridgeDeviceCacheLocked();
+  sharedNv12BridgeDevice_ = sharedDevice;
+  sharedNv12BridgeContext_ = sharedContext;
+  sharedNv12BridgeDeviceRevision_ = d3d11_interop::QuerySharedDeviceRevision();
+  return true;
+}
+
+void DecodePipelineStub::ReleaseSharedNv12BridgeDeviceCacheLocked() {
+  if (sharedNv12BridgeContext_ != nullptr) {
+    sharedNv12BridgeContext_->Release();
+    sharedNv12BridgeContext_ = nullptr;
+  }
+  if (sharedNv12BridgeDevice_ != nullptr) {
+    sharedNv12BridgeDevice_->Release();
+    sharedNv12BridgeDevice_ = nullptr;
+  }
+  sharedNv12BridgeDeviceRevision_ = 0;
 }
 
 bool DecodePipelineStub::EnsureSharedNv12BridgeTexturesLocked(ID3D11Device* const device,
@@ -717,45 +769,6 @@ DecodePipelineStub::PublishResult DecodePipelineStub::PublishSampleToBridgeUnloc
     return {};
   }
 
-  if (snapshot.mfGpuZeroCopyActive) {
-    IMFMediaBuffer* indexedBuffer = nullptr;
-    if (SUCCEEDED(sample->GetBufferByIndex(0, &indexedBuffer)) && indexedBuffer != nullptr) {
-      IMFDXGIBuffer* dxgiBuffer = nullptr;
-      if (SUCCEEDED(indexedBuffer->QueryInterface(__uuidof(IMFDXGIBuffer),
-                                                  reinterpret_cast<void**>(&dxgiBuffer))) &&
-          dxgiBuffer != nullptr) {
-        ID3D11Texture2D* texture = nullptr;
-        UINT subresourceIndex = 0;
-        const HRESULT getResourceHr =
-            dxgiBuffer->GetResource(__uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&texture));
-        const HRESULT getSubresourceHr = dxgiBuffer->GetSubresourceIndex(&subresourceIndex);
-        if (SUCCEEDED(getResourceHr) && SUCCEEDED(getSubresourceHr) && texture != nullptr) {
-          D3D11_TEXTURE2D_DESC desc{};
-          texture->GetDesc(&desc);
-          std::shared_ptr<void> textureHolder(
-              texture, [](void* ptr) {
-                if (ptr != nullptr) {
-                  static_cast<ID3D11Texture2D*>(ptr)->Release();
-                }
-              });
-          frame_bridge::PublishLatestGpuFrame(static_cast<int>(snapshot.frameWidth),
-                                              static_cast<int>(snapshot.frameHeight),
-                                              snapshot.outputTimestamp100ns, snapshot.sequence,
-                                              static_cast<std::uint32_t>(desc.Format),
-                                              subresourceIndex, std::move(textureHolder));
-          dxgiBuffer->Release();
-          indexedBuffer->Release();
-          return PublishResult{true, true, 0, snapshot.frameWidth, snapshot.frameHeight};
-        }
-        if (texture != nullptr) {
-          texture->Release();
-        }
-        dxgiBuffer->Release();
-      }
-      indexedBuffer->Release();
-    }
-  }
-
   const UploadScalePlan bridgeScalePlan =
       SelectUploadScalePlanForCpuUpload(static_cast<int>(snapshot.frameWidth),
                                         static_cast<int>(snapshot.frameHeight));
@@ -829,42 +842,30 @@ DecodePipelineStub::PublishResult DecodePipelineStub::PublishSampleToBridgeUnloc
       return {};
     }
 
-    ID3D11Device* sharedDevice = d3d11_interop::AcquireSharedDevice();
-    if (sharedDevice == nullptr) {
-      return {};
-    }
-
-    ID3D11DeviceContext* sharedContext = nullptr;
-    sharedDevice->GetImmediateContext(&sharedContext);
-    if (sharedContext == nullptr) {
-      sharedDevice->Release();
-      return {};
-    }
-
     ID3D11Texture2D* yTexture = nullptr;
     ID3D11Texture2D* uvTexture = nullptr;
     {
       std::lock_guard<std::mutex> lock(mu_);
-      if (!EnsureSharedNv12BridgeTexturesLocked(sharedDevice, snapshot.frameWidth,
-                                                snapshot.frameHeight)) {
-        sharedContext->Release();
-        sharedDevice->Release();
+      if (!EnsureSharedNv12BridgeDeviceCacheLocked()) {
         return {};
       }
-      sharedContext->UpdateSubresource(sharedNv12BridgeYTexture_, 0, nullptr, yPlaneData,
-                                       static_cast<UINT>(yStrideBytes),
-                                       static_cast<UINT>(yStrideBytes) * snapshot.frameHeight);
-      sharedContext->UpdateSubresource(sharedNv12BridgeUvTexture_, 0, nullptr, uvPlaneData,
-                                       static_cast<UINT>(uvStrideBytes),
-                                       static_cast<UINT>(uvStrideBytes) * (snapshot.frameHeight / 2U));
+      if (!EnsureSharedNv12BridgeTexturesLocked(sharedNv12BridgeDevice_, snapshot.frameWidth,
+                                                snapshot.frameHeight)) {
+        return {};
+      }
+      sharedNv12BridgeContext_->UpdateSubresource(sharedNv12BridgeYTexture_, 0, nullptr,
+                                                  yPlaneData, static_cast<UINT>(yStrideBytes),
+                                                  static_cast<UINT>(yStrideBytes) *
+                                                      snapshot.frameHeight);
+      sharedNv12BridgeContext_->UpdateSubresource(
+          sharedNv12BridgeUvTexture_, 0, nullptr, uvPlaneData,
+          static_cast<UINT>(uvStrideBytes),
+          static_cast<UINT>(uvStrideBytes) * (snapshot.frameHeight / 2U));
       yTexture = sharedNv12BridgeYTexture_;
       uvTexture = sharedNv12BridgeUvTexture_;
       yTexture->AddRef();
       uvTexture->AddRef();
     }
-
-    sharedContext->Release();
-    sharedDevice->Release();
 
     std::shared_ptr<void> yTextureHolder(yTexture, [](void* ptr) {
       if (ptr != nullptr) {
@@ -884,80 +885,159 @@ DecodePipelineStub::PublishResult DecodePipelineStub::PublishSampleToBridgeUnloc
                          snapshot.frameHeight};
   };
 
-  if (IsSelectedOutputNv12(snapshot.selectedOutputSubtype)) {
+  const auto rememberSuccessfulStrategy = [&](const SamplePublishStrategy strategy) {
+    std::lock_guard<std::mutex> lock(mu_);
+    samplePublishStrategyCache_.RememberSuccess(strategy);
+  };
+  const auto invalidateCachedStrategy = [&]() {
+    std::lock_guard<std::mutex> lock(mu_);
+    samplePublishStrategyCache_.Reset();
+  };
+
+  SamplePublishCapabilities publishCapabilities;
+  publishCapabilities.gpuZeroCopyActive = snapshot.mfGpuZeroCopyActive;
+  publishCapabilities.format = IsSelectedOutputNv12(snapshot.selectedOutputSubtype)
+                                   ? SamplePublishFormat::kNv12
+                                   : SamplePublishFormat::kRgba;
+
+  SamplePublishStrategyPlan publishPlan;
+  {
+    std::lock_guard<std::mutex> lock(mu_);
+    publishPlan = samplePublishStrategyCache_.BuildPlan(publishCapabilities);
+  }
+
+  const auto publishGpuDxgiFrame = [&]() -> PublishResult {
+    IMFMediaBuffer* indexedBuffer = nullptr;
+    if (FAILED(sample->GetBufferByIndex(0, &indexedBuffer)) || indexedBuffer == nullptr) {
+      return {};
+    }
+
+    IMFDXGIBuffer* dxgiBuffer = nullptr;
+    if (FAILED(indexedBuffer->QueryInterface(__uuidof(IMFDXGIBuffer),
+                                             reinterpret_cast<void**>(&dxgiBuffer))) ||
+        dxgiBuffer == nullptr) {
+      indexedBuffer->Release();
+      return {};
+    }
+
+    ID3D11Texture2D* texture = nullptr;
+    UINT subresourceIndex = 0;
+    const HRESULT getResourceHr =
+        dxgiBuffer->GetResource(__uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&texture));
+    const HRESULT getSubresourceHr = dxgiBuffer->GetSubresourceIndex(&subresourceIndex);
+    if (SUCCEEDED(getResourceHr) && SUCCEEDED(getSubresourceHr) && texture != nullptr) {
+      D3D11_TEXTURE2D_DESC desc{};
+      texture->GetDesc(&desc);
+      std::shared_ptr<void> textureHolder(
+          texture, [](void* ptr) {
+            if (ptr != nullptr) {
+              static_cast<ID3D11Texture2D*>(ptr)->Release();
+            }
+          });
+      frame_bridge::PublishLatestGpuFrame(static_cast<int>(snapshot.frameWidth),
+                                          static_cast<int>(snapshot.frameHeight),
+                                          snapshot.outputTimestamp100ns, snapshot.sequence,
+                                          static_cast<std::uint32_t>(desc.Format), subresourceIndex,
+                                          std::move(textureHolder));
+      dxgiBuffer->Release();
+      indexedBuffer->Release();
+      return PublishResult{true, true, 0, snapshot.frameWidth, snapshot.frameHeight};
+    }
+
+    if (texture != nullptr) {
+      texture->Release();
+    }
+    dxgiBuffer->Release();
+    indexedBuffer->Release();
+    return {};
+  };
+
+  const auto publishNv12Lock2DFrame = [&]() -> PublishResult {
     DWORD sampleBufferCount = 0;
     DWORD sampleTotalLength = 0;
     const bool singleBufferSample =
         SUCCEEDED(sample->GetBufferCount(&sampleBufferCount)) && sampleBufferCount == 1;
     (void)sample->GetTotalLength(&sampleTotalLength);
 
-    IMFMediaBuffer* indexedBuffer = nullptr;
-    if (singleBufferSample && SUCCEEDED(sample->GetBufferByIndex(0, &indexedBuffer)) &&
-        indexedBuffer != nullptr) {
-      IMF2DBuffer* buffer2d = nullptr;
-      if (SUCCEEDED(indexedBuffer->QueryInterface(__uuidof(IMF2DBuffer),
-                                                  reinterpret_cast<void**>(&buffer2d))) &&
-          buffer2d != nullptr) {
-        BYTE* scanline0 = nullptr;
-        LONG pitch = 0;
-        if (SUCCEEDED(buffer2d->Lock2D(&scanline0, &pitch)) && scanline0 != nullptr && pitch > 0) {
-          const Nv12Layout layout = ComputeNv12Layout(snapshot.frameHeight,
-                                                      static_cast<std::uint32_t>(pitch),
-                                                      static_cast<std::size_t>(sampleTotalLength));
-          if (layout.yPlaneBytes != 0 && layout.uvPlaneBytes != 0) {
-            if (shouldScaleForBridge) {
-              const PublishResult scaledResult = publishScaledNv12Frame(
-                  static_cast<const std::uint8_t*>(scanline0 + layout.yPlaneOffsetBytes),
-                  static_cast<int>(pitch),
-                  static_cast<const std::uint8_t*>(scanline0 + layout.uvPlaneOffsetBytes),
-                  static_cast<int>(pitch));
-              if (scaledResult.ok) {
-                buffer2d->Unlock2D();
-                buffer2d->Release();
-                indexedBuffer->Release();
-                return scaledResult;
-              }
-            }
-
-            const PublishResult gpuBridgeResult =
-                publishSharedGpuNv12Frame(static_cast<const std::uint8_t*>(scanline0 + layout.yPlaneOffsetBytes),
-                                          static_cast<int>(pitch), layout.yPlaneBytes,
-                                          static_cast<const std::uint8_t*>(scanline0 + layout.uvPlaneOffsetBytes),
-                                          static_cast<int>(pitch), layout.uvPlaneBytes);
-            if (gpuBridgeResult.ok) {
-              buffer2d->Unlock2D();
-              buffer2d->Release();
-              indexedBuffer->Release();
-              return gpuBridgeResult;
-            }
-
-            std::shared_ptr<void> bufferHolder(indexedBuffer, [buffer2d](void* ptr) {
-              if (buffer2d != nullptr) {
-                buffer2d->Unlock2D();
-                buffer2d->Release();
-              }
-              if (ptr != nullptr) {
-                static_cast<IMFMediaBuffer*>(ptr)->Release();
-              }
-            });
-            frame_bridge::PublishLatestNv12FrameView(
-                static_cast<int>(snapshot.frameWidth), static_cast<int>(snapshot.frameHeight),
-                static_cast<int>(pitch), static_cast<int>(pitch), snapshot.outputTimestamp100ns,
-                snapshot.sequence, static_cast<const std::uint8_t*>(scanline0 + layout.yPlaneOffsetBytes),
-                layout.yPlaneBytes,
-                static_cast<const std::uint8_t*>(scanline0 + layout.uvPlaneOffsetBytes),
-                layout.uvPlaneBytes, std::move(bufferHolder));
-            return PublishResult{true, false, layout.yPlaneBytes + layout.uvPlaneBytes, snapshot.frameWidth,
-                                 snapshot.frameHeight};
-          }
-
-          buffer2d->Unlock2D();
-        }
-        buffer2d->Release();
-      }
-      indexedBuffer->Release();
+    if (!singleBufferSample) {
+      return {};
     }
 
+    IMFMediaBuffer* indexedBuffer = nullptr;
+    if (FAILED(sample->GetBufferByIndex(0, &indexedBuffer)) || indexedBuffer == nullptr) {
+      return {};
+    }
+
+    IMF2DBuffer* buffer2d = nullptr;
+    if (FAILED(indexedBuffer->QueryInterface(__uuidof(IMF2DBuffer),
+                                             reinterpret_cast<void**>(&buffer2d))) ||
+        buffer2d == nullptr) {
+      indexedBuffer->Release();
+      return {};
+    }
+
+    BYTE* scanline0 = nullptr;
+    LONG pitch = 0;
+    if (SUCCEEDED(buffer2d->Lock2D(&scanline0, &pitch)) && scanline0 != nullptr && pitch > 0) {
+      const Nv12Layout layout = ComputeNv12Layout(snapshot.frameHeight,
+                                                  static_cast<std::uint32_t>(pitch),
+                                                  static_cast<std::size_t>(sampleTotalLength));
+      if (layout.yPlaneBytes != 0 && layout.uvPlaneBytes != 0) {
+        if (shouldScaleForBridge) {
+          const PublishResult scaledResult = publishScaledNv12Frame(
+              static_cast<const std::uint8_t*>(scanline0 + layout.yPlaneOffsetBytes),
+              static_cast<int>(pitch),
+              static_cast<const std::uint8_t*>(scanline0 + layout.uvPlaneOffsetBytes),
+              static_cast<int>(pitch));
+          if (scaledResult.ok) {
+            buffer2d->Unlock2D();
+            buffer2d->Release();
+            indexedBuffer->Release();
+            return scaledResult;
+          }
+        }
+
+        const PublishResult gpuBridgeResult = publishSharedGpuNv12Frame(
+            static_cast<const std::uint8_t*>(scanline0 + layout.yPlaneOffsetBytes),
+            static_cast<int>(pitch), layout.yPlaneBytes,
+            static_cast<const std::uint8_t*>(scanline0 + layout.uvPlaneOffsetBytes),
+            static_cast<int>(pitch), layout.uvPlaneBytes);
+        if (gpuBridgeResult.ok) {
+          buffer2d->Unlock2D();
+          buffer2d->Release();
+          indexedBuffer->Release();
+          return gpuBridgeResult;
+        }
+
+        std::shared_ptr<void> bufferHolder(indexedBuffer, [buffer2d](void* ptr) {
+          if (buffer2d != nullptr) {
+            buffer2d->Unlock2D();
+            buffer2d->Release();
+          }
+          if (ptr != nullptr) {
+            static_cast<IMFMediaBuffer*>(ptr)->Release();
+          }
+        });
+        frame_bridge::PublishLatestNv12FrameView(
+            static_cast<int>(snapshot.frameWidth), static_cast<int>(snapshot.frameHeight),
+            static_cast<int>(pitch), static_cast<int>(pitch), snapshot.outputTimestamp100ns,
+            snapshot.sequence,
+            static_cast<const std::uint8_t*>(scanline0 + layout.yPlaneOffsetBytes),
+            layout.yPlaneBytes,
+            static_cast<const std::uint8_t*>(scanline0 + layout.uvPlaneOffsetBytes),
+            layout.uvPlaneBytes, std::move(bufferHolder));
+        return PublishResult{true, false, layout.yPlaneBytes + layout.uvPlaneBytes,
+                             snapshot.frameWidth, snapshot.frameHeight};
+      }
+
+      buffer2d->Unlock2D();
+    }
+    buffer2d->Release();
+    indexedBuffer->Release();
+    return {};
+  };
+
+  const auto publishNv12ContiguousFrame = [&]() -> PublishResult {
     IMFMediaBuffer* mediaBuffer = nullptr;
     HRESULT hr = sample->ConvertToContiguousBuffer(&mediaBuffer);
     if (FAILED(hr) || mediaBuffer == nullptr) {
@@ -1023,50 +1103,81 @@ DecodePipelineStub::PublishResult DecodePipelineStub::PublishSampleToBridgeUnloc
         static_cast<const std::uint8_t*>(rawData + layout.uvPlaneOffsetBytes), layout.uvPlaneBytes,
         std::move(bufferHolder));
     return PublishResult{true, false, requiredBytes, snapshot.frameWidth, snapshot.frameHeight};
-  }
+  };
 
-  IMFMediaBuffer* mediaBuffer = nullptr;
-  HRESULT hr = sample->ConvertToContiguousBuffer(&mediaBuffer);
-  if (FAILED(hr) || mediaBuffer == nullptr) {
-    return {};
-  }
+  const auto publishRgbaContiguousFrame = [&]() -> PublishResult {
+    IMFMediaBuffer* mediaBuffer = nullptr;
+    HRESULT hr = sample->ConvertToContiguousBuffer(&mediaBuffer);
+    if (FAILED(hr) || mediaBuffer == nullptr) {
+      return {};
+    }
 
-  BYTE* rawData = nullptr;
-  DWORD maxLength = 0;
-  DWORD currentLength = 0;
-  hr = mediaBuffer->Lock(&rawData, &maxLength, &currentLength);
-  if (FAILED(hr) || rawData == nullptr || currentLength == 0) {
-    mediaBuffer->Release();
-    return {};
-  }
-
-  const std::size_t requiredBytes = static_cast<std::size_t>(currentLength);
-
-  if (shouldScaleForBridge) {
-    const PublishResult scaledResult = publishScaledRgbaFrame(
-        static_cast<const std::uint8_t*>(rawData), static_cast<int>(snapshot.frameStride));
-    if (scaledResult.ok) {
-      mediaBuffer->Unlock();
+    BYTE* rawData = nullptr;
+    DWORD maxLength = 0;
+    DWORD currentLength = 0;
+    hr = mediaBuffer->Lock(&rawData, &maxLength, &currentLength);
+    if (FAILED(hr) || rawData == nullptr || currentLength == 0) {
       mediaBuffer->Release();
-      return scaledResult;
+      return {};
+    }
+
+    const std::size_t requiredBytes = static_cast<std::size_t>(currentLength);
+
+    if (shouldScaleForBridge) {
+      const PublishResult scaledResult = publishScaledRgbaFrame(
+          static_cast<const std::uint8_t*>(rawData), static_cast<int>(snapshot.frameStride));
+      if (scaledResult.ok) {
+        mediaBuffer->Unlock();
+        mediaBuffer->Release();
+        return scaledResult;
+      }
+    }
+
+    std::shared_ptr<void> bufferHolder(mediaBuffer, [](void* ptr) {
+      if (ptr != nullptr) {
+        auto* buffer = static_cast<IMFMediaBuffer*>(ptr);
+        buffer->Unlock();
+        buffer->Release();
+      }
+    });
+
+    frame_bridge::PublishLatestFrameView(static_cast<int>(snapshot.frameWidth),
+                                         static_cast<int>(snapshot.frameHeight),
+                                         static_cast<int>(snapshot.frameStride),
+                                         snapshot.outputTimestamp100ns, snapshot.sequence,
+                                         static_cast<const std::uint8_t*>(rawData), requiredBytes,
+                                         std::move(bufferHolder));
+    return PublishResult{true, false, requiredBytes, snapshot.frameWidth, snapshot.frameHeight};
+  };
+
+  for (std::size_t index = 0; index < publishPlan.count; ++index) {
+    const SamplePublishStrategy strategy = publishPlan.strategies[index];
+    PublishResult result;
+    switch (strategy) {
+      case SamplePublishStrategy::kGpuDxgi:
+        result = publishGpuDxgiFrame();
+        break;
+      case SamplePublishStrategy::kNv12Lock2D:
+        result = publishNv12Lock2DFrame();
+        break;
+      case SamplePublishStrategy::kNv12Contiguous:
+        result = publishNv12ContiguousFrame();
+        break;
+      case SamplePublishStrategy::kRgbaContiguous:
+        result = publishRgbaContiguousFrame();
+        break;
+      case SamplePublishStrategy::kUnknown:
+      default:
+        break;
+    }
+    if (result.ok) {
+      rememberSuccessfulStrategy(strategy);
+      return result;
     }
   }
 
-  std::shared_ptr<void> bufferHolder(mediaBuffer, [](void* ptr) {
-    if (ptr != nullptr) {
-      auto* buffer = static_cast<IMFMediaBuffer*>(ptr);
-      buffer->Unlock();
-      buffer->Release();
-    }
-  });
-
-  frame_bridge::PublishLatestFrameView(static_cast<int>(snapshot.frameWidth),
-                                       static_cast<int>(snapshot.frameHeight),
-                                       static_cast<int>(snapshot.frameStride),
-                                       snapshot.outputTimestamp100ns, snapshot.sequence,
-                                       static_cast<const std::uint8_t*>(rawData), requiredBytes,
-                                       std::move(bufferHolder));
-  return PublishResult{true, false, requiredBytes, snapshot.frameWidth, snapshot.frameHeight};
+  invalidateCachedStrategy();
+  return {};
 }
 
 bool DecodePipelineStub::TryAcquireMediaFoundationFrame(FrameToken* frame) {

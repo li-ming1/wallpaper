@@ -1,5 +1,49 @@
 # Progress Log
 
+## Session: 2026-04-07 Decode Publish Strategy Cache
+
+### Phase 1: 计划恢复与热路径复核
+- **Status:** complete
+- Actions taken:
+  - 复核 `decode_pipeline_internal.h`、`decode_pipeline_mf.cpp`、`decode_pipeline_core.cpp`，确认 Phase 2 热路径仍是 `PublishSampleToBridgeUnlocked(...)`。
+  - 恢复 `task_plan.md` 与 `findings.md`，记录当前优化目标、reset 点与工作树脏文件。
+  - 确认本轮只做内部策略缓存，不修改外部 decode pipeline 接口。
+- Next:
+  - 先补纯策略 Red 测试。
+  - 再把缓存策略接入 MF 发布路径并做 reset 失效。
+
+### Phase 2: 发布策略缓存
+- **Status:** complete
+- Actions taken:
+  - 新增 `tests/sample_publish_policy_tests.cpp`，先验证 Red：缺少 `wallpaper/sample_publish_policy.h`，编译按预期失败。
+  - 新增 `include/wallpaper/sample_publish_policy.h`，实现纯策略缓存与 probe plan 生成。
+  - 在 `src/win/decode_pipeline_mf.cpp` 中将样本发布切换为“按计划探测并在成功后缓存策略”，避免后续帧重复走整棵探测树。
+  - 在 `ReleaseMfLocked()` 中 reset 发布策略缓存，避免 reset / reopen 后带入旧状态。
+  - 更新测试入口与构建脚本，纳入新测试文件。
+- Verification summary:
+  - Red -> `build_tmp/phase2_sample_publish_red`（缺少 `sample_publish_policy.h`，符合预期）
+  - Green tests -> `build_tmp/phase2_sample_publish_green`（`273/273 PASS`）
+  - Green build -> `build_tmp/phase2_sample_publish_app`
+- Findings:
+  - 当前实现已把“每帧重复决定走哪条发布路径”收敛为“先命中缓存，失败再补探测”。
+  - 策略缓存是纯内部状态，不改变现有外部 decode pipeline 行为与接口。
+
+### Phase 3: 共享 GPU Bridge 设备/上下文缓存
+- **Status:** complete
+- Actions taken:
+  - 新增 `tests/shared_device_cache_policy_tests.cpp`，先验证 Red：缺少 `wallpaper/shared_device_cache_policy.h`，编译按预期失败。
+  - 新增 `include/wallpaper/shared_device_cache_policy.h`，定义共享设备缓存决策，覆盖稳定 revision 复用、缺上下文刷新、revision 变更重建三类场景。
+  - 为 `include/wallpaper/d3d11_interop_device.h` 增加 shared-device revision 计数与查询接口。
+  - 在 `src/win/decode_pipeline_mf.cpp` 中为共享 NV12 bridge 增加本地 `ID3D11Device/ID3D11DeviceContext` 缓存；revision 未变化时直接复用，不再每帧重新 `AcquireSharedDevice()->GetImmediateContext()`。
+  - 在设备 revision 变化时释放旧 bridge 纹理并刷新缓存，确保不会继续发布旧设备上的 NV12 桥纹理。
+- Verification summary:
+  - Red -> `build_tmp/phase3_shared_device_cache_red`（缺少 `shared_device_cache_policy.h`，符合预期）
+  - Green tests -> `build_tmp/phase3_shared_device_cache_green`（`277/277 PASS`）
+  - Green build -> `build_tmp/phase3_shared_device_cache_app`
+- Findings:
+  - 这轮优化消掉了 NV12 共享 GPU bridge 的每帧全局设备锁与上下文获取固定成本。
+  - 设备重建时会同步失效旧桥纹理，行为边界比“只缓存 context”更稳。
+
 ## Session: 2026-04-01 Full-Quality CPU < 2 / WS < 47MB Recovery
 
 ### Phase 113: 启动预热 Trim（有效但未达标）

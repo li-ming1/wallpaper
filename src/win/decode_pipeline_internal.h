@@ -9,6 +9,8 @@
 #include "wallpaper/upload_texture_policy.h"
 #include "wallpaper/upload_scale_policy.h"
 #include "wallpaper/frame_bridge.h"
+#include "wallpaper/sample_publish_policy.h"
+#include "wallpaper/shared_device_cache_policy.h"
 
 #include <atomic>
 #include <chrono>
@@ -106,6 +108,8 @@ class DecodePipelineStub final : public IDecodePipeline {
   void ReleaseMfLocked();
   bool EnsureSharedNv12BridgeTexturesLocked(ID3D11Device* device, UINT width, UINT height);
   void ReleaseSharedNv12BridgeTexturesLocked();
+  bool EnsureSharedNv12BridgeDeviceCacheLocked();
+  void ReleaseSharedNv12BridgeDeviceCacheLocked();
   bool SeekReaderToStartLocked();
   void ClearAsyncReadySampleLocked();
   bool IssueAsyncReadLocked();
@@ -150,6 +154,10 @@ class DecodePipelineStub final : public IDecodePipeline {
   DecodeAsyncReadState decodeAsyncReadState_{};
   IMFSample* asyncReadySample_ = nullptr;
   std::int64_t asyncReadyRawTimestamp100ns_ = 0;
+  SamplePublishStrategyCache samplePublishStrategyCache_{};
+  ID3D11Device* sharedNv12BridgeDevice_ = nullptr;
+  ID3D11DeviceContext* sharedNv12BridgeContext_ = nullptr;
+  std::uint64_t sharedNv12BridgeDeviceRevision_ = 0;
   ID3D11Texture2D* sharedNv12BridgeYTexture_ = nullptr;
   ID3D11Texture2D* sharedNv12BridgeUvTexture_ = nullptr;
   UINT sharedNv12BridgeWidth_ = 0;

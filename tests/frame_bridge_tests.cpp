@@ -1,4 +1,5 @@
 #include "wallpaper/frame_bridge.h"
+#include "wallpaper/frame_bridge_slot_policy.h"
 
 #include <cstdint>
 #include <memory>
@@ -133,4 +134,15 @@ TEST_CASE(FrameBridge_ReleaseConsumedDropsMatchedFrame) {
 
   wallpaper::frame_bridge::LatestFrame latest;
   EXPECT_TRUE(!wallpaper::frame_bridge::TryGetLatestFrame(&latest));
+}
+
+TEST_CASE(FrameBridgeSlotPolicy_AdvancePublishSlotWrapsAcrossFixedSlotRing) {
+  EXPECT_EQ(wallpaper::frame_bridge::AdvancePublishSlot(0U, 3U), 1U);
+  EXPECT_EQ(wallpaper::frame_bridge::AdvancePublishSlot(1U, 3U), 2U);
+  EXPECT_EQ(wallpaper::frame_bridge::AdvancePublishSlot(2U, 3U), 0U);
+}
+
+TEST_CASE(FrameBridgeSlotPolicy_AdvancePublishSlotFallsBackToZeroForInvalidSlotCount) {
+  EXPECT_EQ(wallpaper::frame_bridge::AdvancePublishSlot(0U, 0U), 0U);
+  EXPECT_EQ(wallpaper::frame_bridge::AdvancePublishSlot(5U, 0U), 0U);
 }
