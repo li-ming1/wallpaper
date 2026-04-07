@@ -114,9 +114,11 @@ add_executable(wallpaper_tests
   tests/cpp26_feature_support_tests.cpp
   tests/decode_async_read_policy_tests.cpp
   tests/desktop_context_policy_tests.cpp
+  tests/desktop_attach_plan_tests.cpp
   tests/desktop_attach_policy_tests.cpp
   tests/decode_output_policy_tests.cpp
   tests/async_file_writer_tests.cpp
+  tests/fixed_task_queue_tests.cpp
   tests/frame_buffer_policy_tests.cpp
   tests/frame_bridge_tests.cpp
   tests/foreground_policy_tests.cpp
@@ -124,6 +126,7 @@ add_executable(wallpaper_tests
   tests/long_run_load_policy_tests.cpp
   tests/metrics_sampler_tests.cpp
   tests/metrics_log_line_tests.cpp
+  tests/metrics_shard_retain_set_tests.cpp
   tests/metrics_log_file_tests.cpp
   tests/monitor_layout_policy_tests.cpp
   tests/nv12_layout_policy_tests.cpp
@@ -131,6 +134,7 @@ add_executable(wallpaper_tests
   tests/pause_suspend_policy_tests.cpp
   tests/pause_transition_policy_tests.cpp
   tests/playback_profile_policy_tests.cpp
+  tests/present_sample_window_tests.cpp
   tests/quality_governor_tests.cpp
   tests/probe_cadence_policy_tests.cpp
   tests/render_scheduler_tests.cpp
@@ -142,12 +146,14 @@ add_executable(wallpaper_tests
   tests/runtime_trim_policy_tests.cpp
   tests/single_instance_policy_tests.cpp
   tests/startup_policy_tests.cpp
+  tests/tray_action_queue_tests.cpp
   tests/tray_thread_stop_policy_tests.cpp
   tests/upload_copy_policy_tests.cpp
   tests/upload_scale_policy_tests.cpp
   tests/upload_texture_policy_tests.cpp
   tests/video_path_probe_policy_tests.cpp
   tests/video_path_matcher_tests.cpp
+  tests/video_frame_route_policy_tests.cpp
   tests/win11_cleanup_tests.cpp
 )
 

@@ -1,4 +1,5 @@
 #include "wallpaper/async_file_writer.h"
+#include "wallpaper/fixed_task_queue.h"
 
 #include <algorithm>
 #include <fstream>
@@ -18,7 +19,9 @@ void EnsureParentDirectory(const std::filesystem::path& path) {
 }  // namespace
 
 AsyncFileWriter::AsyncFileWriter(const std::size_t capacity, const bool startWorker)
-    : capacity_(std::max<std::size_t>(1, capacity)), workerStarted_(startWorker) {
+    : capacity_(std::max<std::size_t>(1, capacity)),
+      workerStarted_(startWorker),
+      queue_(capacity_) {
   if (workerStarted_) {
     worker_ = std::thread(&AsyncFileWriter::Run, this);
   }
@@ -31,16 +34,16 @@ bool AsyncFileWriter::Enqueue(Task task) {
   if (stopping_) {
     return false;
   }
-  if (queue_.size() >= capacity_) {
-    const bool dropIncoming = !queue_.empty() && task.append && !queue_.front().append;
+  if (queue_.Full()) {
+    const Task* const oldest = queue_.Front();
+    const bool dropIncoming = oldest != nullptr && task.append && !oldest->append;
     droppedCount_.fetch_add(1, std::memory_order_relaxed);
     if (dropIncoming) {
       // 满队列时优先保留 truncate（append=false）任务，避免关键配置写被日志流量挤掉。
       return true;
     }
-    queue_.pop_front();
   }
-  queue_.push_back(std::move(task));
+  queue_.PushBackOverwrite(std::move(task));
   cv_.notify_one();
   return true;
 }
@@ -67,15 +70,14 @@ void AsyncFileWriter::Run() {
     Task task;
     {
       std::unique_lock<std::mutex> lock(mu_);
-      cv_.wait(lock, [this] { return stopping_ || !queue_.empty(); });
-      if (queue_.empty()) {
+      cv_.wait(lock, [this] { return stopping_ || !queue_.Empty(); });
+      if (queue_.Empty()) {
         if (stopping_) {
           break;
         }
         continue;
       }
-      task = std::move(queue_.front());
-      queue_.pop_front();
+      (void)queue_.PopFront(&task);
     }
     if (!WriteTask(task)) {
       failureCount_.fetch_add(1, std::memory_order_relaxed);
@@ -85,12 +87,14 @@ void AsyncFileWriter::Run() {
 }
 
 void AsyncFileWriter::DrainQueue() {
-  std::deque<Task> remaining;
-  {
-    std::lock_guard<std::mutex> lock(mu_);
-    remaining.swap(queue_);
-  }
-  for (const auto& task : remaining) {
+  for (;;) {
+    Task task;
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      if (!queue_.PopFront(&task)) {
+        break;
+      }
+    }
     if (!WriteTask(task)) {
       failureCount_.fetch_add(1, std::memory_order_relaxed);
     }

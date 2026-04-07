@@ -19,6 +19,7 @@
 #include "wallpaper/quality_governor.h"
 #include "wallpaper/pause_transition_policy.h"
 #include "wallpaper/pause_suspend_policy.h"
+#include "wallpaper/present_sample_window.h"
 #include "wallpaper/render_scheduler.h"
 #include "wallpaper/resource_arbiter.h"
 #include "wallpaper/source_frame_rate_policy.h"
@@ -97,7 +98,7 @@ class App final {
   std::atomic<bool> decodeRunning_{false};
   bool wallpaperAttached_ = false;
   RenderScheduler::Clock::time_point lastMetricsAt_{};
-  std::vector<double> presentSamplesMs_;
+  PresentSampleWindow presentSamplesMs_{};
   DecodeMode lastDecodeMode_ = DecodeMode::kUnknown;
   DecodePath lastDecodePath_ = DecodePath::kUnknown;
   DecodeInteropStage lastDecodeInteropStage_ = DecodeInteropStage::kUnknown;

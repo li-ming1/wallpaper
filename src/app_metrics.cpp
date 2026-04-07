@@ -9,8 +9,6 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
-#include <vector>
-
 #define PSAPI_VERSION 1
 #include <windows.h>
 #include <psapi.h>
@@ -85,22 +83,7 @@ ProcessMemoryUsage QueryProcessMemoryUsage() {
   return usage;
 }
 
-bool TrimCurrentProcessWorkingSet() {
-  return EmptyWorkingSet(GetCurrentProcess()) != FALSE;
-}
-
-double TakeP95Ms(std::vector<double>* values) {
-  if (values == nullptr || values->empty()) {
-    return 0.0;
-  }
-  const std::size_t n = values->size();
-  const std::size_t index = ((n - 1) * 95) / 100;
-  std::nth_element(values->begin(), values->begin() + static_cast<std::ptrdiff_t>(index),
-                   values->end());
-  const double p95 = (*values)[index];
-  values->clear();
-  return p95;
-}
+bool TrimCurrentProcessWorkingSet() { return EmptyWorkingSet(GetCurrentProcess()) != FALSE; }
 
 std::int64_t NowUnixMs() {
   const auto now = std::chrono::system_clock::now();
@@ -116,7 +99,7 @@ void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameD
     if (frameDropped) {
       ++droppedFrames_;
     } else if (presentMs > 0.0) {
-      presentSamplesMs_.push_back(presentMs);
+      presentSamplesMs_.PushSample(presentMs);
     }
   }
 
@@ -142,7 +125,7 @@ void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameD
   const ProcessMemoryUsage memoryUsage = QueryProcessMemoryUsage();
   metrics.privateBytes = memoryUsage.privateBytes;
   metrics.workingSetBytes = memoryUsage.workingSetBytes;
-  metrics.presentP95Ms = TakeP95Ms(&presentSamplesMs_);
+  metrics.presentP95Ms = presentSamplesMs_.TakeP95AndClear();
   metrics.droppedFrameRatio =
       totalFrames_ == 0 ? 0.0
                         : static_cast<double>(droppedFrames_) / static_cast<double>(totalFrames_);

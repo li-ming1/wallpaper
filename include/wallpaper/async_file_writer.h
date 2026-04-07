@@ -3,12 +3,13 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstddef>
-#include <deque>
 #include <filesystem>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <utility>
+
+#include "wallpaper/fixed_task_queue.h"
 
 namespace wallpaper {
 
@@ -39,7 +40,7 @@ class AsyncFileWriter final {
 
   const std::size_t capacity_;
   const bool workerStarted_;
-  std::deque<Task> queue_;
+  FixedTaskQueue<Task> queue_;
   mutable std::mutex mu_;
   std::condition_variable cv_;
   bool stopping_ = false;

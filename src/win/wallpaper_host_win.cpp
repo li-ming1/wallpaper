@@ -9,6 +9,7 @@
 #include "wallpaper/upload_copy_policy.h"
 #include "wallpaper/upload_scale_policy.h"
 #include "wallpaper/upload_texture_policy.h"
+#include "wallpaper/video_frame_route_policy.h"
 
 #include <windows.h>
 #include <d3d11.h>
@@ -647,42 +648,47 @@ class WallpaperHostWin final : public IWallpaperHost {
           static_cast<std::size_t>(uploadScalePlan.targetHeight);
       const bool useDefaultTextureUpload = ShouldUseDefaultTextureUpload(
           frame.decodePath, uploadPixels, uploadScalePlan.scaled);
-      if (latestFrame.gpuBacked &&
-          latestFrame.pixelFormat == frame_bridge::PixelFormat::kNv12 &&
-          latestFrame.gpuTexture != nullptr && latestFrame.gpuAuxTexture != nullptr &&
-          EnsureVideoTextureForExternalNv12(latestFrame) && DrawVideoNv12Texture()) {
+      const VideoFrameRoutePlan routePlan = BuildVideoFrameRoutePlan(latestFrame);
+      const auto consumeLatestVideoFrame = [&]() {
         lastVideoSequence_ = latestFrame.sequence;
         frame_bridge::ReleaseLatestFrameIfSequenceConsumed(lastVideoSequence_);
         hasVideoTexture = true;
         drewVideo = true;
-      } else if (latestFrame.gpuBacked && latestFrame.gpuTexture != nullptr &&
-                 EnsureVideoTextureForGpu(static_cast<UINT>(latestFrame.width),
-                                          static_cast<UINT>(latestFrame.height),
-                                          static_cast<DXGI_FORMAT>(latestFrame.dxgiFormat)) &&
-          CopyGpuVideoFrame(latestFrame) && DrawVideoTexture()) {
-        lastVideoSequence_ = latestFrame.sequence;
-        frame_bridge::ReleaseLatestFrameIfSequenceConsumed(lastVideoSequence_);
-        hasVideoTexture = true;
-        drewVideo = true;
-      } else if (latestFrame.pixelFormat == frame_bridge::PixelFormat::kNv12 &&
-                 latestFrame.yPlaneData != nullptr && latestFrame.uvPlaneData != nullptr &&
-                 EnsureVideoTextureForNv12(uploadScalePlan.targetWidth,
-                                           uploadScalePlan.targetHeight,
-                                           !useDefaultTextureUpload) &&
-                 UploadVideoFrameNv12(latestFrame, uploadScalePlan) && DrawVideoNv12Texture()) {
-        lastVideoSequence_ = latestFrame.sequence;
-        frame_bridge::ReleaseLatestFrameIfSequenceConsumed(lastVideoSequence_);
-        hasVideoTexture = true;
-        drewVideo = true;
-      } else if (latestFrame.rgbaData != nullptr &&
-                 EnsureVideoTextureForCpu(uploadScalePlan.targetWidth,
+      };
+
+      for (std::size_t routeIndex = 0; routeIndex < routePlan.count && !drewVideo; ++routeIndex) {
+        switch (routePlan.routes[routeIndex]) {
+          case VideoFrameRoute::kExternalGpuNv12:
+            if (EnsureVideoTextureForExternalNv12(latestFrame) && DrawVideoNv12Texture()) {
+              consumeLatestVideoFrame();
+            }
+            break;
+          case VideoFrameRoute::kGpuTextureCopy:
+            if (EnsureVideoTextureForGpu(static_cast<UINT>(latestFrame.width),
+                                         static_cast<UINT>(latestFrame.height),
+                                         static_cast<DXGI_FORMAT>(latestFrame.dxgiFormat)) &&
+                CopyGpuVideoFrame(latestFrame) && DrawVideoTexture()) {
+              consumeLatestVideoFrame();
+            }
+            break;
+          case VideoFrameRoute::kCpuNv12Upload:
+            if (EnsureVideoTextureForNv12(uploadScalePlan.targetWidth,
                                           uploadScalePlan.targetHeight,
                                           !useDefaultTextureUpload) &&
-                 UploadVideoFrame(latestFrame, uploadScalePlan) && DrawVideoTexture()) {
-        lastVideoSequence_ = latestFrame.sequence;
-        frame_bridge::ReleaseLatestFrameIfSequenceConsumed(lastVideoSequence_);
-        hasVideoTexture = true;
-        drewVideo = true;
+                UploadVideoFrameNv12(latestFrame, uploadScalePlan) &&
+                DrawVideoNv12Texture()) {
+              consumeLatestVideoFrame();
+            }
+            break;
+          case VideoFrameRoute::kCpuRgbaUpload:
+            if (EnsureVideoTextureForCpu(uploadScalePlan.targetWidth,
+                                         uploadScalePlan.targetHeight,
+                                         !useDefaultTextureUpload) &&
+                UploadVideoFrame(latestFrame, uploadScalePlan) && DrawVideoTexture()) {
+              consumeLatestVideoFrame();
+            }
+            break;
+        }
       }
     }
 

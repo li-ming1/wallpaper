@@ -12,6 +12,18 @@
   - 先补纯策略 Red 测试。
   - 再把缓存策略接入 MF 发布路径并做 reset 失效。
 
+## 2026-04-07
+- 复核当前工作树脏状态，确认本轮只继续 `video_frame_route_policy` 子任务，不碰其他未提交优化。
+- 检查 `tests/video_frame_route_policy_tests.cpp` 与 `wallpaper_host_win.cpp::Present()` 现状，确认目标是先提取帧路由判定，再回接热路径。
+- 更新 `task_plan.md` / `findings.md`，登记新的 code-hygiene phase 与拆分边界。
+- TDD Red：`scripts/run_tests.ps1 -BuildDir build_tmp/phase7_video_frame_route_red` 按预期失败，缺少 `wallpaper/video_frame_route_policy.h`。
+- Green：新增 `include/wallpaper/video_frame_route_policy.h`，用固定小数组表达视频帧路由计划。
+- Refactor：`src/win/wallpaper_host_win.cpp` 的 `Present()` 已切换为“先生成 route plan，再按 plan 执行”。
+- Verification：
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/phase7_video_frame_route_green` -> PASS（290/290）
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/phase7_video_frame_route_refactor` -> PASS（290/290）
+  - `scripts/build_app.ps1 -BuildDir build_tmp/phase7_video_frame_route_app` -> PASS
+
 ### Phase 2: 发布策略缓存
 - **Status:** complete
 - Actions taken:

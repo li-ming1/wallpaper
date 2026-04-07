@@ -1,5 +1,6 @@
 #include "wallpaper/metrics_log_file.h"
 #include "wallpaper/async_file_writer.h"
+#include "wallpaper/metrics_shard_retain_set.h"
 
 #include <algorithm>
 #include <array>
@@ -8,8 +9,6 @@
 #include <ctime>
 #include <fstream>
 #include <system_error>
-#include <utility>
-#include <vector>
 
 namespace wallpaper {
 namespace {
@@ -36,6 +35,32 @@ bool IsDateKey(const std::string& text) {
   }
   return std::all_of(text.begin(), text.end(),
                      [](const char ch) { return std::isdigit(static_cast<unsigned char>(ch)); });
+}
+
+bool TryParseMetricsShardCandidate(const std::filesystem::directory_entry& entry,
+                                   const std::string& prefix, const std::string& ext,
+                                   MetricsShardCandidate* const out) {
+  if (out == nullptr || !entry.is_regular_file()) {
+    return false;
+  }
+  const auto name = entry.path().filename().string();
+  if (name.size() < prefix.size() + 8 + ext.size()) {
+    return false;
+  }
+  if (name.rfind(prefix, 0) != 0) {
+    return false;
+  }
+  if (!ext.empty() && entry.path().extension() != ext) {
+    return false;
+  }
+  const std::size_t keyBegin = prefix.size();
+  const std::string key = name.substr(keyBegin, 8);
+  if (!IsDateKey(key)) {
+    return false;
+  }
+  out->key = key;
+  out->path = entry.path();
+  return true;
 }
 
 }  // namespace
@@ -185,39 +210,32 @@ void MetricsLogFile::PruneShards(const std::filesystem::path& activePath) const 
   const auto dir = basePath_.parent_path().empty() ? std::filesystem::current_path()
                                                    : basePath_.parent_path();
 
-  std::vector<std::pair<std::string, std::filesystem::path>> shards;
+  MetricsShardRetainSet retainSet(keepDays_);
   std::error_code ec;
   for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
-    if (ec || !entry.is_regular_file()) {
+    if (ec) {
       continue;
     }
-    const auto name = entry.path().filename().string();
-    if (name.size() < prefix.size() + 8 + ext.size()) {
-      continue;
+    MetricsShardCandidate candidate;
+    if (TryParseMetricsShardCandidate(entry, prefix, ext, &candidate)) {
+      retainSet.Consider(std::move(candidate));
     }
-    if (name.rfind(prefix, 0) != 0) {
-      continue;
-    }
-    if (!ext.empty() && entry.path().extension() != ext) {
-      continue;
-    }
-    const std::size_t keyBegin = prefix.size();
-    const std::string key = name.substr(keyBegin, 8);
-    if (!IsDateKey(key)) {
-      continue;
-    }
-    shards.push_back(std::make_pair(key, entry.path()));
   }
 
-  std::sort(shards.begin(), shards.end(),
-            [](const auto& a, const auto& b) { return a.first > b.first; });
-
-  for (std::size_t i = keepDays_; i < shards.size(); ++i) {
-    if (shards[i].second == activePath) {
+  ec.clear();
+  for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+    if (ec) {
+      continue;
+    }
+    MetricsShardCandidate candidate;
+    if (!TryParseMetricsShardCandidate(entry, prefix, ext, &candidate)) {
+      continue;
+    }
+    if (candidate.path == activePath || retainSet.Contains(candidate.key, candidate.path)) {
       continue;
     }
     std::error_code removeEc;
-    std::filesystem::remove(shards[i].second, removeEc);
+    std::filesystem::remove(candidate.path, removeEc);
   }
 }
 

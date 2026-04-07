@@ -2,14 +2,13 @@
 
 namespace wallpaper {
 
-std::vector<DesktopAttachTarget> BuildDesktopAttachOrder(const bool hasWorkerW,
-                                                         const bool hasDefView) {
-  std::vector<DesktopAttachTarget> order;
+DesktopAttachPlan BuildDesktopAttachOrder(const bool hasWorkerW, const bool hasDefView) {
+  DesktopAttachPlan order;
   if (hasWorkerW) {
-    order.push_back(DesktopAttachTarget::kWorkerW);
+    order.targets[order.count++] = DesktopAttachTarget::kWorkerW;
   }
   if (hasDefView) {
-    order.push_back(DesktopAttachTarget::kDefView);
+    order.targets[order.count++] = DesktopAttachTarget::kDefView;
   }
   return order;
 }

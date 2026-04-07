@@ -1,4 +1,5 @@
 #include "wallpaper/interfaces.h"
+#include "wallpaper/tray_action_queue.h"
 #include "wallpaper/tray_thread_stop_policy.h"
 
 #include <windows.h>
@@ -6,7 +7,6 @@
 #include <shellapi.h>
 
 #include <atomic>
-#include <deque>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -23,6 +23,7 @@ constexpr UINT_PTR kMenuClearVideoId = 1002;
 constexpr UINT_PTR kMenuEnableAutoStartId = 1003;
 constexpr UINT_PTR kMenuDisableAutoStartId = 1004;
 constexpr UINT_PTR kMenuExitId = 1099;
+constexpr std::size_t kPendingTrayActionCapacity = 16;
 
 HICON LoadAppIcon(const int width, const int height) {
   HINSTANCE instance = GetModuleHandleW(nullptr);
@@ -91,12 +92,10 @@ class TrayControllerWin final : public ITrayController {
       return false;
     }
     std::lock_guard<std::mutex> lock(actionsMu_);
-    if (pendingActions_.empty()) {
+    if (pendingActions_.Empty()) {
       return false;
     }
-    *action = std::move(pendingActions_.front());
-    pendingActions_.pop_front();
-    return true;
+    return pendingActions_.Dequeue(action);
   }
 
  private:
@@ -193,7 +192,7 @@ class TrayControllerWin final : public ITrayController {
 
   void PushAction(TrayActionType type, std::string payload = {}) {
     std::lock_guard<std::mutex> lock(actionsMu_);
-    pendingActions_.push_back(TrayAction{type, std::move(payload)});
+    (void)pendingActions_.Enqueue(TrayAction{type, std::move(payload)});
   }
 
   std::wstring PickVideoFileFromDialog() {
@@ -319,7 +318,7 @@ class TrayControllerWin final : public ITrayController {
   HWND messageWindow_ = nullptr;
   NOTIFYICONDATAW nid_{};
   std::mutex actionsMu_;
-  std::deque<TrayAction> pendingActions_;
+  TrayActionQueue pendingActions_{kPendingTrayActionCapacity};
   std::mutex menuStateMu_;
   TrayMenuState menuState_{};
 };

@@ -240,10 +240,7 @@ App::App(std::filesystem::path configPath)
                       metricsWriter_.get()),
       metrics_(300),
       qualityGovernor_(),
-      metricsSessionId_(BuildMetricsSessionId()) {
-  // 指标窗口为固定低量样本，预留容量可降低反复扩容带来的堆分配与碎片风险。
-  presentSamplesMs_.reserve(128);
-}
+      metricsSessionId_(BuildMetricsSessionId()) {}
 
 App::~App() {
   RequestStop();
@@ -408,14 +405,14 @@ bool App::EnsureWallpaperAttached() {
 void App::DetachWallpaper() {
   if (!wallpaperHost_ || !wallpaperAttached_) {
     frame_bridge::ClearLatestFrame();
-    presentSamplesMs_.clear();
+    presentSamplesMs_.Clear();
     lastPresentedAt_ = RenderScheduler::Clock::time_point{};
     return;
   }
   wallpaperHost_->DetachFromDesktop();
   wallpaperAttached_ = false;
   frame_bridge::ClearLatestFrame();
-  presentSamplesMs_.clear();
+  presentSamplesMs_.Clear();
   lastPresentedAt_ = RenderScheduler::Clock::time_point{};
 }
 
@@ -667,7 +664,7 @@ void App::Tick() {
       pauseEnteredAt_ = now;
       scheduler_.Reset();
       // 保留最后一帧并仅停止解码，让切换到“静态壁纸”时更自然。
-      presentSamplesMs_.clear();
+      presentSamplesMs_.Clear();
       wasPaused_ = true;
     } else if (!hardSuspendedByPause_ && decodeOpened_.load()) {
       const auto pausedDuration =
