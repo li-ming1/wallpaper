@@ -23,8 +23,10 @@ class MetricsLogFile final {
   [[nodiscard]] bool Append(std::string_view line) const;
 
  private:
-  [[nodiscard]] std::filesystem::path ActivePath() const;
+ [[nodiscard]] std::filesystem::path ActivePath() const;
   [[nodiscard]] bool EnsureReadyForPath(const std::filesystem::path& activePath) const;
+  [[nodiscard]] bool RefreshActiveShardSizeCache(const std::filesystem::path& activePath) const;
+  void InvalidateActiveShardSizeCache() const noexcept;
   void MaybePruneShards(const std::filesystem::path& activePath) const;
   [[nodiscard]] bool RewriteWithHeader(const std::filesystem::path& path) const;
   void PruneShards(const std::filesystem::path& activePath) const;
@@ -35,6 +37,9 @@ class MetricsLogFile final {
   std::size_t keepDays_;
   DateKeyProvider dateKeyProvider_;
   AsyncFileWriter* writer_;
+  mutable std::filesystem::path cachedActivePath_;
+  mutable std::size_t cachedActivePathBytes_ = 0;
+  mutable bool cachedActivePathBytesKnown_ = false;
   mutable std::filesystem::path lastPrunedActivePath_;
   mutable std::chrono::steady_clock::time_point lastPrunedAt_{};
 };

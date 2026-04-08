@@ -36,6 +36,19 @@ std::size_t CountOccurrences(const std::string& content, const std::string_view 
   return count;
 }
 
+std::string SliceByMarkers(const std::string& content, const std::string_view begin,
+                           const std::string_view end) {
+  const std::size_t beginPos = content.find(begin);
+  if (beginPos == std::string::npos) {
+    return {};
+  }
+  const std::size_t endPos = content.find(end, beginPos);
+  if (endPos == std::string::npos || endPos <= beginPos) {
+    return content.substr(beginPos);
+  }
+  return content.substr(beginPos, endPos - beginPos);
+}
+
 void ExpectFileDoesNotContain(const std::filesystem::path& path,
                               const std::vector<std::string_view>& patterns) {
   EXPECT_TRUE(std::filesystem::exists(path));
@@ -209,6 +222,36 @@ TEST_CASE(Win11Cleanup_MetricsLogFilePruneDoesNotEnumerateDirectoryTwice) {
   const std::string metricsLogSource = ReadTextFile(repoRoot / "src" / "metrics_log_file.cpp");
 
   EXPECT_EQ(CountOccurrences(metricsLogSource, "std::filesystem::directory_iterator("),
+            static_cast<std::size_t>(1));
+}
+
+TEST_CASE(Win11Cleanup_PathHandlingDoesNotUseFixedMaxPathBuffers) {
+  const auto repoRoot = std::filesystem::current_path();
+  const auto mainSource = repoRoot / "src" / "main.cpp";
+  const auto autoStartSource = repoRoot / "src" / "app_autostart.cpp";
+  const auto traySource = repoRoot / "src" / "win" / "tray_controller_win.cpp";
+
+  ExpectFileDoesNotContain(mainSource, {"MAX_PATH"});
+  ExpectFileDoesNotContain(autoStartSource, {"MAX_PATH"});
+  ExpectFileDoesNotContain(traySource, {"MAX_PATH", "wchar_t fileBuffer["});
+}
+
+TEST_CASE(Win11Cleanup_MetricsLogFileAppendAvoidsPerLineMetadataProbe) {
+  const auto repoRoot = std::filesystem::current_path();
+  const std::string metricsLogSource = ReadTextFile(repoRoot / "src" / "metrics_log_file.cpp");
+  const std::string appendBlock = SliceByMarkers(metricsLogSource, "bool MetricsLogFile::Append(",
+                                                  "bool MetricsLogFile::RefreshActiveShardSizeCache(");
+
+  EXPECT_TRUE(!appendBlock.empty());
+  EXPECT_TRUE(appendBlock.find("std::filesystem::file_size(") == std::string::npos);
+  EXPECT_TRUE(appendBlock.find("std::filesystem::exists(") == std::string::npos);
+}
+
+TEST_CASE(Win11Cleanup_DecodePublishConvertsContiguousBufferOncePerFramePath) {
+  const auto repoRoot = std::filesystem::current_path();
+  const std::string decodeMfSource = ReadTextFile(repoRoot / "src" / "win" / "decode_pipeline_mf.cpp");
+
+  EXPECT_EQ(CountOccurrences(decodeMfSource, "ConvertToContiguousBuffer("),
             static_cast<std::size_t>(1));
 }
 

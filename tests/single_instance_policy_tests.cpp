@@ -23,8 +23,7 @@ TEST_CASE(SingleInstancePolicy_RejectsWhenMoreThanOneProcessDetected) {
 }
 
 TEST_CASE(SingleInstancePolicy_StartRequiresAllGuards) {
-  EXPECT_TRUE(wallpaper::ShouldAllowSingleInstanceStartup(true, true, false));
-  EXPECT_TRUE(!wallpaper::ShouldAllowSingleInstanceStartup(false, true, false));
-  EXPECT_TRUE(!wallpaper::ShouldAllowSingleInstanceStartup(true, false, false));
-  EXPECT_TRUE(!wallpaper::ShouldAllowSingleInstanceStartup(true, true, true));
+  EXPECT_TRUE(wallpaper::ShouldAllowSingleInstanceStartup(true, true));
+  EXPECT_TRUE(!wallpaper::ShouldAllowSingleInstanceStartup(false, true));
+  EXPECT_TRUE(!wallpaper::ShouldAllowSingleInstanceStartup(true, false));
 }

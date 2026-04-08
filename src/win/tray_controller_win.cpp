@@ -196,13 +196,14 @@ class TrayControllerWin final : public ITrayController {
   }
 
   std::wstring PickVideoFileFromDialog() {
-    wchar_t fileBuffer[MAX_PATH] = {};
+    constexpr DWORD kDialogPathBufferChars = 32768;
+    std::wstring fileBuffer(static_cast<std::size_t>(kDialogPathBufferChars), L'\0');
 
     OPENFILENAMEW ofn{};
     ofn.lStructSize = sizeof(ofn);
     ofn.hwndOwner = messageWindow_;
-    ofn.lpstrFile = fileBuffer;
-    ofn.nMaxFile = MAX_PATH;
+    ofn.lpstrFile = fileBuffer.data();
+    ofn.nMaxFile = kDialogPathBufferChars;
     ofn.lpstrFilter = L"Video Files\0*.mp4;*.mkv;*.mov;*.avi;*.wmv\0All Files\0*.*\0";
     ofn.nFilterIndex = 1;
     ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_EXPLORER;
@@ -210,7 +211,7 @@ class TrayControllerWin final : public ITrayController {
     if (!GetOpenFileNameW(&ofn)) {
       return {};
     }
-    return std::wstring(fileBuffer);
+    return std::wstring(ofn.lpstrFile);
   }
 
   void HandleMenuCommand(const UINT commandId) {

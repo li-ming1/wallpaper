@@ -1035,29 +1035,86 @@ DecodePipelineStub::PublishResult DecodePipelineStub::PublishSampleToBridgeUnloc
     return {};
   };
 
+  class ScopedContiguousSampleBuffer final {
+   public:
+    explicit ScopedContiguousSampleBuffer(IMFSample* const sample) : sample_(sample) {}
+
+    ~ScopedContiguousSampleBuffer() {
+      if (mediaBuffer_ != nullptr) {
+        mediaBuffer_->Unlock();
+        mediaBuffer_->Release();
+      }
+    }
+
+    [[nodiscard]] bool EnsureLocked() {
+      if (mediaBuffer_ != nullptr) {
+        return rawData_ != nullptr && currentLength_ > 0;
+      }
+      if (sample_ == nullptr) {
+        return false;
+      }
+      if (FAILED(sample_->ConvertToContiguousBuffer(&mediaBuffer_)) || mediaBuffer_ == nullptr) {
+        mediaBuffer_ = nullptr;
+        return false;
+      }
+
+      DWORD maxLength = 0;
+      if (FAILED(mediaBuffer_->Lock(&rawData_, &maxLength, &currentLength_)) ||
+          rawData_ == nullptr || currentLength_ == 0) {
+        mediaBuffer_->Release();
+        mediaBuffer_ = nullptr;
+        rawData_ = nullptr;
+        currentLength_ = 0;
+        return false;
+      }
+      return true;
+    }
+
+    [[nodiscard]] const std::uint8_t* data() const noexcept {
+      return static_cast<const std::uint8_t*>(rawData_);
+    }
+
+    [[nodiscard]] std::size_t size_bytes() const noexcept {
+      return static_cast<std::size_t>(currentLength_);
+    }
+
+    [[nodiscard]] std::shared_ptr<void> DetachLockedHolder() {
+      IMFMediaBuffer* const buffer = mediaBuffer_;
+      mediaBuffer_ = nullptr;
+      rawData_ = nullptr;
+      currentLength_ = 0;
+      if (buffer == nullptr) {
+        return {};
+      }
+      return std::shared_ptr<void>(buffer, [](void* ptr) {
+        if (ptr != nullptr) {
+          auto* typedBuffer = static_cast<IMFMediaBuffer*>(ptr);
+          typedBuffer->Unlock();
+          typedBuffer->Release();
+        }
+      });
+    }
+
+   private:
+    IMFSample* sample_ = nullptr;
+    IMFMediaBuffer* mediaBuffer_ = nullptr;
+    BYTE* rawData_ = nullptr;
+    DWORD currentLength_ = 0;
+  };
+
+  ScopedContiguousSampleBuffer contiguousSampleBuffer(sample);
+
   const auto publishNv12ContiguousFrame = [&]() -> PublishResult {
-    IMFMediaBuffer* mediaBuffer = nullptr;
-    HRESULT hr = sample->ConvertToContiguousBuffer(&mediaBuffer);
-    if (FAILED(hr) || mediaBuffer == nullptr) {
+    if (!contiguousSampleBuffer.EnsureLocked()) {
       return {};
     }
 
-    BYTE* rawData = nullptr;
-    DWORD maxLength = 0;
-    DWORD currentLength = 0;
-    hr = mediaBuffer->Lock(&rawData, &maxLength, &currentLength);
-    if (FAILED(hr) || rawData == nullptr || currentLength == 0) {
-      mediaBuffer->Release();
-      return {};
-    }
-
-    const std::size_t requiredBytes = static_cast<std::size_t>(currentLength);
+    const std::uint8_t* const rawData = contiguousSampleBuffer.data();
+    const std::size_t requiredBytes = contiguousSampleBuffer.size_bytes();
 
     const Nv12Layout layout =
         ComputeNv12Layout(snapshot.frameHeight, snapshot.frameWidth, requiredBytes);
     if (layout.yPlaneBytes == 0 || layout.uvPlaneBytes == 0) {
-      mediaBuffer->Unlock();
-      mediaBuffer->Release();
       return {};
     }
 
@@ -1068,8 +1125,6 @@ DecodePipelineStub::PublishResult DecodePipelineStub::PublishSampleToBridgeUnloc
                                  static_cast<const std::uint8_t*>(rawData + layout.uvPlaneOffsetBytes),
                                  static_cast<int>(snapshot.frameWidth));
       if (scaledResult.ok) {
-        mediaBuffer->Unlock();
-        mediaBuffer->Release();
         return scaledResult;
       }
     }
@@ -1080,19 +1135,13 @@ DecodePipelineStub::PublishResult DecodePipelineStub::PublishSampleToBridgeUnloc
         static_cast<const std::uint8_t*>(rawData + layout.uvPlaneOffsetBytes),
         static_cast<int>(snapshot.frameWidth), layout.uvPlaneBytes);
     if (gpuBridgeResult.ok) {
-      mediaBuffer->Unlock();
-      mediaBuffer->Release();
       return gpuBridgeResult;
     }
 
-    std::shared_ptr<void> bufferHolder(mediaBuffer, [](void* ptr) {
-      if (ptr != nullptr) {
-        auto* buffer = static_cast<IMFMediaBuffer*>(ptr);
-        buffer->Unlock();
-        buffer->Release();
-      }
-    });
-
+    std::shared_ptr<void> bufferHolder = contiguousSampleBuffer.DetachLockedHolder();
+    if (!bufferHolder) {
+      return {};
+    }
     frame_bridge::PublishLatestNv12FrameView(
         static_cast<int>(snapshot.frameWidth), static_cast<int>(snapshot.frameHeight),
         static_cast<int>(snapshot.frameWidth), static_cast<int>(snapshot.frameWidth),
@@ -1104,41 +1153,25 @@ DecodePipelineStub::PublishResult DecodePipelineStub::PublishSampleToBridgeUnloc
   };
 
   const auto publishRgbaContiguousFrame = [&]() -> PublishResult {
-    IMFMediaBuffer* mediaBuffer = nullptr;
-    HRESULT hr = sample->ConvertToContiguousBuffer(&mediaBuffer);
-    if (FAILED(hr) || mediaBuffer == nullptr) {
+    if (!contiguousSampleBuffer.EnsureLocked()) {
       return {};
     }
 
-    BYTE* rawData = nullptr;
-    DWORD maxLength = 0;
-    DWORD currentLength = 0;
-    hr = mediaBuffer->Lock(&rawData, &maxLength, &currentLength);
-    if (FAILED(hr) || rawData == nullptr || currentLength == 0) {
-      mediaBuffer->Release();
-      return {};
-    }
-
-    const std::size_t requiredBytes = static_cast<std::size_t>(currentLength);
+    const std::uint8_t* const rawData = contiguousSampleBuffer.data();
+    const std::size_t requiredBytes = contiguousSampleBuffer.size_bytes();
 
     if (shouldScaleForBridge) {
       const PublishResult scaledResult = publishScaledRgbaFrame(
           static_cast<const std::uint8_t*>(rawData), static_cast<int>(snapshot.frameStride));
       if (scaledResult.ok) {
-        mediaBuffer->Unlock();
-        mediaBuffer->Release();
         return scaledResult;
       }
     }
 
-    std::shared_ptr<void> bufferHolder(mediaBuffer, [](void* ptr) {
-      if (ptr != nullptr) {
-        auto* buffer = static_cast<IMFMediaBuffer*>(ptr);
-        buffer->Unlock();
-        buffer->Release();
-      }
-    });
-
+    std::shared_ptr<void> bufferHolder = contiguousSampleBuffer.DetachLockedHolder();
+    if (!bufferHolder) {
+      return {};
+    }
     frame_bridge::PublishLatestFrameView(static_cast<int>(snapshot.frameWidth),
                                          static_cast<int>(snapshot.frameHeight),
                                          static_cast<int>(snapshot.frameStride),

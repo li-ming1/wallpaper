@@ -4,10 +4,12 @@
 #include <windows.h>
 #include <objbase.h>
 
+#include <algorithm>
 #include <cstring>
 #include <filesystem>
 #include <string>
 #include <system_error>
+#include <vector>
 
 namespace {
 
@@ -31,18 +33,29 @@ void EnablePerMonitorDpiAwareness() {
 }
 
 std::filesystem::path ResolveConfigPath() {
-  wchar_t exePath[MAX_PATH] = {};
-  const DWORD len = GetModuleFileNameW(nullptr, exePath, MAX_PATH);
-  if (len == 0 || len >= MAX_PATH) {
-    return std::filesystem::path{"config.json"};
-  }
+  constexpr std::size_t kInitialPathCapacity = 512;
+  constexpr std::size_t kMaxPathCapacity = 32768;
 
-  std::filesystem::path base(exePath);
-  const auto parent = base.parent_path();
-  if (parent.empty()) {
-    return std::filesystem::path{"config.json"};
+  std::vector<wchar_t> exePath(kInitialPathCapacity, L'\0');
+  for (;;) {
+    const DWORD len = GetModuleFileNameW(nullptr, exePath.data(),
+                                         static_cast<DWORD>(exePath.size()));
+    if (len == 0) {
+      return std::filesystem::path{"config.json"};
+    }
+    if (len < exePath.size()) {
+      std::filesystem::path base(std::wstring(exePath.data(), len));
+      const auto parent = base.parent_path();
+      if (parent.empty()) {
+        return std::filesystem::path{"config.json"};
+      }
+      return parent / "config.json";
+    }
+    if (exePath.size() >= kMaxPathCapacity) {
+      return std::filesystem::path{"config.json"};
+    }
+    exePath.resize(std::min(exePath.size() * 2, kMaxPathCapacity));
   }
-  return parent / "config.json";
 }
 
 class ScopedSingleInstanceMutex final {
@@ -114,12 +127,26 @@ class ScopedSingleInstanceMutex final {
   }
 
   static std::filesystem::path ResolveLockFilePath() {
-    wchar_t tempPath[MAX_PATH] = {};
-    const DWORD len = GetTempPathW(MAX_PATH, tempPath);
-    if (len == 0 || len >= MAX_PATH) {
-      return {};
+    constexpr std::size_t kInitialTempPathCapacity = 512;
+    constexpr std::size_t kMaxTempPathCapacity = 32768;
+
+    std::vector<wchar_t> tempPath(kInitialTempPathCapacity, L'\0');
+    for (;;) {
+      const DWORD len = GetTempPathW(static_cast<DWORD>(tempPath.size()), tempPath.data());
+      if (len == 0) {
+        return {};
+      }
+      if (len < tempPath.size()) {
+        return std::filesystem::path(std::wstring(tempPath.data(), len)) / "wallpaper" /
+               "instance.lock";
+      }
+      if (tempPath.size() >= kMaxTempPathCapacity) {
+        return {};
+      }
+      const std::size_t expandedCapacity =
+          std::max<std::size_t>(tempPath.size() * 2, static_cast<std::size_t>(len) + 1U);
+      tempPath.resize(std::min(expandedCapacity, kMaxTempPathCapacity));
     }
-    return std::filesystem::path(tempPath) / "wallpaper" / "instance.lock";
   }
 
   [[nodiscard]] bool TryAcquireLockFile() {
@@ -190,7 +217,7 @@ int RunWallpaperApp() {
   ScopedSingleInstanceMutex singleInstanceMutex;
   const bool guardAcquired = singleInstanceMutex.TryAcquire();
   if (!wallpaper::ShouldAllowSingleInstanceStartup(guardAcquired && singleInstanceMutex.mutex_acquired(),
-                                                   singleInstanceMutex.lock_file_acquired(), false)) {
+                                                   singleInstanceMutex.lock_file_acquired())) {
     return 0;
   }
   EnablePerMonitorDpiAwareness();

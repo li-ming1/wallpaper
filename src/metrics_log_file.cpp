@@ -79,7 +79,8 @@ MetricsLogFile::MetricsLogFile(std::filesystem::path path, const std::size_t max
 void MetricsLogFile::SetWriter(AsyncFileWriter* const writer) noexcept { writer_ = writer; }
 
 bool MetricsLogFile::EnsureReady() const {
-  return EnsureReadyForPath(ActivePath());
+  const std::filesystem::path activePath = ActivePath();
+  return RefreshActiveShardSizeCache(activePath);
 }
 
 bool MetricsLogFile::EnsureReadyForPath(const std::filesystem::path& activePath) const {
@@ -127,31 +128,61 @@ bool MetricsLogFile::Append(const std::string_view line) const {
     return false;
   }
   const std::filesystem::path activePath = ActivePath();
-  if (!EnsureReadyForPath(activePath)) {
-    return false;
+  if (!cachedActivePathBytesKnown_ || cachedActivePath_ != activePath) {
+    if (!RefreshActiveShardSizeCache(activePath)) {
+      return false;
+    }
   }
 
+  if (cachedActivePathBytes_ + line.size() > maxBytes_ && !RewriteWithHeader(activePath)) {
+    InvalidateActiveShardSizeCache();
+    return false;
+  }
+  if (cachedActivePathBytes_ + line.size() > maxBytes_) {
+    cachedActivePathBytes_ = header_.size();
+  }
+
+  bool appended = false;
+  if (writer_ != nullptr) {
+    appended = writer_->Enqueue(AsyncFileWriter::Task{activePath, true, std::string(line)});
+  } else {
+    std::ofstream out(activePath, std::ios::binary | std::ios::app);
+    if (!out.is_open()) {
+      InvalidateActiveShardSizeCache();
+      return false;
+    }
+    out.write(line.data(), static_cast<std::streamsize>(line.size()));
+    appended = static_cast<bool>(out);
+  }
+  if (!appended) {
+    InvalidateActiveShardSizeCache();
+    return false;
+  }
+  cachedActivePathBytes_ += line.size();
+  return true;
+}
+
+bool MetricsLogFile::RefreshActiveShardSizeCache(const std::filesystem::path& activePath) const {
+  if (!EnsureReadyForPath(activePath)) {
+    InvalidateActiveShardSizeCache();
+    return false;
+  }
   std::error_code ec;
   const auto bytes = std::filesystem::file_size(activePath, ec);
   if (ec) {
+    InvalidateActiveShardSizeCache();
     return false;
   }
+  cachedActivePath_ = activePath;
+  cachedActivePathBytes_ = bytes;
+  cachedActivePathBytesKnown_ = true;
+  return true;
+}
 
-  // 达到阈值直接回收成“仅表头”，确保长期运行文件体积稳定且写入路径简单。
-  if (bytes + line.size() > maxBytes_ && !RewriteWithHeader(activePath)) {
-    return false;
-  }
-
-  if (writer_ != nullptr) {
-    return writer_->Enqueue(AsyncFileWriter::Task{activePath, true, std::string(line)});
-  }
-
-  std::ofstream out(activePath, std::ios::binary | std::ios::app);
-  if (!out.is_open()) {
-    return false;
-  }
-  out.write(line.data(), static_cast<std::streamsize>(line.size()));
-  return static_cast<bool>(out);
+void MetricsLogFile::InvalidateActiveShardSizeCache() const noexcept {
+  cachedActivePath_.clear();
+  cachedActivePathBytes_ = 0;
+  cachedActivePathBytesKnown_ = false;
 }
 
 void MetricsLogFile::MaybePruneShards(const std::filesystem::path& activePath) const {

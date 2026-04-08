@@ -19,9 +19,8 @@ namespace wallpaper {
 }
 
 [[nodiscard]] inline bool ShouldAllowSingleInstanceStartup(const bool mutexAcquired,
-                                                           const bool lockFileAcquired,
-                                                           const bool hasAdditionalProcess) noexcept {
-  return mutexAcquired && lockFileAcquired && !hasAdditionalProcess;
+                                                           const bool lockFileAcquired) noexcept {
+  return mutexAcquired && lockFileAcquired;
 }
 
 }  // namespace wallpaper

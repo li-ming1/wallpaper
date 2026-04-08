@@ -1,6 +1,23 @@
 # Progress Log
 
 ## 2026-04-08
+- 新任务：执行剩余 `P1-2/P2-1/P2-2` 并加上 single-instance 顺手清理（去掉 `hasAdditionalProcess` 死参数）。
+- TDD Red：
+  - `tests/single_instance_policy_tests.cpp` 改为二参 `ShouldAllowSingleInstanceStartup`。
+  - `tests/win11_cleanup_tests.cpp` 新增约束：
+    - 路径处理不得再使用 `MAX_PATH` 固定缓冲；
+    - `metrics_log_file` 的 `Append` 不能每行做 filesystem metadata 探测；
+    - `decode_pipeline_mf.cpp` 的 `ConvertToContiguousBuffer` 只能保留一次。
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/phase144_red_remaining_cleanup` 按预期失败（single-instance 签名不匹配）。
+- Green：
+  - `include/wallpaper/single_instance_policy.h` 删除 `hasAdditionalProcess` 形参。
+  - `src/main.cpp` / `src/app_autostart.cpp` 改为动态扩容路径缓冲；`src/win/tray_controller_win.cpp` 改为 32K 对话框缓冲。
+  - `include/wallpaper/metrics_log_file.h` / `src/metrics_log_file.cpp` 增加 active shard size cache，`Append` 不再每行 `file_size/exists`。
+  - `src/win/decode_pipeline_mf.cpp` 引入单帧 `ScopedContiguousSampleBuffer`，NV12/RGBA contiguous 策略复用一次转换结果。
+- Verification：
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/phase144_green_remaining_cleanup` -> PASS（313/313）
+  - `scripts/build_app.ps1 -BuildDir build_tmp/phase144_green_remaining_cleanup_app` -> PASS
+
 - 新任务：清理 `metrics.csv` 无效字段，范围限定为 `dropped_frame_ratio` 与 `decode_copy_bytes_per_sec`。
 - 已重新核对代码来源：
   - `dropped_frame_ratio` 当前没有真实 dropped 路径，按实现恒为 `0`。
