@@ -17,7 +17,6 @@ class QualityGovernor final {
   [[nodiscard]] int CurrentFps() const noexcept;
 
   [[nodiscard]] int Update(const RuntimeMetrics& metrics) noexcept;
-  void Reset() noexcept;
 
  private:
   [[nodiscard]] bool IsHighLoad(const RuntimeMetrics& metrics) const noexcept;

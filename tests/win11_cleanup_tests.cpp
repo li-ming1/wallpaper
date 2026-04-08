@@ -626,6 +626,72 @@ TEST_CASE(Win11Cleanup_RemovesConfirmedDeadCodePaths) {
   ExpectFileDoesNotContain(wallpaperHostSource, {"postPresentTrimThresholdBytes"});
 }
 
+TEST_CASE(Win11Cleanup_PauseResourcePolicyModuleRemovedFromProductionTree) {
+  const auto repoRoot = std::filesystem::current_path();
+  const auto header = repoRoot / "include" / "wallpaper" / "pause_resource_policy.h";
+  const auto source = repoRoot / "src" / "pause_resource_policy.cpp";
+  const auto tests = repoRoot / "tests" / "pause_resource_policy_tests.cpp";
+  const std::string cmakeLists = ReadTextFile(repoRoot / "CMakeLists.txt");
+  const std::string runTestsScript = ReadTextFile(repoRoot / "scripts" / "run_tests.ps1");
+  const std::string buildAppScript = ReadTextFile(repoRoot / "scripts" / "build_app.ps1");
+
+  EXPECT_FALSE(std::filesystem::exists(header));
+  EXPECT_FALSE(std::filesystem::exists(source));
+  EXPECT_FALSE(std::filesystem::exists(tests));
+  EXPECT_TRUE(cmakeLists.find("pause_resource_policy.cpp") == std::string::npos);
+  EXPECT_TRUE(cmakeLists.find("pause_resource_policy_tests.cpp") == std::string::npos);
+  EXPECT_TRUE(runTestsScript.find("pause_resource_policy.cpp") == std::string::npos);
+  EXPECT_TRUE(runTestsScript.find("pause_resource_policy_tests.cpp") == std::string::npos);
+  EXPECT_TRUE(buildAppScript.find("pause_resource_policy.cpp") == std::string::npos);
+}
+
+TEST_CASE(Win11Cleanup_ForegroundPolicyModuleRemovedFromProductionTree) {
+  const auto repoRoot = std::filesystem::current_path();
+  const auto header = repoRoot / "include" / "wallpaper" / "foreground_policy.h";
+  const auto source = repoRoot / "src" / "foreground_policy.cpp";
+  const auto tests = repoRoot / "tests" / "foreground_policy_tests.cpp";
+  const std::string cmakeLists = ReadTextFile(repoRoot / "CMakeLists.txt");
+  const std::string runTestsScript = ReadTextFile(repoRoot / "scripts" / "run_tests.ps1");
+  const std::string buildAppScript = ReadTextFile(repoRoot / "scripts" / "build_app.ps1");
+
+  EXPECT_FALSE(std::filesystem::exists(header));
+  EXPECT_FALSE(std::filesystem::exists(source));
+  EXPECT_FALSE(std::filesystem::exists(tests));
+  EXPECT_TRUE(cmakeLists.find("foreground_policy.cpp") == std::string::npos);
+  EXPECT_TRUE(cmakeLists.find("foreground_policy_tests.cpp") == std::string::npos);
+  EXPECT_TRUE(runTestsScript.find("foreground_policy.cpp") == std::string::npos);
+  EXPECT_TRUE(runTestsScript.find("foreground_policy_tests.cpp") == std::string::npos);
+  EXPECT_TRUE(buildAppScript.find("foreground_policy.cpp") == std::string::npos);
+}
+
+TEST_CASE(Win11Cleanup_FrameBufferPolicyModuleRemovedFromProductionTree) {
+  const auto repoRoot = std::filesystem::current_path();
+  const auto header = repoRoot / "include" / "wallpaper" / "frame_buffer_policy.h";
+  const auto source = repoRoot / "src" / "frame_buffer_policy.cpp";
+  const auto tests = repoRoot / "tests" / "frame_buffer_policy_tests.cpp";
+  const std::string cmakeLists = ReadTextFile(repoRoot / "CMakeLists.txt");
+  const std::string runTestsScript = ReadTextFile(repoRoot / "scripts" / "run_tests.ps1");
+  const std::string buildAppScript = ReadTextFile(repoRoot / "scripts" / "build_app.ps1");
+
+  EXPECT_FALSE(std::filesystem::exists(header));
+  EXPECT_FALSE(std::filesystem::exists(source));
+  EXPECT_FALSE(std::filesystem::exists(tests));
+  EXPECT_TRUE(cmakeLists.find("frame_buffer_policy.cpp") == std::string::npos);
+  EXPECT_TRUE(cmakeLists.find("frame_buffer_policy_tests.cpp") == std::string::npos);
+  EXPECT_TRUE(runTestsScript.find("frame_buffer_policy.cpp") == std::string::npos);
+  EXPECT_TRUE(runTestsScript.find("frame_buffer_policy_tests.cpp") == std::string::npos);
+  EXPECT_TRUE(buildAppScript.find("frame_buffer_policy.cpp") == std::string::npos);
+}
+
+TEST_CASE(Win11Cleanup_QualityGovernorDoesNotExposeUnusedResetApi) {
+  const auto repoRoot = std::filesystem::current_path();
+  const auto qualityGovernorHeader = repoRoot / "include" / "wallpaper" / "quality_governor.h";
+  const auto qualityGovernorSource = repoRoot / "src" / "quality_governor.cpp";
+
+  ExpectFileDoesNotContain(qualityGovernorHeader, {"void Reset() noexcept;"});
+  ExpectFileDoesNotContain(qualityGovernorSource, {"QualityGovernor::Reset()"});
+}
+
 TEST_CASE(Win11Cleanup_CoreSourcesStayInSyncAcrossCmakeAndScripts) {
   const auto repoRoot = std::filesystem::current_path();
   const std::string cmakeLists = ReadTextFile(repoRoot / "CMakeLists.txt");

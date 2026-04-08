@@ -65,8 +65,6 @@ int QualityGovernor::Update(const RuntimeMetrics& metrics) noexcept {
   return currentFps_;
 }
 
-void QualityGovernor::Reset() noexcept { stableSamples_ = 0; }
-
 bool QualityGovernor::IsHighLoad(const RuntimeMetrics& metrics) const noexcept {
   return metrics.cpuPercent >= 7.5 || metrics.presentP95Ms >= 10.0;
 }

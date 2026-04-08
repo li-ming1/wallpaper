@@ -31,7 +31,6 @@ set(WALLPAPER_CORE_SOURCES
   src/desktop_attach_policy.cpp
   src/decode_output_policy.cpp
   src/decode_async_read_policy.cpp
-  src/foreground_policy.cpp
   src/loop_sleep_policy.cpp
   src/metrics_log_line.cpp
   src/metrics_log_file.cpp
@@ -39,7 +38,6 @@ set(WALLPAPER_CORE_SOURCES
   src/monitor_layout_policy.cpp
   src/pause_suspend_policy.cpp
   src/pause_transition_policy.cpp
-  src/pause_resource_policy.cpp
   src/quality_governor.cpp
   src/video_path_matcher.cpp
   src/render_scheduler.cpp
@@ -47,7 +45,6 @@ set(WALLPAPER_CORE_SOURCES
   src/source_frame_rate_policy.cpp
   src/swap_chain_policy.cpp
   src/frame_bridge.cpp
-  src/frame_buffer_policy.cpp
   src/long_run_load_policy.cpp
   src/probe_cadence_policy.cpp
   src/nv12_layout_policy.cpp
@@ -121,9 +118,7 @@ add_executable(wallpaper_tests
   tests/decode_output_policy_tests.cpp
   tests/async_file_writer_tests.cpp
   tests/fixed_task_queue_tests.cpp
-  tests/frame_buffer_policy_tests.cpp
   tests/frame_bridge_tests.cpp
-  tests/foreground_policy_tests.cpp
   tests/loop_sleep_policy_tests.cpp
   tests/long_run_load_policy_tests.cpp
   tests/metrics_log_line_tests.cpp
@@ -132,7 +127,6 @@ add_executable(wallpaper_tests
   tests/monitor_layout_policy_tests.cpp
   tests/nearest_scale_stepper_tests.cpp
   tests/nv12_layout_policy_tests.cpp
-  tests/pause_resource_policy_tests.cpp
   tests/pause_suspend_policy_tests.cpp
   tests/pause_transition_policy_tests.cpp
   tests/playback_profile_policy_tests.cpp
