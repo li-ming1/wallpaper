@@ -92,15 +92,9 @@ std::int64_t NowUnixMs() {
 
 }  // namespace
 
-void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameDropped,
-                                   const double presentMs) {
-  if (attemptedRender) {
-    ++totalFrames_;
-    if (frameDropped) {
-      ++droppedFrames_;
-    } else if (presentMs > 0.0) {
-      presentSamplesMs_.PushSample(presentMs);
-    }
+void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const double presentMs) {
+  if (attemptedRender && presentMs > 0.0) {
+    presentSamplesMs_.PushSample(presentMs);
   }
 
   const auto now = RenderScheduler::Clock::now();
@@ -128,12 +122,6 @@ void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameD
   metrics.privateBytes = memoryUsage.privateBytes;
   metrics.workingSetBytes = memoryUsage.workingSetBytes;
   metrics.presentP95Ms = presentSamplesMs_.TakeP95AndClear();
-  metrics.droppedFrameRatio =
-      totalFrames_ == 0 ? 0.0
-                        : static_cast<double>(droppedFrames_) / static_cast<double>(totalFrames_);
-  if (config_.debugMetrics) {
-    metrics_.PushSample(metrics);
-  }
   // 每秒基于实时负载做一次帧率档位决策，避免在每帧路径引入额外分支和抖动。
   const int effectiveFps = qualityGovernor_.Update(metrics);
   const LongRunLoadDecision longRunDecision =
@@ -199,8 +187,6 @@ void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameD
     // I/O 失败时静默降级，避免主渲染循环被监控路径反向影响。
   }
 
-  totalFrames_ = 0;
-  droppedFrames_ = 0;
 }
 
 }  // namespace wallpaper

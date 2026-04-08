@@ -18,7 +18,8 @@ class MetricsLogFile final {
                  std::size_t keepDays = 1, DateKeyProvider dateKeyProvider = {},
                  AsyncFileWriter* writer = nullptr);
 
- [[nodiscard]] bool EnsureReady() const;
+  void SetWriter(AsyncFileWriter* writer) noexcept;
+  [[nodiscard]] bool EnsureReady() const;
   [[nodiscard]] bool Append(std::string_view line) const;
 
  private:

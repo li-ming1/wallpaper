@@ -6,7 +6,7 @@
 #include <string_view>
 
 #include "wallpaper/interfaces.h"
-#include "wallpaper/metrics_sampler.h"
+#include "wallpaper/runtime_metrics.h"
 
 namespace wallpaper {
 

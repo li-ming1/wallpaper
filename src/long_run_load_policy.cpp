@@ -9,8 +9,6 @@ constexpr double kMediumCpuPercent = 6.5;
 constexpr double kHighCpuPercent = 8.5;
 constexpr double kMediumPresentP95Ms = 8.0;
 constexpr double kHighPresentP95Ms = 10.0;
-constexpr double kMediumDroppedRatio = 0.02;
-constexpr double kHighDroppedRatio = 0.04;
 constexpr std::size_t kMediumPrivateBytes = 90U * 1024U * 1024U;
 constexpr std::size_t kHighPrivateBytes = 110U * 1024U * 1024U;
 constexpr std::size_t kTrimPrivateBytes = 120U * 1024U * 1024U;
@@ -53,12 +51,10 @@ LongRunLoadDecision UpdateLongRunLoadPolicy(const RuntimeMetrics& metrics, const
 
   const bool highPressure =
       metrics.cpuPercent >= kHighCpuPercent || metrics.presentP95Ms >= kHighPresentP95Ms ||
-      metrics.droppedFrameRatio >= kHighDroppedRatio ||
       metrics.privateBytes >= kHighPrivateBytes;
   const bool mediumPressure =
       highPressure || metrics.cpuPercent >= kMediumCpuPercent ||
       metrics.presentP95Ms >= kMediumPresentP95Ms ||
-      metrics.droppedFrameRatio >= kMediumDroppedRatio ||
       metrics.privateBytes >= kMediumPrivateBytes;
 
   if (highPressure) {

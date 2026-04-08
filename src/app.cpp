@@ -222,7 +222,6 @@ std::string BuildMetricsSessionId() {
 
 App::App(std::filesystem::path configPath)
     : configWriter_(std::make_unique<AsyncFileWriter>(64)),
-      metricsWriter_(std::make_unique<AsyncFileWriter>(256)),
       configStore_(configPath, configWriter_.get()),
       scheduler_(30),
       metricsLogFile_((configPath.has_parent_path() ? configPath.parent_path()
@@ -232,10 +231,8 @@ App::App(std::filesystem::path configPath)
                       BuildMetricsCsvHeader(),
                       7,
                       {},
-                      metricsWriter_.get()),
-      metrics_(300),
-      qualityGovernor_(),
-      metricsSessionId_(BuildMetricsSessionId()) {}
+                      nullptr),
+      qualityGovernor_() {}
 
 App::~App() {
   RequestStop();
@@ -258,6 +255,17 @@ bool App::Initialize() {
   qualityGovernor_.SetEnabled(true);
   ApplyRenderFpsCap(qualityGovernor_.CurrentFps());
   arbiter_.SetPauseWhenNotDesktopContext(config_.pauseWhenNotDesktopContext);
+  if (config_.debugMetrics) {
+    metricsSessionId_ = BuildMetricsSessionId();
+    if (!metricsWriter_) {
+      metricsWriter_ = std::make_unique<AsyncFileWriter>(256);
+    }
+    metricsLogFile_.SetWriter(metricsWriter_.get());
+  } else {
+    metricsSessionId_.clear();
+    metricsLogFile_.SetWriter(nullptr);
+    metricsWriter_.reset();
+  }
 
   wallpaperHost_ = CreateWallpaperHost();
   decodePipeline_ = CreateDecodePipeline();
@@ -565,7 +573,7 @@ void App::Tick() {
   if (!decodePipeline_ || !wallpaperHost_ || !wallpaperAttached_) {
     applyProcessMemoryPriority(false);
     stablePauseForLoopSleep_ = false;
-    MaybeSampleAndLogMetrics(false, false, 0.0);
+    MaybeSampleAndLogMetrics(false, 0.0);
     return;
   }
 
@@ -736,7 +744,7 @@ void App::Tick() {
         nextWarmupAttemptAt_ = now + ComputeWarmResumeRetryDelay(1);
       }
     }
-    MaybeSampleAndLogMetrics(false, false, 0.0);
+    MaybeSampleAndLogMetrics(false, 0.0);
     return;
   }
 
@@ -829,7 +837,7 @@ void App::Tick() {
   }
 
   if (!scheduler_.ShouldRender(RenderScheduler::Clock::now())) {
-    MaybeSampleAndLogMetrics(false, false, 0.0);
+    MaybeSampleAndLogMetrics(false, 0.0);
     return;
   }
 
@@ -890,12 +898,12 @@ void App::Tick() {
     frame = lastPresentedFrame_;
   } else {
     // 首帧未就绪时不做任何呈现，彻底消除启动瞬间回退底色“幕布”。
-    MaybeSampleAndLogMetrics(false, false, 0.0);
+    MaybeSampleAndLogMetrics(false, 0.0);
     return;
   }
 
   if (!ShouldPresentFrame(hasNewDecodedToken)) {
-    MaybeSampleAndLogMetrics(false, false, 0.0);
+    MaybeSampleAndLogMetrics(false, 0.0);
     return;
   }
 
@@ -909,7 +917,7 @@ void App::Tick() {
   lastPresentedAt_ = presentEnd;
   const double presentMs =
       std::chrono::duration<double, std::milli>(presentEnd - presentBegin).count();
-  MaybeSampleAndLogMetrics(true, false, presentMs);
+  MaybeSampleAndLogMetrics(true, presentMs);
 }
 
 }  // namespace wallpaper

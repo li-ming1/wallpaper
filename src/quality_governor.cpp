@@ -68,13 +68,11 @@ int QualityGovernor::Update(const RuntimeMetrics& metrics) noexcept {
 void QualityGovernor::Reset() noexcept { stableSamples_ = 0; }
 
 bool QualityGovernor::IsHighLoad(const RuntimeMetrics& metrics) const noexcept {
-  return metrics.cpuPercent >= 7.5 || metrics.presentP95Ms >= 10.0 ||
-         metrics.droppedFrameRatio >= 0.02;
+  return metrics.cpuPercent >= 7.5 || metrics.presentP95Ms >= 10.0;
 }
 
 bool QualityGovernor::IsStableLoad(const RuntimeMetrics& metrics) const noexcept {
-  return metrics.cpuPercent <= 4.5 && metrics.presentP95Ms <= 6.0 &&
-         metrics.droppedFrameRatio <= 0.005;
+  return metrics.cpuPercent <= 4.5 && metrics.presentP95Ms <= 6.0;
 }
 
 }  // namespace wallpaper

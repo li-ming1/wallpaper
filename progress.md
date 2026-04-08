@@ -48,6 +48,38 @@
   - `scripts/run_tests.ps1 -BuildDir build_tmp/phase142_debug_metrics_green` -> PASS（305/305）
   - `scripts/build_app.ps1 -BuildDir build_tmp/phase142_debug_metrics_app` -> PASS
   - 仅剩既有 `-flto` 串行 LTRANS 提示，无新增告警
+- 新任务：清理当前项目里已确认的 metrics 死代码。
+- 范围：
+  - 删除 `App::metrics_` runtime ring buffer
+  - 删除 `frameDropped` / `droppedFrames_` / `totalFrames_` / `RuntimeMetrics::droppedFrameRatio`
+  - `metricsSessionId_` 改为 debug 模式下惰性生成
+- TDD Red：
+  - 扩展 `tests/win11_cleanup_tests.cpp`，要求 App 不再保留 runtime metrics ring、dropped-frame 死路径和 eager metrics session id。
+  - 同步更新 `tests/quality_governor_tests.cpp` 与 `tests/long_run_load_policy_tests.cpp`，不再依赖 `droppedFrameRatio`。
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/phase143_dead_code_cleanup_red` -> FAIL（符合预期）
+  - 失败点：
+    - `Win11Cleanup_AppDoesNotKeepRuntimeMetricsRingBuffer`
+    - `Win11Cleanup_AppDoesNotKeepDroppedFrameDeadPath`
+    - `Win11Cleanup_AppBuildsMetricsSessionIdOnlyForDebugMetrics`
+- Green：
+  - `include/wallpaper/app.h`
+    - 删除 `MetricsSampler metrics_`
+    - 删除 `droppedFrames_ / totalFrames_`
+    - `MaybeSampleAndLogMetrics` 收口为二参版本
+  - `src/app.cpp`
+    - `metricsSessionId_` 改为仅在 `debugMetrics` 时生成
+    - 全部 metrics 调用点已切到新签名
+  - `src/app_metrics.cpp`
+    - 删除 dropped-frame 统计和 runtime ring 写入
+  - `include/wallpaper/metrics_sampler.h`
+    - 删除 `RuntimeMetrics::droppedFrameRatio`
+  - `src/quality_governor.cpp`
+  - `src/long_run_load_policy.cpp`
+    - 删除基于 `droppedFrameRatio` 的死条件
+- Verification：
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/phase143_dead_code_cleanup_green` -> PASS（308/308）
+  - `scripts/build_app.ps1 -BuildDir build_tmp/phase143_dead_code_cleanup_app` -> PASS
+  - 仅剩既有 `-flto` 串行 LTRANS 提示，无新增告警
 
 ## 2026-04-07
 - TDD Red：新增 `tests/nearest_scale_stepper_tests.cpp`，要求最近邻坐标步进器在 downscale/upscale 场景下与 `floor(i * src / dst)` 映射一致；`build_tmp/phase14_scale_stepper_red` 因缺少 `wallpaper/nearest_scale_stepper.h` 按预期失败。

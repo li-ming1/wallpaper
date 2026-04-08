@@ -2,10 +2,6 @@
 
 namespace wallpaper {
 
-void ResourceArbiter::SetForegroundState(const ForegroundState state) noexcept {
-  foregroundState_ = state;
-}
-
 void ResourceArbiter::SetPauseWhenNotDesktopContext(const bool enabled) noexcept {
   pauseWhenNotDesktopContext_ = enabled;
 }

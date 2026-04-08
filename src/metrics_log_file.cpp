@@ -76,6 +76,8 @@ MetricsLogFile::MetricsLogFile(std::filesystem::path path, const std::size_t max
       dateKeyProvider_(std::move(dateKeyProvider)),
       writer_(writer) {}
 
+void MetricsLogFile::SetWriter(AsyncFileWriter* const writer) noexcept { writer_ = writer; }
+
 bool MetricsLogFile::EnsureReady() const {
   return EnsureReadyForPath(ActivePath());
 }

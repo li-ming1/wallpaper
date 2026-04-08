@@ -15,13 +15,13 @@
 #include "wallpaper/interfaces.h"
 #include "wallpaper/long_run_load_policy.h"
 #include "wallpaper/metrics_log_file.h"
-#include "wallpaper/metrics_sampler.h"
 #include "wallpaper/quality_governor.h"
 #include "wallpaper/pause_transition_policy.h"
 #include "wallpaper/pause_suspend_policy.h"
 #include "wallpaper/present_sample_window.h"
 #include "wallpaper/render_scheduler.h"
 #include "wallpaper/resource_arbiter.h"
+#include "wallpaper/runtime_metrics.h"
 #include "wallpaper/source_frame_rate_policy.h"
 
 namespace wallpaper {
@@ -59,7 +59,7 @@ class App final {
                                          RenderScheduler::Clock::time_point now);
   void InvalidateVideoPathProbeCache();
   void Tick();
-  void MaybeSampleAndLogMetrics(bool attemptedRender, bool frameDropped, double presentMs);
+  void MaybeSampleAndLogMetrics(bool attemptedRender, double presentMs);
 
   std::unique_ptr<AsyncFileWriter> configWriter_;
   std::unique_ptr<AsyncFileWriter> metricsWriter_;
@@ -68,7 +68,6 @@ class App final {
   RenderScheduler scheduler_;
   ResourceArbiter arbiter_;
   MetricsLogFile metricsLogFile_;
-  MetricsSampler metrics_;
   QualityGovernor qualityGovernor_;
   int autoTargetFps_ = 60;
   std::string metricsSessionId_;
@@ -140,8 +139,6 @@ class App final {
   RenderScheduler::Clock::time_point lastWorkingSetTrimAt_{};
   bool startupWorkingSetTrimDone_ = false;
   unsigned long processMemoryPriority_ = 5;
-  std::size_t droppedFrames_ = 0;
-  std::size_t totalFrames_ = 0;
   std::size_t lastDecodeOutputPixels_ = 0;
   int decodeOpenLongRunLevel_ = 0;
   bool decodeOpenPreferHardwareTransforms_ = true;

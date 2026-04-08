@@ -45,7 +45,6 @@ set(WALLPAPER_CORE_SOURCES
   src/resource_arbiter.cpp
   src/source_frame_rate_policy.cpp
   src/swap_chain_policy.cpp
-  src/metrics_sampler.cpp
   src/frame_bridge.cpp
   src/frame_buffer_policy.cpp
   src/long_run_load_policy.cpp
@@ -126,7 +125,6 @@ add_executable(wallpaper_tests
   tests/foreground_policy_tests.cpp
   tests/loop_sleep_policy_tests.cpp
   tests/long_run_load_policy_tests.cpp
-  tests/metrics_sampler_tests.cpp
   tests/metrics_log_line_tests.cpp
   tests/metrics_shard_retain_set_tests.cpp
   tests/metrics_log_file_tests.cpp

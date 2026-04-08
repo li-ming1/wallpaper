@@ -74,7 +74,6 @@ $coreSources = @(
   "src/source_frame_rate_policy.cpp",
   "src/swap_chain_policy.cpp",
   "src/runtime_trim_policy.cpp",
-  "src/metrics_sampler.cpp",
   "src/frame_bridge.cpp",
   "src/startup_policy.cpp",
   "src/video_path_probe_policy.cpp",

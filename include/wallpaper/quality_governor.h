@@ -1,7 +1,7 @@
 #pragma once
 
 #include "wallpaper/config.h"
-#include "wallpaper/metrics_sampler.h"
+#include "wallpaper/runtime_metrics.h"
 
 namespace wallpaper {
 
