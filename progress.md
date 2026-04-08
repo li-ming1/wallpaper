@@ -3290,3 +3290,33 @@
   - `scripts/build_app.ps1 -BuildDir build_tmp/phase140_green_cpu_frame_buffer_pool` -> PASS
   - 产物：
     - `build_tmp/phase140_green_cpu_frame_buffer_pool/wallpaper_app.exe`
+
+## 2026-04-08
+- 启动新任务：include/wallpaper 头文件全面分析（仅审查，不改代码）。
+- 已创建本轮阶段计划并写入 task_plan/findings/progress。
+- 时间：2026-04-08 19:03:24
+
+## 2026-04-08
+- 启动新任务：src 目录全面分析（仅审查，不改代码）。
+- 时间：2026-04-08 19:14:56
+- 已完成 src 全量审查并输出架构/性能/风险结论。
+- 已完成 `src` 全量审查并输出架构/性能/风险结论。
+- 记录：写入跟踪文件时首次命令因 PowerShell 参数解析（中文引号/空格）失败，随后改用 here-string 成功。
+
+## 2026-04-08
+- 新任务：清理已确认死代码，并按用户指定编译器 `D:\msys64\ucrt64\bin\g++.exe` 复验。
+- TDD Red：
+  - 先前新增 `Win11Cleanup_RemovesConfirmedDeadCodePaths`，`build_tmp/deadcode_cleanup_red` 按预期失败。
+- Green：
+  - 删除 `App::syntheticSequence_` 及 `app.cpp` 对应 reset 代码。
+  - 删除 `ProcessNameCache::entryCount_` 与无效计数递增。
+  - 删除 `InvalidateMonitorRectSnapshotCache()` 声明/实现。
+  - 删除 `ConfigStore::Load()/Save()` wrapper API，仅保留 `LoadExpected()/SaveExpected()`。
+  - 删除 `SelectActiveWorkingSetTrimInterval()` 与 `SelectPostPresentWorkingSetTrimThresholdBytes()` API 及实现。
+  - `app.cpp` 去掉 `activeWorkingSetTrimInterval` 死分支。
+  - `wallpaper_host_win.cpp` 去掉 post-present threshold 死分支，并清理新增未使用函数 `QueryCurrentProcessWorkingSetBytes()`。
+  - `tests/config_store_tests.cpp` 全量切到 `LoadExpected/SaveExpected`。
+  - `tests/runtime_trim_policy_tests.cpp` 删除对已移除 API 的断言。
+- Verification（指定编译器）：
+  - `./scripts/run_tests.ps1 -BuildDir build_tmp/deadcode_cleanup_green` -> PASS（330/330）
+  - `./scripts/build_app.ps1 -BuildDir build_tmp/deadcode_cleanup_green_app` -> PASS

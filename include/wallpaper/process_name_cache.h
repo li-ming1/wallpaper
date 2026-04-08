@@ -140,7 +140,6 @@ class ProcessNameCache final {
       freeEntryHead_ = freeEntry.nextIndex;
       freeEntry.prevIndex = kInvalidIndex;
       freeEntry.nextIndex = kInvalidIndex;
-      ++entryCount_;
       return entryIndex;
     }
     if (lruHead_ == kInvalidIndex) {
@@ -234,7 +233,6 @@ class ProcessNameCache final {
   std::size_t freeEntryHead_ = kInvalidIndex;
   std::size_t lruHead_ = kInvalidIndex;
   std::size_t lruTail_ = kInvalidIndex;
-  std::size_t entryCount_ = 0;
   bool entryListsInitialized_ = false;
 };
 

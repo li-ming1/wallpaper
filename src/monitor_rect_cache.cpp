@@ -107,10 +107,4 @@ MonitorRectSnapshot QueryMonitorRectSnapshotCached() {
   return MonitorRectSnapshot{nextState->virtualDesktop, nextState->monitors};
 }
 
-void InvalidateMonitorRectSnapshotCache() noexcept {
-  std::lock_guard<std::mutex> lock(g_monitorCacheWriteMu);
-  g_monitorCacheState.store(std::shared_ptr<const MonitorRectCacheState>{},
-                            std::memory_order_release);
-}
-
 }  // namespace wallpaper

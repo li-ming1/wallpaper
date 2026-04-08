@@ -447,18 +447,6 @@ std::expected<void, ConfigStoreError> ConfigStore::SaveExpectedInternal(
   return std::expected<void, ConfigStoreError>{};
 }
 
-Config ConfigStore::Load() const {
-  const auto loaded = LoadExpected();
-  if (loaded.has_value()) {
-    return *loaded;
-  }
-  return {};
-}
-
-void ConfigStore::Save(const Config& config) const {
-  (void)SaveExpected(config);
-}
-
 bool ConfigStore::Exists() const {
   std::error_code ec;
   return std::filesystem::exists(path_, ec) && !ec;

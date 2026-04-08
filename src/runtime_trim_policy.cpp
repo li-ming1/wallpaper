@@ -63,15 +63,6 @@ bool ShouldExecuteStartupWorkingSetTrim(const bool hasActiveVideo, const DecodeP
          decodeOutputPixels > kCompactCpuFallbackPixels;
 }
 
-std::chrono::milliseconds SelectActiveWorkingSetTrimInterval(const bool hasActiveVideo,
-                                                             const DecodePath decodePath,
-                                                             const std::size_t decodeOutputPixels) noexcept {
-  (void)hasActiveVideo;
-  (void)decodePath;
-  (void)decodeOutputPixels;
-  return std::chrono::milliseconds(0);
-}
-
 bool ShouldUseAggressiveMemoryPriority(const bool hasActiveVideo, const DecodePath decodePath,
                                        const std::size_t decodeOutputPixels) noexcept {
   return hasActiveVideo && IsCpuFallbackDecodePath(decodePath) && decodeOutputPixels != 0;
@@ -94,19 +85,6 @@ std::chrono::milliseconds SelectPostPresentWorkingSetTrimInterval(
     return std::chrono::milliseconds(150);
   }
   return std::chrono::milliseconds(0);
-}
-
-std::size_t SelectPostPresentWorkingSetTrimThresholdBytes(const bool hasActiveVideo,
-                                                          const DecodePath decodePath,
-                                                          const std::size_t decodeOutputPixels) noexcept {
-  if (!ShouldTrimWorkingSetImmediatelyAfterPresent(hasActiveVideo, decodePath,
-                                                   decodeOutputPixels)) {
-    return 0;
-  }
-  if (decodeOutputPixels <= kCompactCpuFallbackPixels) {
-    return 0;
-  }
-  return 0;
 }
 
 }  // namespace wallpaper

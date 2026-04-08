@@ -59,25 +59,6 @@ TEST_CASE(RuntimeTrimPolicy_WorkingSetTrimThresholdUsesLongRunLevel) {
       true, wallpaper::DecodePath::kCpuNv12Fallback, 16U * 1024U * 1024U, 2));
 }
 
-TEST_CASE(RuntimeTrimPolicy_EnablesFastActiveTrimOnlyForCompactCpuFallbackFrames) {
-  EXPECT_EQ(wallpaper::SelectActiveWorkingSetTrimInterval(
-                true, wallpaper::DecodePath::kCpuNv12Fallback, 960U * 540U)
-                .count(),
-            0);
-  EXPECT_EQ(wallpaper::SelectActiveWorkingSetTrimInterval(
-                true, wallpaper::DecodePath::kCpuNv12Fallback, 1920U * 1080U)
-                .count(),
-            0);
-  EXPECT_EQ(wallpaper::SelectActiveWorkingSetTrimInterval(
-                true, wallpaper::DecodePath::kDxvaZeroCopy, 960U * 540U)
-                .count(),
-            0);
-  EXPECT_EQ(wallpaper::SelectActiveWorkingSetTrimInterval(
-                false, wallpaper::DecodePath::kCpuNv12Fallback, 960U * 540U)
-                .count(),
-            0);
-}
-
 TEST_CASE(RuntimeTrimPolicy_UsesAggressiveMemoryPriorityOnlyForCompactCpuFallbackFrames) {
   EXPECT_TRUE(wallpaper::ShouldUseAggressiveMemoryPriority(
       true, wallpaper::DecodePath::kCpuNv12Fallback, 960U * 540U));
@@ -117,30 +98,6 @@ TEST_CASE(RuntimeTrimPolicy_PostPresentTrimIntervalOnlyEnabledForCompactCpuFallb
                 false, wallpaper::DecodePath::kCpuNv12Fallback, 960U * 540U)
                 .count(),
             0);
-}
-
-TEST_CASE(RuntimeTrimPolicy_PostPresentTrimThresholdOnlyEnabledForCompactCpuFallbackFrames) {
-  EXPECT_EQ(wallpaper::SelectPostPresentWorkingSetTrimThresholdBytes(
-                true, wallpaper::DecodePath::kCpuNv12Fallback, 960U * 540U),
-            0U);
-  EXPECT_EQ(wallpaper::SelectPostPresentWorkingSetTrimThresholdBytes(
-                true, wallpaper::DecodePath::kCpuNv12Fallback, 1920U * 1080U),
-            0U);
-  EXPECT_EQ(wallpaper::SelectPostPresentWorkingSetTrimThresholdBytes(
-                true, wallpaper::DecodePath::kDxvaZeroCopy, 960U * 540U),
-            0U);
-  EXPECT_EQ(wallpaper::SelectPostPresentWorkingSetTrimThresholdBytes(
-                false, wallpaper::DecodePath::kCpuNv12Fallback, 960U * 540U),
-            0U);
-}
-
-TEST_CASE(RuntimeTrimPolicy_PostPresentTrimUsesLowerThresholdForFullQualityCpuFallbackOnly) {
-  EXPECT_EQ(wallpaper::SelectPostPresentWorkingSetTrimThresholdBytes(
-                true, wallpaper::DecodePath::kCpuRgb32Fallback, 2560U * 1440U),
-            0U);
-  EXPECT_EQ(wallpaper::SelectPostPresentWorkingSetTrimThresholdBytes(
-                true, wallpaper::DecodePath::kDxvaZeroCopy, 2560U * 1440U),
-            0U);
 }
 
 TEST_CASE(RuntimeTrimPolicy_RuntimeWorkingSetTrimIntervalRelaxesForFullQualityCpuFallback) {

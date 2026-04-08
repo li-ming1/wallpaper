@@ -24,7 +24,11 @@ TEST_CASE(ConfigStore_LoadsDefaultsWhenMissing) {
   std::filesystem::remove(path);
 
   wallpaper::ConfigStore store(path);
-  const auto cfg = store.Load();
+  wallpaper::Config cfg{};
+  const auto loaded = store.LoadExpected();
+  if (loaded.has_value()) {
+    cfg = *loaded;
+  }
 
   EXPECT_TRUE(cfg.videoPath.empty());
   EXPECT_TRUE(cfg.pauseWhenNotDesktopContext);
@@ -46,14 +50,20 @@ TEST_CASE(ConfigStore_RoundTripsCoreFields) {
   expected.playbackProfile = wallpaper::PlaybackProfile::kLowCpu;
 
   wallpaper::ConfigStore store(path);
-  store.Save(expected);
+  const auto saveResult = store.SaveExpected(expected);
+  EXPECT_TRUE(saveResult.has_value());
 
   const std::string rewritten = ReadFile(path);
   EXPECT_TRUE(rewritten.find("\"adaptiveQuality\"") == std::string::npos);
   EXPECT_TRUE(rewritten.find("\"debugMetrics\": true") != std::string::npos);
   EXPECT_TRUE(rewritten.find("\"playbackProfile\": \"low_cpu\"") != std::string::npos);
 
-  const auto actual = store.Load();
+  const auto loaded = store.LoadExpected();
+  EXPECT_TRUE(loaded.has_value());
+  if (!loaded.has_value()) {
+    return;
+  }
+  const auto actual = *loaded;
   EXPECT_EQ(actual.videoPath, expected.videoPath);
   EXPECT_EQ(actual.autoStart, expected.autoStart);
   EXPECT_EQ(actual.pauseWhenNotDesktopContext, expected.pauseWhenNotDesktopContext);
@@ -75,7 +85,8 @@ TEST_CASE(ConfigStore_DoesNotPersistManualFpsFields) {
   cfg.playbackProfile = wallpaper::PlaybackProfile::kBalanced;
 
   wallpaper::ConfigStore store(path);
-  store.Save(cfg);
+  const auto saveResult = store.SaveExpected(cfg);
+  EXPECT_TRUE(saveResult.has_value());
 
   const std::string rewritten = ReadFile(path);
   EXPECT_TRUE(rewritten.find("\"fpsCap\"") == std::string::npos);
@@ -106,7 +117,12 @@ TEST_CASE(ConfigStore_LoadIgnoresLegacyFieldsWithoutRewrite) {
   }
 
   wallpaper::ConfigStore store(path);
-  const auto cfg = store.Load();
+  const auto loaded = store.LoadExpected();
+  EXPECT_TRUE(loaded.has_value());
+  if (!loaded.has_value()) {
+    return;
+  }
+  const auto cfg = *loaded;
   EXPECT_EQ(cfg.videoPath, "D:/videos/demo.mp4");
   EXPECT_TRUE(!cfg.autoStart);
   EXPECT_TRUE(cfg.pauseWhenNotDesktopContext);
@@ -141,7 +157,12 @@ TEST_CASE(ConfigStore_LoadIgnoresUnknownFieldsWithoutRewrite) {
   }
 
   wallpaper::ConfigStore store(path);
-  const auto cfg = store.Load();
+  const auto loaded = store.LoadExpected();
+  EXPECT_TRUE(loaded.has_value());
+  if (!loaded.has_value()) {
+    return;
+  }
+  const auto cfg = *loaded;
   EXPECT_EQ(cfg.videoPath, "D:/videos/demo.mp4");
   EXPECT_TRUE(!cfg.autoStart);
   EXPECT_TRUE(cfg.pauseWhenNotDesktopContext);
@@ -164,7 +185,8 @@ TEST_CASE(ConfigStore_ExistsReflectsConfigFileState) {
 
   wallpaper::Config cfg;
   cfg.videoPath = "D:/videos/demo.mp4";
-  store.Save(cfg);
+  const auto saveResult = store.SaveExpected(cfg);
+  EXPECT_TRUE(saveResult.has_value());
   EXPECT_TRUE(store.Exists());
 
   std::filesystem::remove(path);
@@ -265,7 +287,12 @@ TEST_CASE(ConfigStore_LoadIgnoresNestedObjectKeys) {
   }
 
   wallpaper::ConfigStore store(path);
-  const auto cfg = store.Load();
+  const auto loaded = store.LoadExpected();
+  EXPECT_TRUE(loaded.has_value());
+  if (!loaded.has_value()) {
+    return;
+  }
+  const auto cfg = *loaded;
   EXPECT_EQ(cfg.videoPath, "D:/videos/demo.mp4");
   EXPECT_FALSE(cfg.autoStart);
   EXPECT_FALSE(cfg.debugMetrics);

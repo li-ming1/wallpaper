@@ -105,7 +105,6 @@ class App final {
   FrameToken lastPresentedFrame_{};
   bool hasLastPresentedFrame_ = false;
   RenderScheduler::Clock::time_point lastPresentedAt_{};
-  std::uint64_t syntheticSequence_ = 0;
   std::int64_t lastDecodedTimestamp100ns_ = -1;
   SourceFrameRateState sourceFrameRateState_{};
   bool trayMenuVisible_ = false;

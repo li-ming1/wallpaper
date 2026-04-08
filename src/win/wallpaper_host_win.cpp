@@ -472,17 +472,6 @@ bool TrimCurrentProcessWorkingSetNow() {
   return EmptyWorkingSet(GetCurrentProcess()) != FALSE;
 }
 
-std::size_t QueryCurrentProcessWorkingSetBytes() {
-  PROCESS_MEMORY_COUNTERS_EX counters{};
-  counters.cb = sizeof(counters);
-  if (!GetProcessMemoryInfo(GetCurrentProcess(),
-                            reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&counters),
-                            counters.cb)) {
-    return 0;
-  }
-  return static_cast<std::size_t>(counters.WorkingSetSize);
-}
-
 HWND FindWorkerWWindow() {
   const RECT virtualRect = GetVirtualScreenRect();
   const LONG virtualWidth = virtualRect.right - virtualRect.left;
@@ -767,21 +756,12 @@ class WallpaperHostWin final : public IWallpaperHost {
               : 0U;
       const auto postPresentTrimInterval = SelectPostPresentWorkingSetTrimInterval(
           true, frame.decodePath, decodeOutputPixels);
-      const std::size_t postPresentTrimThresholdBytes =
-          SelectPostPresentWorkingSetTrimThresholdBytes(true, frame.decodePath,
-                                                        decodeOutputPixels);
       const bool postPresentTrimDue =
           postPresentTrimInterval.count() > 0 &&
           (lastPostPresentTrimAtTick_ == 0 ||
            nowTick - lastPostPresentTrimAtTick_ >=
                static_cast<ULONGLONG>(postPresentTrimInterval.count()));
       if (postPresentTrimDue) {
-        if (postPresentTrimThresholdBytes != 0) {
-          const std::size_t workingSetBytes = QueryCurrentProcessWorkingSetBytes();
-          if (workingSetBytes < postPresentTrimThresholdBytes) {
-            return;
-          }
-        }
         // 紧凑 CPU fallback 的峰值主要来自活跃渲染触达页；present 成功后立即回收，
         // 但必须限制频率，避免 working-set 回收本身反向把 CPU 顶上去。
         TrimCurrentProcessWorkingSetNow();

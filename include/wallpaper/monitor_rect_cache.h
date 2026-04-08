@@ -10,7 +10,5 @@ struct MonitorRectSnapshot final {
 };
 
 [[nodiscard]] MonitorRectSnapshot QueryMonitorRectSnapshotCached();
-void InvalidateMonitorRectSnapshotCache() noexcept;
 
 }  // namespace wallpaper
-

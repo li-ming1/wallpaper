@@ -580,6 +580,37 @@ TEST_CASE(Win11Cleanup_ResourceArbiterDoesNotKeepUnusedForegroundStateApi) {
   ExpectFileDoesNotContain(resourceArbiterSource, {"SetForegroundState", "foregroundState_"});
 }
 
+TEST_CASE(Win11Cleanup_RemovesConfirmedDeadCodePaths) {
+  const auto repoRoot = std::filesystem::current_path();
+  const auto appHeader = repoRoot / "include" / "wallpaper" / "app.h";
+  const auto processNameCacheHeader =
+      repoRoot / "include" / "wallpaper" / "process_name_cache.h";
+  const auto monitorRectCacheHeader =
+      repoRoot / "include" / "wallpaper" / "monitor_rect_cache.h";
+  const auto monitorRectCacheSource = repoRoot / "src" / "monitor_rect_cache.cpp";
+  const auto configStoreHeader = repoRoot / "include" / "wallpaper" / "config_store.h";
+  const auto configStoreSource = repoRoot / "src" / "config_store.cpp";
+  const auto runtimeTrimHeader = repoRoot / "include" / "wallpaper" / "runtime_trim_policy.h";
+  const auto runtimeTrimSource = repoRoot / "src" / "runtime_trim_policy.cpp";
+  const auto appSource = repoRoot / "src" / "app.cpp";
+  const auto wallpaperHostSource = repoRoot / "src" / "win" / "wallpaper_host_win.cpp";
+
+  ExpectFileDoesNotContain(appHeader, {"syntheticSequence_"});
+  ExpectFileDoesNotContain(processNameCacheHeader, {"entryCount_"});
+  ExpectFileDoesNotContain(monitorRectCacheHeader, {"InvalidateMonitorRectSnapshotCache"});
+  ExpectFileDoesNotContain(monitorRectCacheSource, {"InvalidateMonitorRectSnapshotCache"});
+  ExpectFileDoesNotContain(configStoreHeader, {"Config Load() const", "void Save("});
+  ExpectFileDoesNotContain(configStoreSource, {"Config ConfigStore::Load()", "ConfigStore::Save("});
+  ExpectFileDoesNotContain(runtimeTrimHeader,
+                           {"SelectActiveWorkingSetTrimInterval",
+                            "SelectPostPresentWorkingSetTrimThresholdBytes"});
+  ExpectFileDoesNotContain(runtimeTrimSource,
+                           {"SelectActiveWorkingSetTrimInterval",
+                            "SelectPostPresentWorkingSetTrimThresholdBytes"});
+  ExpectFileDoesNotContain(appSource, {"activeWorkingSetTrimInterval"});
+  ExpectFileDoesNotContain(wallpaperHostSource, {"postPresentTrimThresholdBytes"});
+}
+
 TEST_CASE(Win11Cleanup_CoreSourcesStayInSyncAcrossCmakeAndScripts) {
   const auto repoRoot = std::filesystem::current_path();
   const std::string cmakeLists = ReadTextFile(repoRoot / "CMakeLists.txt");

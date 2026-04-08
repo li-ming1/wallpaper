@@ -38,10 +38,6 @@ namespace wallpaper {
                                                       bool gpuBacked,
                                                       bool alreadyTrimmed) noexcept;
 
-// compact CPU fallback 的活跃回收改由 present 后路径承担，主循环不再额外高频 trim。
-[[nodiscard]] std::chrono::milliseconds SelectActiveWorkingSetTrimInterval(
-    bool hasActiveVideo, DecodePath decodePath, std::size_t decodeOutputPixels) noexcept;
-
 // CPU fallback 动态播放统一下调进程内存优先级，帮助系统更积极回收已完成上传/呈现的热页。
 [[nodiscard]] bool ShouldUseAggressiveMemoryPriority(bool hasActiveVideo, DecodePath decodePath,
                                                      std::size_t decodeOutputPixels) noexcept;
@@ -54,9 +50,6 @@ namespace wallpaper {
                                                                std::size_t decodeOutputPixels) noexcept;
 
 [[nodiscard]] std::chrono::milliseconds SelectPostPresentWorkingSetTrimInterval(
-    bool hasActiveVideo, DecodePath decodePath, std::size_t decodeOutputPixels) noexcept;
-
-[[nodiscard]] std::size_t SelectPostPresentWorkingSetTrimThresholdBytes(
     bool hasActiveVideo, DecodePath decodePath, std::size_t decodeOutputPixels) noexcept;
 
 }  // namespace wallpaper

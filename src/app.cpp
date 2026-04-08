@@ -422,7 +422,6 @@ void App::DetachWallpaper() {
 void App::ResetPlaybackState(const bool resetLongRunState) {
   hasLastPresentedFrame_ = false;
   lastPresentedAt_ = RenderScheduler::Clock::time_point{};
-  syntheticSequence_ = 0;
   lastDecodedTimestamp100ns_ = -1;
   ResetSourceFrameRateState(&sourceFrameRateState_);
   RefreshAutoTargetFps(true);
@@ -822,18 +821,9 @@ void App::Tick() {
     }
   }
 
-  const auto activeWorkingSetTrimInterval = SelectActiveWorkingSetTrimInterval(
-      wallpaperAttached_ && decodeOpened_.load() && decodeRunning_.load(), lastDecodePath_,
-      lastDecodeOutputPixels_);
   applyProcessMemoryPriority(ShouldUseAggressiveMemoryPriority(
       wallpaperAttached_ && decodeOpened_.load() && decodeRunning_.load(), lastDecodePath_,
       lastDecodeOutputPixels_));
-  if (activeWorkingSetTrimInterval.count() > 0 &&
-      (lastWorkingSetTrimAt_ == RenderScheduler::Clock::time_point{} ||
-       (now - lastWorkingSetTrimAt_) >= activeWorkingSetTrimInterval)) {
-    TrimCurrentProcessWorkingSet();
-    lastWorkingSetTrimAt_ = now;
-  }
 
   if (!scheduler_.ShouldRender(RenderScheduler::Clock::now())) {
     MaybeSampleAndLogMetrics(false, 0.0);

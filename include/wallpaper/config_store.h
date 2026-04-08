@@ -21,9 +21,6 @@ class ConfigStore final {
 
   [[nodiscard]] std::expected<Config, ConfigStoreError> LoadExpected() const;
   [[nodiscard]] std::expected<void, ConfigStoreError> SaveExpected(const Config& config) const;
-
-  [[nodiscard]] Config Load() const;
-  void Save(const Config& config) const;
   [[nodiscard]] bool Exists() const;
 
  private:
