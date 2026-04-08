@@ -49,6 +49,7 @@ $output = Join-Path $BuildDir "wallpaper_app.exe"
 $resourceObj = Join-Path $BuildDir "app_icon_res.o"
 $coreSources = @(
   "src/config_store.cpp",
+  "src/cpu_frame_buffer_pool.cpp",
   "src/cpu_frame_downscale.cpp",
   "src/desktop_context_policy.cpp",
   "src/desktop_attach_policy.cpp",

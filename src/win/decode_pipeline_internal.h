@@ -1,6 +1,7 @@
 #pragma once
 
 #include "wallpaper/interfaces.h"
+#include "wallpaper/cpu_frame_buffer_pool.h"
 #include "wallpaper/cpu_frame_downscale.h"
 #include "wallpaper/decode_async_read_policy.h"
 #include "wallpaper/decode_output_policy.h"
@@ -162,6 +163,7 @@ class DecodePipelineStub final : public IDecodePipeline {
   ID3D11Texture2D* sharedNv12BridgeUvTexture_ = nullptr;
   UINT sharedNv12BridgeWidth_ = 0;
   UINT sharedNv12BridgeHeight_ = 0;
+  CpuFrameBufferPool scaledFrameBufferPool_{4};
 };
 
 std::unique_ptr<IDecodePipeline> CreateDecodePipeline();

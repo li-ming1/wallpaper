@@ -786,25 +786,24 @@ DecodePipelineStub::PublishResult DecodePipelineStub::PublishSampleToBridgeUnloc
                                       static_cast<int>(snapshot.frameWidth),
                                       static_cast<int>(snapshot.frameHeight),
                                       bridgeScalePlan.targetWidth, bridgeScalePlan.targetHeight,
+                                      &scaledFrameBufferPool_,
                                       &scaledBuffer)) {
       return {};
     }
 
-    auto scaledBytes = std::make_shared<std::vector<std::uint8_t>>(std::move(scaledBuffer.bytes));
-    if (scaledBytes == nullptr || scaledBytes->empty()) {
+    if (scaledBuffer.data == nullptr || scaledBuffer.dataBytes == 0 || scaledBuffer.holder == nullptr) {
       return {};
     }
 
     const std::size_t yPlaneBytes = scaledBuffer.secondaryPlaneOffsetBytes;
-    const std::size_t uvPlaneBytes = scaledBytes->size() - scaledBuffer.secondaryPlaneOffsetBytes;
-    std::shared_ptr<void> bufferHolder(scaledBytes, scaledBytes->data());
+    const std::size_t uvPlaneBytes = scaledBuffer.dataBytes - scaledBuffer.secondaryPlaneOffsetBytes;
     frame_bridge::PublishLatestNv12FrameView(
         scaledBuffer.width, scaledBuffer.height, scaledBuffer.primaryStrideBytes,
         scaledBuffer.secondaryStrideBytes, snapshot.outputTimestamp100ns, snapshot.sequence,
-        scaledBytes->data() + scaledBuffer.primaryPlaneOffsetBytes, yPlaneBytes,
-        scaledBytes->data() + scaledBuffer.secondaryPlaneOffsetBytes, uvPlaneBytes,
-        std::move(bufferHolder));
-    return PublishResult{true, false, scaledBytes->size(), static_cast<std::uint32_t>(scaledBuffer.width),
+        scaledBuffer.data + scaledBuffer.primaryPlaneOffsetBytes, yPlaneBytes,
+        scaledBuffer.data + scaledBuffer.secondaryPlaneOffsetBytes, uvPlaneBytes,
+        std::move(scaledBuffer.holder));
+    return PublishResult{true, false, scaledBuffer.dataBytes, static_cast<std::uint32_t>(scaledBuffer.width),
                          static_cast<std::uint32_t>(scaledBuffer.height)};
   };
 
@@ -814,20 +813,19 @@ DecodePipelineStub::PublishResult DecodePipelineStub::PublishSampleToBridgeUnloc
     if (!TryDownscaleRgbaFrameNearest(rgbaData, static_cast<int>(snapshot.frameWidth),
                                       static_cast<int>(snapshot.frameHeight), strideBytes,
                                       bridgeScalePlan.targetWidth, bridgeScalePlan.targetHeight,
+                                      &scaledFrameBufferPool_,
                                       &scaledBuffer)) {
       return {};
     }
-
-    auto scaledBytes = std::make_shared<std::vector<std::uint8_t>>(std::move(scaledBuffer.bytes));
-    if (scaledBytes == nullptr || scaledBytes->empty()) {
+    if (scaledBuffer.data == nullptr || scaledBuffer.dataBytes == 0 || scaledBuffer.holder == nullptr) {
       return {};
     }
 
     frame_bridge::PublishLatestFrameView(
         scaledBuffer.width, scaledBuffer.height, scaledBuffer.primaryStrideBytes,
-        snapshot.outputTimestamp100ns, snapshot.sequence, scaledBytes->data(), scaledBytes->size(),
-        std::shared_ptr<void>(scaledBytes, scaledBytes->data()));
-    return PublishResult{true, false, scaledBytes->size(), static_cast<std::uint32_t>(scaledBuffer.width),
+        snapshot.outputTimestamp100ns, snapshot.sequence, scaledBuffer.data, scaledBuffer.dataBytes,
+        std::move(scaledBuffer.holder));
+    return PublishResult{true, false, scaledBuffer.dataBytes, static_cast<std::uint32_t>(scaledBuffer.width),
                          static_cast<std::uint32_t>(scaledBuffer.height)};
   };
 

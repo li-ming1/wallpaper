@@ -43,6 +43,7 @@ $output = Join-Path $BuildDir "wallpaper_tests.exe"
 $testSources = @(
   "tests/test_main.cpp",
   "tests/config_store_tests.cpp",
+  "tests/cpu_frame_buffer_pool_tests.cpp",
   "tests/cpu_frame_downscale_tests.cpp",
   "tests/cpp26_feature_support_tests.cpp",
   "tests/decode_async_read_policy_tests.cpp",
@@ -62,6 +63,7 @@ $testSources = @(
   "tests/metrics_shard_retain_set_tests.cpp",
   "tests/metrics_log_file_tests.cpp",
   "tests/monitor_layout_policy_tests.cpp",
+  "tests/nearest_scale_stepper_tests.cpp",
   "tests/nv12_layout_policy_tests.cpp",
   "tests/pause_resource_policy_tests.cpp",
   "tests/pause_suspend_policy_tests.cpp",
@@ -93,6 +95,7 @@ $testSources = @(
 
 $coreSources = @(
   "src/config_store.cpp",
+  "src/cpu_frame_buffer_pool.cpp",
   "src/cpu_frame_downscale.cpp",
   "src/decode_async_read_policy.cpp",
   "src/desktop_context_policy.cpp",

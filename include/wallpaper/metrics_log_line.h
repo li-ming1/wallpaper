@@ -17,7 +17,6 @@ namespace wallpaper {
                                               int effectiveFps, DecodeMode decodeMode,
                                               DecodePath decodePath, int longRunLevel,
                                               int decodeHotSleepMs,
-                                              std::size_t decodeCopyBytesPerSec,
                                               DecodeInteropStage decodeInteropStage,
                                               std::int32_t decodeInteropHresult);
 

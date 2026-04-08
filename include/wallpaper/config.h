@@ -35,6 +35,7 @@ struct Config final {
   std::string videoPath;
   bool autoStart = false;
   bool pauseWhenNotDesktopContext = true;
+  bool debugMetrics = false;
   PlaybackProfile playbackProfile = PlaybackProfile::kBalanced;
 };
 

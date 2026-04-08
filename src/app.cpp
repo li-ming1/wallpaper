@@ -292,7 +292,7 @@ bool App::Initialize() {
 
   SetAutoStartEnabled(config_.autoStart);
   lastMetricsAt_ = RenderScheduler::Clock::now();
-  if (!metricsLogFile_.EnsureReady()) {
+  if (config_.debugMetrics && !metricsLogFile_.EnsureReady()) {
     // 指标日志写入失败不应阻止主功能启动，降级为无落盘监控。
   }
   SyncTrayMenuState();
@@ -424,7 +424,6 @@ void App::ResetPlaybackState(const bool resetLongRunState) {
   lastDecodePath_ = DecodePath::kUnknown;
   lastDecodeInteropStage_ = DecodeInteropStage::kUnknown;
   lastDecodeInteropHresult_ = 0;
-  decodeCopyBytesInWindow_ = 0;
   lastDecodeOutputPixels_ = 0;
   lastSessionProbeAt_ = RenderScheduler::Clock::time_point{};
   lastForegroundProbeAt_ = RenderScheduler::Clock::time_point{};
@@ -853,11 +852,12 @@ void App::Tick() {
   }
 
   if (hasNewDecodedToken) {
-    lastDecodeMode_ = frame.decodeMode;
     lastDecodePath_ = frame.decodePath;
-    lastDecodeInteropStage_ = frame.decodeInteropStage;
-    lastDecodeInteropHresult_ = frame.decodeInteropHresult;
-    decodeCopyBytesInWindow_ += frame.cpuCopyBytes;
+    if (config_.debugMetrics) {
+      lastDecodeMode_ = frame.decodeMode;
+      lastDecodeInteropStage_ = frame.decodeInteropStage;
+      lastDecodeInteropHresult_ = frame.decodeInteropHresult;
+    }
     if (frame.width > 0 && frame.height > 0) {
       lastDecodeOutputPixels_ =
           static_cast<std::size_t>(frame.width) * static_cast<std::size_t>(frame.height);

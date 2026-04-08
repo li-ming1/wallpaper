@@ -1,4 +1,5 @@
 #include "wallpaper/cpu_frame_downscale.h"
+#include "wallpaper/nearest_scale_stepper.h"
 
 #include <cstring>
 
@@ -6,11 +7,30 @@ namespace wallpaper {
 namespace {
 
 [[nodiscard]] bool IsValidScaleRequest(const std::uint8_t* const srcData, const int srcWidth,
-                                       const int srcHeight, const int srcStrideBytes,
-                                       const int targetWidth, const int targetHeight,
-                                       CompactCpuFrameBuffer* const outBuffer) noexcept {
+                                        const int srcHeight, const int srcStrideBytes,
+                                        const int targetWidth, const int targetHeight,
+                                        CpuFrameBufferPool* const pool,
+                                        CompactCpuFrameBuffer* const outBuffer) noexcept {
   return srcData != nullptr && srcWidth > 0 && srcHeight > 0 && srcStrideBytes > 0 &&
-         targetWidth > 0 && targetHeight > 0 && outBuffer != nullptr;
+         targetWidth > 0 && targetHeight > 0 && pool != nullptr && outBuffer != nullptr;
+}
+
+[[nodiscard]] bool AcquireOutputBuffer(CpuFrameBufferPool* const pool,
+                                       const std::size_t requiredBytes,
+                                       CompactCpuFrameBuffer* const outBuffer) noexcept {
+  if (pool == nullptr || outBuffer == nullptr || requiredBytes == 0) {
+    return false;
+  }
+
+  CpuFrameBufferLease lease = pool->Acquire(requiredBytes);
+  if (lease.data == nullptr || lease.capacityBytes < requiredBytes || lease.holder == nullptr) {
+    return false;
+  }
+
+  outBuffer->data = lease.data;
+  outBuffer->dataBytes = requiredBytes;
+  outBuffer->holder = std::move(lease.holder);
+  return true;
 }
 
 }  // namespace
@@ -18,9 +38,10 @@ namespace {
 bool TryDownscaleRgbaFrameNearest(const std::uint8_t* const srcData, const int srcWidth,
                                   const int srcHeight, const int srcStrideBytes,
                                   const int targetWidth, const int targetHeight,
+                                  CpuFrameBufferPool* const pool,
                                   CompactCpuFrameBuffer* const outBuffer) noexcept {
-  if (!IsValidScaleRequest(srcData, srcWidth, srcHeight, srcStrideBytes, targetWidth, targetHeight,
-                           outBuffer)) {
+  if (!IsValidScaleRequest(srcData, srcWidth, srcHeight, srcStrideBytes, targetWidth,
+                           targetHeight, pool, outBuffer)) {
     return false;
   }
 
@@ -32,20 +53,27 @@ bool TryDownscaleRgbaFrameNearest(const std::uint8_t* const srcData, const int s
   outBuffer->secondaryStrideBytes = 0;
   outBuffer->primaryPlaneOffsetBytes = 0;
   outBuffer->secondaryPlaneOffsetBytes = 0;
-  outBuffer->bytes.assign(requiredBytes, 0U);
+  if (!AcquireOutputBuffer(pool, requiredBytes, outBuffer)) {
+    return false;
+  }
 
   // CPU fallback 在发布到 frame_bridge 前就压成紧凑小帧，避免运行期继续持有大样本。
+  // 最近邻步进器把比例除法移出像素内层，降低 compact CPU fallback 的热路径成本。
+  NearestScaleStepper yStepper(srcHeight, targetHeight);
   for (int y = 0; y < targetHeight; ++y) {
-    const int srcY = (y * srcHeight) / targetHeight;
+    const int srcY = yStepper.CurrentSourceIndex();
     const auto* const srcRow =
         srcData + static_cast<std::size_t>(srcY) * static_cast<std::size_t>(srcStrideBytes);
-    auto* const dstRow = outBuffer->bytes.data() + static_cast<std::size_t>(y) * targetStrideBytes;
+    auto* const dstRow = outBuffer->data + static_cast<std::size_t>(y) * targetStrideBytes;
+    NearestScaleStepper xStepper(srcWidth, targetWidth);
     for (int x = 0; x < targetWidth; ++x) {
-      const int srcX = (x * srcWidth) / targetWidth;
+      const int srcX = xStepper.CurrentSourceIndex();
       const auto* const srcPixel = srcRow + static_cast<std::size_t>(srcX) * 4U;
       auto* const dstPixel = dstRow + static_cast<std::size_t>(x) * 4U;
       std::memcpy(dstPixel, srcPixel, 4U);
+      xStepper.Advance();
     }
+    yStepper.Advance();
   }
   return true;
 }
@@ -56,9 +84,10 @@ bool TryDownscaleNv12FrameNearest(const std::uint8_t* const srcYPlaneData,
                                   const int srcUvStrideBytes, const int srcWidth,
                                   const int srcHeight, const int targetWidth,
                                   const int targetHeight,
+                                  CpuFrameBufferPool* const pool,
                                   CompactCpuFrameBuffer* const outBuffer) noexcept {
   if (!IsValidScaleRequest(srcYPlaneData, srcWidth, srcHeight, srcYStrideBytes, targetWidth,
-                           targetHeight, outBuffer) ||
+                           targetHeight, pool, outBuffer) ||
       srcUvPlaneData == nullptr || srcUvStrideBytes <= 0 || srcWidth % 2 != 0 ||
       srcHeight % 2 != 0 || targetWidth % 2 != 0 || targetHeight % 2 != 0) {
     return false;
@@ -75,37 +104,47 @@ bool TryDownscaleNv12FrameNearest(const std::uint8_t* const srcYPlaneData,
   outBuffer->secondaryStrideBytes = static_cast<int>(uvStrideBytes);
   outBuffer->primaryPlaneOffsetBytes = 0;
   outBuffer->secondaryPlaneOffsetBytes = yPlaneBytes;
-  outBuffer->bytes.assign(yPlaneBytes + uvPlaneBytes, 0U);
+  if (!AcquireOutputBuffer(pool, yPlaneBytes + uvPlaneBytes, outBuffer)) {
+    return false;
+  }
 
+  NearestScaleStepper yStepper(srcHeight, targetHeight);
   for (int y = 0; y < targetHeight; ++y) {
-    const int srcY = (y * srcHeight) / targetHeight;
+    const int srcY = yStepper.CurrentSourceIndex();
     const auto* const srcRow =
         srcYPlaneData + static_cast<std::size_t>(srcY) * static_cast<std::size_t>(srcYStrideBytes);
-    auto* const dstRow = outBuffer->bytes.data() + static_cast<std::size_t>(y) * yStrideBytes;
+    auto* const dstRow = outBuffer->data + static_cast<std::size_t>(y) * yStrideBytes;
+    NearestScaleStepper xStepper(srcWidth, targetWidth);
     for (int x = 0; x < targetWidth; ++x) {
-      const int srcX = (x * srcWidth) / targetWidth;
+      const int srcX = xStepper.CurrentSourceIndex();
       dstRow[x] = srcRow[srcX];
+      xStepper.Advance();
     }
+    yStepper.Advance();
   }
 
   const int srcUvWidthSamples = srcWidth / 2;
   const int srcUvHeightSamples = srcHeight / 2;
   const int targetUvWidthSamples = targetWidth / 2;
   const int targetUvHeightSamples = targetHeight / 2;
-  auto* const dstUvBase = outBuffer->bytes.data() + yPlaneBytes;
+  auto* const dstUvBase = outBuffer->data + yPlaneBytes;
+  NearestScaleStepper uvYStepper(srcUvHeightSamples, targetUvHeightSamples);
   for (int y = 0; y < targetUvHeightSamples; ++y) {
-    const int srcY = (y * srcUvHeightSamples) / targetUvHeightSamples;
+    const int srcY = uvYStepper.CurrentSourceIndex();
     const auto* const srcRow = srcUvPlaneData +
                                static_cast<std::size_t>(srcY) *
                                    static_cast<std::size_t>(srcUvStrideBytes);
     auto* const dstRow = dstUvBase + static_cast<std::size_t>(y) * uvStrideBytes;
+    NearestScaleStepper uvXStepper(srcUvWidthSamples, targetUvWidthSamples);
     for (int x = 0; x < targetUvWidthSamples; ++x) {
-      const int srcX = (x * srcUvWidthSamples) / targetUvWidthSamples;
+      const int srcX = uvXStepper.CurrentSourceIndex();
       const auto* const srcPixel = srcRow + static_cast<std::size_t>(srcX) * 2U;
       auto* const dstPixel = dstRow + static_cast<std::size_t>(x) * 2U;
       dstPixel[0] = srcPixel[0];
       dstPixel[1] = srcPixel[1];
+      uvXStepper.Advance();
     }
+    uvYStepper.Advance();
   }
 
   return true;

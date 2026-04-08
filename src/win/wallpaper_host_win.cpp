@@ -4,6 +4,7 @@
 #include "wallpaper/frame_bridge.h"
 #include "wallpaper/desktop_attach_policy.h"
 #include "wallpaper/monitor_layout_policy.h"
+#include "wallpaper/nearest_scale_stepper.h"
 #include "wallpaper/runtime_trim_policy.h"
 #include "wallpaper/swap_chain_policy.h"
 #include "wallpaper/upload_copy_policy.h"
@@ -119,17 +120,20 @@ void DownscaleRgbaNearest(const std::uint8_t* const srcBase, const UINT srcRowPi
   }
 
   // CPU 回退上传缩放使用最近邻采样：实现简单、可预测，优先守住上传带宽与驻留预算。
+  NearestScaleStepper yStepper(srcHeight, static_cast<int>(targetHeight));
   for (UINT y = 0; y < targetHeight; ++y) {
-    const int srcY = static_cast<int>((static_cast<std::uint64_t>(y) * srcHeight) / targetHeight);
+    const int srcY = yStepper.CurrentSourceIndex();
     const auto* srcRow = srcBase + static_cast<std::size_t>(srcY) * srcRowPitch;
     auto* dstRow = dstBase + static_cast<std::size_t>(y) * dstRowPitch;
+    NearestScaleStepper xStepper(srcWidth, static_cast<int>(targetWidth));
     for (UINT x = 0; x < targetWidth; ++x) {
-      const int srcX =
-          static_cast<int>((static_cast<std::uint64_t>(x) * srcWidth) / targetWidth);
+      const int srcX = xStepper.CurrentSourceIndex();
       const auto* srcPixel = srcRow + static_cast<std::size_t>(srcX) * 4U;
       auto* dstPixel = dstRow + static_cast<std::size_t>(x) * 4U;
       std::memcpy(dstPixel, srcPixel, 4U);
+      xStepper.Advance();
     }
+    yStepper.Advance();
   }
 }
 
@@ -142,15 +146,18 @@ void DownscalePlaneNearest(const std::uint8_t* const srcBase, const UINT srcRowP
     return;
   }
 
+  NearestScaleStepper yStepper(srcHeight, static_cast<int>(targetHeight));
   for (UINT y = 0; y < targetHeight; ++y) {
-    const int srcY = static_cast<int>((static_cast<std::uint64_t>(y) * srcHeight) / targetHeight);
+    const int srcY = yStepper.CurrentSourceIndex();
     const auto* srcRow = srcBase + static_cast<std::size_t>(srcY) * srcRowPitch;
     auto* dstRow = dstBase + static_cast<std::size_t>(y) * dstRowPitch;
+    NearestScaleStepper xStepper(srcWidth, static_cast<int>(targetWidth));
     for (UINT x = 0; x < targetWidth; ++x) {
-      const int srcX =
-          static_cast<int>((static_cast<std::uint64_t>(x) * srcWidth) / targetWidth);
+      const int srcX = xStepper.CurrentSourceIndex();
       dstRow[x] = srcRow[srcX];
+      xStepper.Advance();
     }
+    yStepper.Advance();
   }
 }
 
@@ -165,19 +172,21 @@ void DownscaleInterleavedUvNearest(const std::uint8_t* const srcBase, const UINT
     return;
   }
 
+  NearestScaleStepper yStepper(srcHeightSamples, static_cast<int>(targetHeightSamples));
   for (UINT y = 0; y < targetHeightSamples; ++y) {
-    const int srcY =
-        static_cast<int>((static_cast<std::uint64_t>(y) * srcHeightSamples) / targetHeightSamples);
+    const int srcY = yStepper.CurrentSourceIndex();
     const auto* srcRow = srcBase + static_cast<std::size_t>(srcY) * srcRowPitch;
     auto* dstRow = dstBase + static_cast<std::size_t>(y) * dstRowPitch;
+    NearestScaleStepper xStepper(srcWidthSamples, static_cast<int>(targetWidthSamples));
     for (UINT x = 0; x < targetWidthSamples; ++x) {
-      const int srcX = static_cast<int>(
-          (static_cast<std::uint64_t>(x) * srcWidthSamples) / targetWidthSamples);
+      const int srcX = xStepper.CurrentSourceIndex();
       const auto* srcPixel = srcRow + static_cast<std::size_t>(srcX) * 2U;
       auto* dstPixel = dstRow + static_cast<std::size_t>(x) * 2U;
       dstPixel[0] = srcPixel[0];
       dstPixel[1] = srcPixel[1];
+      xStepper.Advance();
     }
+    yStepper.Advance();
   }
 }
 

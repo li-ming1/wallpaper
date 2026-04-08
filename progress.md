@@ -1,5 +1,80 @@
 # Progress Log
 
+## 2026-04-08
+- 新任务：清理 `metrics.csv` 无效字段，范围限定为 `dropped_frame_ratio` 与 `decode_copy_bytes_per_sec`。
+- 已重新核对代码来源：
+  - `dropped_frame_ratio` 当前没有真实 dropped 路径，按实现恒为 `0`。
+  - `decode_copy_bytes_per_sec` 当前记录的是采样窗口累计 copy 字节，不是严格 per-second。
+- 下一步按 TDD 先改 `tests/metrics_log_line_tests.cpp` 进入 Red，再做最小 Green。
+- TDD Red：
+  - 修改 `tests/metrics_log_line_tests.cpp`，删除对两列的期望与传参。
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/phase141_metrics_cleanup_red` 按预期失败：`BuildMetricsCsvLine(...)` 旧签名仍要求 `decodeCopyBytesPerSec`。
+- Green：
+  - `include/wallpaper/metrics_log_line.h`
+  - `src/metrics_log_line.cpp`
+    - 删除两列的 header/line 序列化与多余参数。
+  - `src/app_metrics.cpp`
+    - 更新 `BuildMetricsCsvLine(...)` 调用并删除窗口 copy-bytes 清零。
+  - `include/wallpaper/app.h`
+  - `src/app.cpp`
+    - 删除仅供 `decode_copy_bytes_per_sec` 使用的 `decodeCopyBytesInWindow_` 状态及累计。
+- Verification：
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/phase141_metrics_cleanup_green` -> PASS（304/304）
+  - `scripts/build_app.ps1 -BuildDir build_tmp/phase141_metrics_cleanup_app` -> PASS
+  - 仅剩既有 `-flto` 串行 LTRANS 提示，无新增告警
+- 新任务：新增单配置 `debugMetrics`，默认 `false`。
+- 设计收口：
+  - `false` 时不写 `metrics.csv`，并关闭非必要字段采集。
+  - 控制链所需的最小指标继续保留，避免动态保护失明。
+  - `true` 时保持当前完整 metrics 行为。
+- TDD Red：
+  - 扩展 `tests/config_store_tests.cpp`，要求 `Config.debugMetrics` 默认 `false` 且可读写。
+  - 扩展 `tests/win11_cleanup_tests.cpp`，要求 `App` 已把 metrics 落盘挂到 `debugMetrics` 开关下。
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/phase142_debug_metrics_red` 按预期失败：`Config` 缺少 `debugMetrics`。
+- Green：
+  - `include/wallpaper/config.h`
+    - 新增 `Config.debugMetrics = false`
+  - `src/config_store.cpp`
+    - 支持读写 `debugMetrics`
+  - `src/app.cpp`
+    - 仅在 `config_.debugMetrics` 为真时 `EnsureReady()` metrics 文件
+    - 仅在 debug 模式下更新纯日志用途的 decode/interp 状态
+  - `src/app_metrics.cpp`
+    - `debugMetrics=false` 时只采集控制链必需指标
+    - 仅在 debug 模式下填充非必要字段、入 `metrics_` 环形采样、追加 CSV
+  - `README.md`
+    - 补充 `debugMetrics` 配置说明与示例
+- Verification：
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/phase142_debug_metrics_green` -> PASS（305/305）
+  - `scripts/build_app.ps1 -BuildDir build_tmp/phase142_debug_metrics_app` -> PASS
+  - 仅剩既有 `-flto` 串行 LTRANS 提示，无新增告警
+
+## 2026-04-07
+- TDD Red：新增 `tests/nearest_scale_stepper_tests.cpp`，要求最近邻坐标步进器在 downscale/upscale 场景下与 `floor(i * src / dst)` 映射一致；`build_tmp/phase14_scale_stepper_red` 因缺少 `wallpaper/nearest_scale_stepper.h` 按预期失败。
+- Green：
+  - 新增 `include/wallpaper/nearest_scale_stepper.h`
+  - `src/cpu_frame_downscale.cpp` 的 RGBA/NV12 最近邻缩放改用步进器，移除像素内层整数除法
+  - `src/win/wallpaper_host_win.cpp` 内部 CPU 上传缩放 helper 同步改用步进器
+  - `CMakeLists.txt` / `scripts/run_tests.ps1` 接入新测试
+- Verification：
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/phase14_scale_stepper_green` -> PASS（302/302）
+  - `scripts/build_app.ps1 -BuildDir build_tmp/phase14_scale_stepper_app` -> PASS
+  - 仅剩既有 `-flto` 串行 LTRANS 提示，无新增告警
+
+## 2026-04-07
+- 继续做“还有没有更优算法/数据结构可替代”的复扫，本轮只分析不改代码。
+- 复扫范围：
+  - `present_sample_window`
+  - `metrics_shard_retain_set`
+  - `config_store`
+  - `cpu_frame_downscale`
+  - `decode_pipeline_mf`
+  - `frame_bridge`
+- 结论：
+  - 未发现新的同等级高收益容器替代点。
+  - 当前唯一仍值得继续迭代的算法热点，是 CPU 最近邻缩放内层循环重复整数除法；适合后续按 TDD 做“预计算 scale map / 坐标映射表”。
+  - `config_store` / `MetricsShardRetainSet` / `PresentSampleWindow` / `frame_bridge borrow API` 均已评估为现阶段收益不足或风险过高。
+
 ## 2026-04-07
 - 继续 `wallpaper_host_win.cpp` 热路径职责净化，确认本轮不再做容器替换，而是收口 `Present()` 里剩余的 route 执行与 consumed-frame 提交。
 - TDD Red：扩展 `tests/win11_cleanup_tests.cpp`，要求 `Present()` 不再内联 `consumeLatestVideoFrame` lambda 与 `switch (routePlan.routes[routeIndex])`；`build_tmp/phase13_wallpaper_host_present_red` 按预期失败。
@@ -3108,3 +3183,61 @@
   - `scripts/build_app.ps1 -BuildDir build_tmp/phase138_green_stale_keepalive_cleanup` -> PASS
   - 产物：
     - `build_tmp/phase138_green_stale_keepalive_cleanup/wallpaper_app.exe`
+
+## 2026-04-07 Phase 139: 数据结构/算法残留点复查（只审查，不改代码）
+- Scope:
+  - 复查当前代码库里是否还存在值得继续替换的数据结构或算法点
+  - 只保留真正有收益的候选，避免为了“看起来更高级”而继续折腾冷路径
+- Discovery:
+  - 高优先级已不在常规容器替换，而在 CPU fallback 缩放发布链的重复分配与包装
+  - `frame_bridge` 仍有“胖结构 + shared_ptr holder 按值复制”的热路径成本，但复杂度/风险高于第一优先级
+  - `metrics` 与 `video_path_matcher` 还存在低优先级算法优化空间，但都不是主战场
+- Evidence:
+  - `src/cpu_frame_downscale.cpp`
+    - `CompactCpuFrameBuffer::bytes.assign(...)` 每次缩放都会整段分配并清零目标缓冲
+  - `src/win/decode_pipeline_mf.cpp`
+    - 缩放后仍通过 `make_shared<vector<uint8_t>>(move(bytes))` 再包一层 holder
+    - contiguous fallback 仍可能命中 `ConvertToContiguousBuffer()`
+  - `src/frame_bridge.cpp`
+    - `TryGetLatestFrame()` / `TryGetLatestFrameIfNewer()` 仍复制含多个 `shared_ptr<void>` 的 `LatestFrame`
+- Conclusion:
+  - 若继续做性能向重构，首选是“按尺寸复用的 CPU frame buffer pool / ring lease”
+  - `frame_bridge` lease 化次之
+  - 其余点只建议在 profiler 证实后再碰
+
+## 2026-04-07 Phase 140: CPU frame buffer pool
+- Scope:
+  - 为 CPU fallback 缩放发布链引入可复用 buffer pool
+  - 去掉每帧 `vector` owning buffer 与缩放后再包一层 `shared_ptr<vector<uint8_t>>`
+- Design:
+  - 新增 `cpu_frame_buffer_pool`，提供小容量 pooled lease
+  - `CompactCpuFrameBuffer` 改为只保存元数据、裸指针和 holder
+  - `decode_pipeline_mf.cpp` 持有一个小 pool，并把缩放结果 holder 直接交给 `frame_bridge`
+- Red:
+  - 新增 `tests/cpu_frame_buffer_pool_tests.cpp`
+  - 修改 `tests/cpu_frame_downscale_tests.cpp` 切到 `pool + dataBytes + holder` 新语义
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/phase140_red_cpu_frame_buffer_pool` -> FAIL（符合预期）
+  - 失败点：
+    - 缺少 `wallpaper/cpu_frame_buffer_pool.h`
+- Green:
+  - 新增 `include/wallpaper/cpu_frame_buffer_pool.h`
+  - 新增 `src/cpu_frame_buffer_pool.cpp`
+  - `include/wallpaper/cpu_frame_downscale.h`
+    - `CompactCpuFrameBuffer` 改为 `data + dataBytes + holder`
+    - downscale API 改为接收 `CpuFrameBufferPool*`
+  - `src/cpu_frame_downscale.cpp`
+    - 改为 lease pooled buffer 后直接写入，不再 `assign(..., 0)`
+  - `src/win/decode_pipeline_internal.h`
+    - 新增 `scaledFrameBufferPool_{4}`
+  - `src/win/decode_pipeline_mf.cpp`
+    - 缩放后直接传递 pooled holder 给 `frame_bridge`
+    - 删除 `make_shared<vector<uint8_t>>(move(...))` 二次包装
+  - `CMakeLists.txt`
+  - `scripts/run_tests.ps1`
+  - `scripts/build_app.ps1`
+    - 接入新源文件与测试文件
+- Verification:
+  - `scripts/run_tests.ps1 -BuildDir build_tmp/phase140_green_cpu_frame_buffer_pool` -> PASS（304/304）
+  - `scripts/build_app.ps1 -BuildDir build_tmp/phase140_green_cpu_frame_buffer_pool` -> PASS
+  - 产物：
+    - `build_tmp/phase140_green_cpu_frame_buffer_pool/wallpaper_app.exe`

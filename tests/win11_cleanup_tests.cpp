@@ -165,3 +165,13 @@ TEST_CASE(Win11Cleanup_StartupPolicyDoesNotKeepStaleFrameKeepAliveDeadLogic) {
                            {"staleFramePresentDue", "ShouldPresentStaleFrame"});
   ExpectFileDoesNotContain(appSource, {"ShouldPresentStaleFrame(", "kStaleFrameKeepAliveInterval"});
 }
+
+TEST_CASE(Win11Cleanup_AppGuardsMetricsLoggingBehindDebugMetrics) {
+  const auto repoRoot = std::filesystem::current_path();
+  const std::string appSource = ReadTextFile(repoRoot / "src" / "app.cpp");
+  const std::string appMetricsSource = ReadTextFile(repoRoot / "src" / "app_metrics.cpp");
+
+  EXPECT_TRUE(appSource.find("config_.debugMetrics") != std::string::npos);
+  EXPECT_TRUE(appMetricsSource.find("if (config_.debugMetrics && !metricsLogFile_.Append(") !=
+              std::string::npos);
+}

@@ -117,10 +117,12 @@ void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameD
   lastMetricsAt_ = now;
 
   RuntimeMetrics metrics;
-  metrics.decodeOutputPixels = lastDecodeOutputPixels_;
-  metrics.threadQos = static_cast<RuntimeThreadQos>(decodeThreadQos_.load());
-  metrics.occluded = occluded;
-  metrics.powerState = arbiter_.CurrentPowerState();
+  if (config_.debugMetrics) {
+    metrics.decodeOutputPixels = lastDecodeOutputPixels_;
+    metrics.threadQos = static_cast<RuntimeThreadQos>(decodeThreadQos_.load());
+    metrics.occluded = occluded;
+    metrics.powerState = arbiter_.CurrentPowerState();
+  }
   metrics.cpuPercent = QueryProcessCpuPercent();
   const ProcessMemoryUsage memoryUsage = QueryProcessMemoryUsage();
   metrics.privateBytes = memoryUsage.privateBytes;
@@ -129,7 +131,9 @@ void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameD
   metrics.droppedFrameRatio =
       totalFrames_ == 0 ? 0.0
                         : static_cast<double>(droppedFrames_) / static_cast<double>(totalFrames_);
-  metrics_.PushSample(metrics);
+  if (config_.debugMetrics) {
+    metrics_.PushSample(metrics);
+  }
   // 每秒基于实时负载做一次帧率档位决策，避免在每帧路径引入额外分支和抖动。
   const int effectiveFps = qualityGovernor_.Update(metrics);
   const LongRunLoadDecision longRunDecision =
@@ -187,19 +191,16 @@ void App::MaybeSampleAndLogMetrics(const bool attemptedRender, const bool frameD
   const int appliedFps = scheduler_.GetFpsCap();
   const int targetFps = autoTargetFps_;
 
-  if (!metricsLogFile_.Append(BuildMetricsCsvLine(NowUnixMs(), metrics, metricsSessionId_,
-                                                  targetFps, appliedFps, lastDecodeMode_,
-                                                  lastDecodePath_, longRunLoadState_.level,
-                                                  decodePumpHotSleepMs_.load(),
-                                                  decodeCopyBytesInWindow_,
-                                                  lastDecodeInteropStage_,
-                                                  lastDecodeInteropHresult_))) {
+  if (config_.debugMetrics && !metricsLogFile_.Append(BuildMetricsCsvLine(
+                                  NowUnixMs(), metrics, metricsSessionId_, targetFps, appliedFps,
+                                  lastDecodeMode_, lastDecodePath_, longRunLoadState_.level,
+                                  decodePumpHotSleepMs_.load(), lastDecodeInteropStage_,
+                                  lastDecodeInteropHresult_))) {
     // I/O 失败时静默降级，避免主渲染循环被监控路径反向影响。
   }
 
   totalFrames_ = 0;
   droppedFrames_ = 0;
-  decodeCopyBytesInWindow_ = 0;
 }
 
 }  // namespace wallpaper

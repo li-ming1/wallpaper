@@ -1,7 +1,7 @@
 #include "wallpaper/cpu_frame_downscale.h"
+#include "wallpaper/cpu_frame_buffer_pool.h"
 
 #include <array>
-#include <vector>
 
 #include "test_support.h"
 
@@ -13,9 +13,10 @@ TEST_CASE(CpuFrameDownscale_DownscalesRgbaNearestToCompactBuffer) {
       13, 0, 0, 255, 14, 0, 0, 255, 15, 0, 0, 255, 16, 0, 0, 255,
   };
 
+  wallpaper::CpuFrameBufferPool pool(2);
   wallpaper::CompactCpuFrameBuffer scaled;
   const bool ok = wallpaper::TryDownscaleRgbaFrameNearest(
-      src.data(), 4, 4, 16, 2, 2, &scaled);
+      src.data(), 4, 4, 16, 2, 2, &pool, &scaled);
 
   EXPECT_TRUE(ok);
   EXPECT_EQ(scaled.width, 2);
@@ -24,11 +25,13 @@ TEST_CASE(CpuFrameDownscale_DownscalesRgbaNearestToCompactBuffer) {
   EXPECT_EQ(scaled.secondaryStrideBytes, 0);
   EXPECT_EQ(scaled.primaryPlaneOffsetBytes, 0U);
   EXPECT_EQ(scaled.secondaryPlaneOffsetBytes, 0U);
-  EXPECT_EQ(scaled.bytes.size(), 16U);
-  EXPECT_EQ(scaled.bytes[0], 1U);
-  EXPECT_EQ(scaled.bytes[4], 3U);
-  EXPECT_EQ(scaled.bytes[8], 9U);
-  EXPECT_EQ(scaled.bytes[12], 11U);
+  EXPECT_EQ(scaled.dataBytes, 16U);
+  EXPECT_TRUE(scaled.data != nullptr);
+  EXPECT_TRUE(scaled.holder != nullptr);
+  EXPECT_EQ(scaled.data[0], 1U);
+  EXPECT_EQ(scaled.data[4], 3U);
+  EXPECT_EQ(scaled.data[8], 9U);
+  EXPECT_EQ(scaled.data[12], 11U);
 }
 
 TEST_CASE(CpuFrameDownscale_DownscalesNv12NearestToCompactBuffer) {
@@ -41,9 +44,10 @@ TEST_CASE(CpuFrameDownscale_DownscalesNv12NearestToCompactBuffer) {
       104, 105, 106, 107,
   };
 
+  wallpaper::CpuFrameBufferPool pool(2);
   wallpaper::CompactCpuFrameBuffer scaled;
   const bool ok = wallpaper::TryDownscaleNv12FrameNearest(
-      src.data(), 4, src.data() + 16, 4, 4, 4, 2, 2, &scaled);
+      src.data(), 4, src.data() + 16, 4, 4, 4, 2, 2, &pool, &scaled);
 
   EXPECT_TRUE(ok);
   EXPECT_EQ(scaled.width, 2);
@@ -52,18 +56,21 @@ TEST_CASE(CpuFrameDownscale_DownscalesNv12NearestToCompactBuffer) {
   EXPECT_EQ(scaled.secondaryStrideBytes, 2);
   EXPECT_EQ(scaled.primaryPlaneOffsetBytes, 0U);
   EXPECT_EQ(scaled.secondaryPlaneOffsetBytes, 4U);
-  EXPECT_EQ(scaled.bytes.size(), 6U);
-  EXPECT_EQ(scaled.bytes[0], 0U);
-  EXPECT_EQ(scaled.bytes[1], 2U);
-  EXPECT_EQ(scaled.bytes[2], 8U);
-  EXPECT_EQ(scaled.bytes[3], 10U);
-  EXPECT_EQ(scaled.bytes[4], 100U);
-  EXPECT_EQ(scaled.bytes[5], 101U);
+  EXPECT_EQ(scaled.dataBytes, 6U);
+  EXPECT_TRUE(scaled.data != nullptr);
+  EXPECT_TRUE(scaled.holder != nullptr);
+  EXPECT_EQ(scaled.data[0], 0U);
+  EXPECT_EQ(scaled.data[1], 2U);
+  EXPECT_EQ(scaled.data[2], 8U);
+  EXPECT_EQ(scaled.data[3], 10U);
+  EXPECT_EQ(scaled.data[4], 100U);
+  EXPECT_EQ(scaled.data[5], 101U);
 }
 
 TEST_CASE(CpuFrameDownscale_RejectsInvalidInput) {
+  wallpaper::CpuFrameBufferPool pool(1);
   wallpaper::CompactCpuFrameBuffer scaled;
-  EXPECT_TRUE(!wallpaper::TryDownscaleRgbaFrameNearest(nullptr, 4, 4, 16, 2, 2, &scaled));
+  EXPECT_TRUE(!wallpaper::TryDownscaleRgbaFrameNearest(nullptr, 4, 4, 16, 2, 2, &pool, &scaled));
   EXPECT_TRUE(!wallpaper::TryDownscaleNv12FrameNearest(
-      nullptr, 0, nullptr, 0, 4, 4, 2, 2, &scaled));
+      nullptr, 0, nullptr, 0, 4, 4, 2, 2, &pool, &scaled));
 }

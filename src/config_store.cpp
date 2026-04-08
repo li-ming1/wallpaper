@@ -193,6 +193,9 @@ std::expected<Config, ConfigStoreError> ConfigStore::LoadExpected() const {
   if (ExtractBool(json, "pauseWhenNotDesktopContext", &flag)) {
     config.pauseWhenNotDesktopContext = flag;
   }
+  if (ExtractBool(json, "debugMetrics", &flag)) {
+    config.debugMetrics = flag;
+  }
 
   return config;
 }
@@ -209,6 +212,7 @@ std::expected<void, ConfigStoreError> ConfigStore::SaveExpectedInternal(
   out << "  \"videoPath\": \"" << EscapeJson(config.videoPath) << "\",\n";
   out << "  \"playbackProfile\": \"" << ToConfigString(config.playbackProfile) << "\",\n";
   out << "  \"autoStart\": " << (config.autoStart ? "true" : "false") << ",\n";
+  out << "  \"debugMetrics\": " << (config.debugMetrics ? "true" : "false") << ",\n";
   out << "  \"pauseWhenNotDesktopContext\": "
       << (config.pauseWhenNotDesktopContext ? "true" : "false") << "\n";
   out << "}\n";

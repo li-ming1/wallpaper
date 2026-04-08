@@ -142,7 +142,6 @@ class App final {
   unsigned long processMemoryPriority_ = 5;
   std::size_t droppedFrames_ = 0;
   std::size_t totalFrames_ = 0;
-  std::size_t decodeCopyBytesInWindow_ = 0;
   std::size_t lastDecodeOutputPixels_ = 0;
   int decodeOpenLongRunLevel_ = 0;
   bool decodeOpenPreferHardwareTransforms_ = true;

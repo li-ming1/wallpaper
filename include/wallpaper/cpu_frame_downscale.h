@@ -2,7 +2,9 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <vector>
+#include <memory>
+
+#include "wallpaper/cpu_frame_buffer_pool.h"
 
 namespace wallpaper {
 
@@ -13,12 +15,15 @@ struct CompactCpuFrameBuffer final {
   int secondaryStrideBytes = 0;
   std::size_t primaryPlaneOffsetBytes = 0;
   std::size_t secondaryPlaneOffsetBytes = 0;
-  std::vector<std::uint8_t> bytes;
+  std::uint8_t* data = nullptr;
+  std::size_t dataBytes = 0;
+  std::shared_ptr<void> holder;
 };
 
 [[nodiscard]] bool TryDownscaleRgbaFrameNearest(const std::uint8_t* srcData, int srcWidth,
                                                 int srcHeight, int srcStrideBytes,
                                                 int targetWidth, int targetHeight,
+                                                CpuFrameBufferPool* pool,
                                                 CompactCpuFrameBuffer* outBuffer) noexcept;
 
 [[nodiscard]] bool TryDownscaleNv12FrameNearest(const std::uint8_t* srcYPlaneData,
@@ -26,6 +31,7 @@ struct CompactCpuFrameBuffer final {
                                                 const std::uint8_t* srcUvPlaneData,
                                                 int srcUvStrideBytes, int srcWidth, int srcHeight,
                                                 int targetWidth, int targetHeight,
+                                                CpuFrameBufferPool* pool,
                                                 CompactCpuFrameBuffer* outBuffer) noexcept;
 
 }  // namespace wallpaper
