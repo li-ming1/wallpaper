@@ -433,6 +433,21 @@ TEST_CASE(Win11Cleanup_RgbaDownscalePrecomputesSourceByteOffsets) {
                            {"static_cast<std::size_t>(x) * 4U"});
 }
 
+TEST_CASE(Win11Cleanup_DownscaleCachesSampleByteOffsetsAndRemovesUvInnerMultiplication) {
+  const auto repoRoot = std::filesystem::current_path();
+  const std::string cpuDownscale = ReadTextFile(repoRoot / "src" / "cpu_frame_downscale.cpp");
+  const std::string wallpaperHost = ReadTextFile(repoRoot / "src" / "win" / "wallpaper_host_win.cpp");
+
+  EXPECT_TRUE(cpuDownscale.find("thread_local ByteOffsetTableCache") != std::string::npos);
+  EXPECT_TRUE(wallpaperHost.find("thread_local ByteOffsetTableCache") != std::string::npos);
+  ExpectFileDoesNotContain(repoRoot / "src" / "cpu_frame_downscale.cpp",
+                           {"static_cast<std::size_t>(srcX) * 2U",
+                            "static_cast<std::size_t>(x) * 2U"});
+  ExpectFileDoesNotContain(repoRoot / "src" / "win" / "wallpaper_host_win.cpp",
+                           {"static_cast<std::size_t>(srcX) * 2U",
+                            "static_cast<std::size_t>(x) * 2U"});
+}
+
 TEST_CASE(Win11Cleanup_DecodeSampleStrategyCacheUsesAtomicFastPath) {
   const auto repoRoot = std::filesystem::current_path();
   const std::string decodeHeader =

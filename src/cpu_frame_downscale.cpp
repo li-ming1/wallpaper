@@ -130,20 +130,110 @@ class NearestIndexTableCache final {
   std::vector<int> empty_{};
 };
 
+struct ByteOffsetTableCacheEntry final {
+  int srcExtent = 0;
+  int targetExtent = 0;
+  std::size_t bytesPerSample = 0;
+  std::vector<std::size_t> offsets;
+  std::uint64_t useStamp = 0;
+  bool occupied = false;
+};
+
+// 偏移表和 index 表一样会在少量分辨率组合间高频复用，线程内缓存可避免每帧重建 vector。
+class ByteOffsetTableCache final {
+ public:
+  [[nodiscard]] const std::vector<std::size_t>& Get(const int srcExtent, const int targetExtent,
+                                                    const std::size_t bytesPerSample,
+                                                    const std::vector<int>& sourceIndices) {
+    if (srcExtent <= 0 || targetExtent <= 0 || bytesPerSample == 0 ||
+        sourceIndices.size() != static_cast<std::size_t>(targetExtent)) {
+      return empty_;
+    }
+
+    const std::size_t hitIndex = FindHitIndex(srcExtent, targetExtent, bytesPerSample);
+    if (hitIndex != kInvalidIndex) {
+      ByteOffsetTableCacheEntry& hit = entries_[hitIndex];
+      hit.useStamp = ++nextUseStamp_;
+      return hit.offsets;
+    }
+
+    const std::size_t insertIndex = FindInsertIndex();
+    if (insertIndex == kInvalidIndex) {
+      return empty_;
+    }
+
+    ByteOffsetTableCacheEntry& entry = entries_[insertIndex];
+    entry.offsets.resize(sourceIndices.size());
+    for (std::size_t index = 0; index < sourceIndices.size(); ++index) {
+      entry.offsets[index] = static_cast<std::size_t>(sourceIndices[index]) * bytesPerSample;
+    }
+    entry.srcExtent = srcExtent;
+    entry.targetExtent = targetExtent;
+    entry.bytesPerSample = bytesPerSample;
+    entry.useStamp = ++nextUseStamp_;
+    entry.occupied = true;
+    return entry.offsets;
+  }
+
+ private:
+  static constexpr std::size_t kCacheSlotCount = 8;
+  static constexpr std::size_t kInvalidIndex = std::numeric_limits<std::size_t>::max();
+
+  [[nodiscard]] std::size_t FindHitIndex(const int srcExtent, const int targetExtent,
+                                         const std::size_t bytesPerSample) const noexcept {
+    for (std::size_t index = 0; index < entries_.size(); ++index) {
+      const ByteOffsetTableCacheEntry& entry = entries_[index];
+      if (entry.occupied && entry.srcExtent == srcExtent &&
+          entry.targetExtent == targetExtent && entry.bytesPerSample == bytesPerSample) {
+        return index;
+      }
+    }
+    return kInvalidIndex;
+  }
+
+  [[nodiscard]] std::size_t FindInsertIndex() const noexcept {
+    std::size_t insertIndex = kInvalidIndex;
+    std::uint64_t oldestStamp = std::numeric_limits<std::uint64_t>::max();
+    for (std::size_t index = 0; index < entries_.size(); ++index) {
+      const ByteOffsetTableCacheEntry& entry = entries_[index];
+      if (!entry.occupied) {
+        return index;
+      }
+      if (entry.useStamp < oldestStamp) {
+        oldestStamp = entry.useStamp;
+        insertIndex = index;
+      }
+    }
+    return insertIndex;
+  }
+
+  std::array<ByteOffsetTableCacheEntry, kCacheSlotCount> entries_{};
+  std::uint64_t nextUseStamp_ = 0;
+  std::vector<std::size_t> empty_{};
+};
+
 [[nodiscard]] const std::vector<int>& BuildNearestSourceIndexTable(const int srcExtent,
                                                                    const int targetExtent) {
   thread_local NearestIndexTableCache cache;
   return cache.Get(srcExtent, targetExtent);
 }
 
-[[nodiscard]] std::vector<std::size_t> BuildRgbaSourceByteOffsetTable(
-    const std::vector<int>& xIndices) {
-  std::vector<std::size_t> offsets;
-  offsets.resize(xIndices.size());
-  for (std::size_t index = 0; index < xIndices.size(); ++index) {
-    offsets[index] = static_cast<std::size_t>(xIndices[index]) * 4U;
-  }
-  return offsets;
+[[nodiscard]] const std::vector<std::size_t>& BuildSampleByteOffsetTable(
+    const int srcExtent, const int targetExtent, const std::size_t bytesPerSample,
+    const std::vector<int>& sourceIndices) {
+  thread_local ByteOffsetTableCache cache;
+  return cache.Get(srcExtent, targetExtent, bytesPerSample, sourceIndices);
+}
+
+[[nodiscard]] const std::vector<std::size_t>& BuildRgbaSourceByteOffsetTable(
+    const int srcWidth, const int targetWidth, const std::vector<int>& xIndices) {
+  return BuildSampleByteOffsetTable(srcWidth, targetWidth, 4U, xIndices);
+}
+
+[[nodiscard]] const std::vector<std::size_t>& BuildInterleavedUvSourceByteOffsetTable(
+    const int srcUvWidthSamples, const int targetUvWidthSamples,
+    const std::vector<int>& uvXIndices) {
+  return BuildSampleByteOffsetTable(srcUvWidthSamples, targetUvWidthSamples, 2U, uvXIndices);
 }
 
 }  // namespace
@@ -184,7 +274,8 @@ bool TryDownscaleRgbaFrameNearest(const std::uint8_t* const srcData, const int s
   // 最近邻步进器把比例除法移出像素内层，降低 compact CPU fallback 的热路径成本。
   const std::vector<int>& xIndices = BuildNearestSourceIndexTable(srcWidth, targetWidth);
   const std::vector<int>& yIndices = BuildNearestSourceIndexTable(srcHeight, targetHeight);
-  const std::vector<std::size_t> srcByteOffsets = BuildRgbaSourceByteOffsetTable(xIndices);
+  const std::vector<std::size_t>& srcByteOffsets =
+      BuildRgbaSourceByteOffsetTable(srcWidth, targetWidth, xIndices);
   if (xIndices.size() != static_cast<std::size_t>(targetWidth) ||
       yIndices.size() != static_cast<std::size_t>(targetHeight) ||
       srcByteOffsets.size() != static_cast<std::size_t>(targetWidth)) {
@@ -279,22 +370,25 @@ bool TryDownscaleNv12FrameNearest(const std::uint8_t* const srcYPlaneData,
       BuildNearestSourceIndexTable(srcUvHeightSamples, targetUvHeightSamples);
   const std::vector<int>& uvXIndices =
       BuildNearestSourceIndexTable(srcUvWidthSamples, targetUvWidthSamples);
+  const std::vector<std::size_t>& uvSrcByteOffsets = BuildInterleavedUvSourceByteOffsetTable(
+      srcUvWidthSamples, targetUvWidthSamples, uvXIndices);
   if (uvXIndices.size() != static_cast<std::size_t>(targetUvWidthSamples) ||
-      uvYIndices.size() != static_cast<std::size_t>(targetUvHeightSamples)) {
+      uvYIndices.size() != static_cast<std::size_t>(targetUvHeightSamples) ||
+      uvSrcByteOffsets.size() != static_cast<std::size_t>(targetUvWidthSamples)) {
     return false;
   }
   for (int y = 0; y < targetUvHeightSamples; ++y) {
     const int srcY = uvYIndices[static_cast<std::size_t>(y)];
     const auto* const srcRow = srcUvPlaneData +
                                static_cast<std::size_t>(srcY) *
-                                   static_cast<std::size_t>(srcUvStrideBytes);
+                                    static_cast<std::size_t>(srcUvStrideBytes);
     auto* const dstRow = dstUvBase + static_cast<std::size_t>(y) * uvStrideBytes;
+    auto* dstPixel = dstRow;
     for (int x = 0; x < targetUvWidthSamples; ++x) {
-      const int srcX = uvXIndices[static_cast<std::size_t>(x)];
-      const auto* const srcPixel = srcRow + static_cast<std::size_t>(srcX) * 2U;
-      auto* const dstPixel = dstRow + static_cast<std::size_t>(x) * 2U;
+      const auto* const srcPixel = srcRow + uvSrcByteOffsets[static_cast<std::size_t>(x)];
       dstPixel[0] = srcPixel[0];
       dstPixel[1] = srcPixel[1];
+      dstPixel += 2U;
     }
   }
 

@@ -191,14 +191,103 @@ class NearestIndexTableCache final {
 
 [[nodiscard]] const std::vector<int>& BuildNearestSourceIndexTable(int srcExtent, int targetExtent);
 
-[[nodiscard]] std::vector<std::size_t> BuildRgbaSourceByteOffsetTable(
-    const std::vector<int>& xIndices) {
+struct ByteOffsetTableCacheEntry final {
+  int srcExtent = 0;
+  int targetExtent = 0;
+  std::size_t bytesPerSample = 0;
   std::vector<std::size_t> offsets;
-  offsets.resize(xIndices.size());
-  for (std::size_t index = 0; index < xIndices.size(); ++index) {
-    offsets[index] = static_cast<std::size_t>(xIndices[index]) * 4U;
+  std::uint64_t useStamp = 0;
+  bool occupied = false;
+};
+
+class ByteOffsetTableCache final {
+ public:
+  [[nodiscard]] const std::vector<std::size_t>& Get(const int srcExtent, const int targetExtent,
+                                                    const std::size_t bytesPerSample,
+                                                    const std::vector<int>& sourceIndices) {
+    if (srcExtent <= 0 || targetExtent <= 0 || bytesPerSample == 0 ||
+        sourceIndices.size() != static_cast<std::size_t>(targetExtent)) {
+      return empty_;
+    }
+
+    const std::size_t hitIndex = FindHitIndex(srcExtent, targetExtent, bytesPerSample);
+    if (hitIndex != kInvalidIndex) {
+      ByteOffsetTableCacheEntry& hit = entries_[hitIndex];
+      hit.useStamp = ++nextUseStamp_;
+      return hit.offsets;
+    }
+
+    const std::size_t insertIndex = FindInsertIndex();
+    if (insertIndex == kInvalidIndex) {
+      return empty_;
+    }
+
+    ByteOffsetTableCacheEntry& entry = entries_[insertIndex];
+    entry.offsets.resize(sourceIndices.size());
+    for (std::size_t index = 0; index < sourceIndices.size(); ++index) {
+      entry.offsets[index] = static_cast<std::size_t>(sourceIndices[index]) * bytesPerSample;
+    }
+    entry.srcExtent = srcExtent;
+    entry.targetExtent = targetExtent;
+    entry.bytesPerSample = bytesPerSample;
+    entry.useStamp = ++nextUseStamp_;
+    entry.occupied = true;
+    return entry.offsets;
   }
-  return offsets;
+
+ private:
+  static constexpr std::size_t kCacheSlotCount = 8;
+  static constexpr std::size_t kInvalidIndex = std::numeric_limits<std::size_t>::max();
+
+  [[nodiscard]] std::size_t FindHitIndex(const int srcExtent, const int targetExtent,
+                                         const std::size_t bytesPerSample) const noexcept {
+    for (std::size_t index = 0; index < entries_.size(); ++index) {
+      const ByteOffsetTableCacheEntry& entry = entries_[index];
+      if (entry.occupied && entry.srcExtent == srcExtent &&
+          entry.targetExtent == targetExtent && entry.bytesPerSample == bytesPerSample) {
+        return index;
+      }
+    }
+    return kInvalidIndex;
+  }
+
+  [[nodiscard]] std::size_t FindInsertIndex() const noexcept {
+    std::size_t insertIndex = kInvalidIndex;
+    std::uint64_t oldestStamp = std::numeric_limits<std::uint64_t>::max();
+    for (std::size_t index = 0; index < entries_.size(); ++index) {
+      const ByteOffsetTableCacheEntry& entry = entries_[index];
+      if (!entry.occupied) {
+        return index;
+      }
+      if (entry.useStamp < oldestStamp) {
+        oldestStamp = entry.useStamp;
+        insertIndex = index;
+      }
+    }
+    return insertIndex;
+  }
+
+  std::array<ByteOffsetTableCacheEntry, kCacheSlotCount> entries_{};
+  std::uint64_t nextUseStamp_ = 0;
+  std::vector<std::size_t> empty_{};
+};
+
+[[nodiscard]] const std::vector<std::size_t>& BuildSampleByteOffsetTable(
+    const int srcExtent, const int targetExtent, const std::size_t bytesPerSample,
+    const std::vector<int>& sourceIndices) {
+  thread_local ByteOffsetTableCache cache;
+  return cache.Get(srcExtent, targetExtent, bytesPerSample, sourceIndices);
+}
+
+[[nodiscard]] const std::vector<std::size_t>& BuildRgbaSourceByteOffsetTable(
+    const int srcWidth, const int targetWidth, const std::vector<int>& xIndices) {
+  return BuildSampleByteOffsetTable(srcWidth, targetWidth, 4U, xIndices);
+}
+
+[[nodiscard]] const std::vector<std::size_t>& BuildInterleavedUvSourceByteOffsetTable(
+    const int srcUvWidthSamples, const int targetUvWidthSamples,
+    const std::vector<int>& uvXIndices) {
+  return BuildSampleByteOffsetTable(srcUvWidthSamples, targetUvWidthSamples, 2U, uvXIndices);
 }
 
 void DownscaleRgbaNearest(const std::uint8_t* const srcBase, const UINT srcRowPitch,
@@ -215,7 +304,8 @@ void DownscaleRgbaNearest(const std::uint8_t* const srcBase, const UINT srcRowPi
       BuildNearestSourceIndexTable(srcWidth, static_cast<int>(targetWidth));
   const std::vector<int>& yIndices =
       BuildNearestSourceIndexTable(srcHeight, static_cast<int>(targetHeight));
-  const std::vector<std::size_t> srcByteOffsets = BuildRgbaSourceByteOffsetTable(xIndices);
+  const std::vector<std::size_t>& srcByteOffsets = BuildRgbaSourceByteOffsetTable(
+      srcWidth, static_cast<int>(targetWidth), xIndices);
   if (xIndices.size() != static_cast<std::size_t>(targetWidth) ||
       yIndices.size() != static_cast<std::size_t>(targetHeight) ||
       srcByteOffsets.size() != static_cast<std::size_t>(targetWidth)) {
@@ -283,20 +373,23 @@ void DownscaleInterleavedUvNearest(const std::uint8_t* const srcBase, const UINT
       BuildNearestSourceIndexTable(srcWidthSamples, static_cast<int>(targetWidthSamples));
   const std::vector<int>& yIndices =
       BuildNearestSourceIndexTable(srcHeightSamples, static_cast<int>(targetHeightSamples));
+  const std::vector<std::size_t>& uvSrcByteOffsets = BuildInterleavedUvSourceByteOffsetTable(
+      srcWidthSamples, static_cast<int>(targetWidthSamples), xIndices);
   if (xIndices.size() != static_cast<std::size_t>(targetWidthSamples) ||
-      yIndices.size() != static_cast<std::size_t>(targetHeightSamples)) {
+      yIndices.size() != static_cast<std::size_t>(targetHeightSamples) ||
+      uvSrcByteOffsets.size() != static_cast<std::size_t>(targetWidthSamples)) {
     return;
   }
   for (UINT y = 0; y < targetHeightSamples; ++y) {
     const int srcY = yIndices[static_cast<std::size_t>(y)];
     const auto* srcRow = srcBase + static_cast<std::size_t>(srcY) * srcRowPitch;
     auto* dstRow = dstBase + static_cast<std::size_t>(y) * dstRowPitch;
+    auto* dstPixel = dstRow;
     for (UINT x = 0; x < targetWidthSamples; ++x) {
-      const int srcX = xIndices[static_cast<std::size_t>(x)];
-      const auto* srcPixel = srcRow + static_cast<std::size_t>(srcX) * 2U;
-      auto* dstPixel = dstRow + static_cast<std::size_t>(x) * 2U;
+      const auto* srcPixel = srcRow + uvSrcByteOffsets[static_cast<std::size_t>(x)];
       dstPixel[0] = srcPixel[0];
       dstPixel[1] = srcPixel[1];
+      dstPixel += 2U;
     }
   }
 }
