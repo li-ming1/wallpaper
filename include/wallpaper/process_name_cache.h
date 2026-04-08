@@ -61,7 +61,8 @@ class ProcessNameCache final {
     bool valid = false;
     bool lookupOk = false;
     std::wstring processName;
-    std::uint64_t generation = 0;
+    std::size_t prevIndex = kInvalidIndex;
+    std::size_t nextIndex = kInvalidIndex;
   };
 
   struct Bucket final {
@@ -70,45 +71,104 @@ class ProcessNameCache final {
     std::size_t entryIndex = 0;
   };
 
+  void InitializeEntryListsIfNeeded() noexcept {
+    if (entryListsInitialized_) {
+      return;
+    }
+    for (std::size_t index = 0; index < entries_.size(); ++index) {
+      Entry& entry = entries_[index];
+      entry.prevIndex = kInvalidIndex;
+      entry.nextIndex = (index + 1U < entries_.size()) ? (index + 1U) : kInvalidIndex;
+    }
+    freeEntryHead_ = entries_.empty() ? kInvalidIndex : 0U;
+    lruHead_ = kInvalidIndex;
+    lruTail_ = kInvalidIndex;
+    entryListsInitialized_ = true;
+  }
+
+  void AttachEntryToLruTail(const std::size_t entryIndex) noexcept {
+    if (entryIndex >= entries_.size()) {
+      return;
+    }
+    Entry& entry = entries_[entryIndex];
+    entry.prevIndex = lruTail_;
+    entry.nextIndex = kInvalidIndex;
+    if (lruTail_ != kInvalidIndex) {
+      entries_[lruTail_].nextIndex = entryIndex;
+    } else {
+      lruHead_ = entryIndex;
+    }
+    lruTail_ = entryIndex;
+  }
+
+  void DetachEntryFromLru(const std::size_t entryIndex) noexcept {
+    if (entryIndex >= entries_.size()) {
+      return;
+    }
+    Entry& entry = entries_[entryIndex];
+    const std::size_t prev = entry.prevIndex;
+    const std::size_t next = entry.nextIndex;
+
+    if (prev != kInvalidIndex) {
+      entries_[prev].nextIndex = next;
+    } else if (lruHead_ == entryIndex) {
+      lruHead_ = next;
+    }
+
+    if (next != kInvalidIndex) {
+      entries_[next].prevIndex = prev;
+    } else if (lruTail_ == entryIndex) {
+      lruTail_ = prev;
+    }
+
+    entry.prevIndex = kInvalidIndex;
+    entry.nextIndex = kInvalidIndex;
+  }
+
+  void TouchLruEntry(const std::size_t entryIndex) noexcept {
+    if (entryIndex >= entries_.size() || lruTail_ == entryIndex) {
+      return;
+    }
+    DetachEntryFromLru(entryIndex);
+    AttachEntryToLruTail(entryIndex);
+  }
+
+  [[nodiscard]] std::size_t AcquireEntryForStore() noexcept {
+    if (freeEntryHead_ != kInvalidIndex) {
+      const std::size_t entryIndex = freeEntryHead_;
+      Entry& freeEntry = entries_[entryIndex];
+      freeEntryHead_ = freeEntry.nextIndex;
+      freeEntry.prevIndex = kInvalidIndex;
+      freeEntry.nextIndex = kInvalidIndex;
+      ++entryCount_;
+      return entryIndex;
+    }
+    if (lruHead_ == kInvalidIndex) {
+      return kInvalidIndex;
+    }
+    const std::size_t evictedIndex = lruHead_;
+    DetachEntryFromLru(evictedIndex);
+    return evictedIndex;
+  }
+
   void Store(const std::uint32_t processId, const bool lookupOk, std::wstring processName) {
+    InitializeEntryListsIfNeeded();
     const std::size_t existingBucket = FindBucketIndex(processId);
     if (existingBucket != kInvalidIndex) {
       const std::size_t existingEntry = buckets_[existingBucket].entryIndex;
       if (existingEntry < entries_.size()) {
         Entry& entry = entries_[existingEntry];
-        entry.lookupOk = lookupOk;
-        entry.processName = std::move(processName);
-        entry.generation = nextGeneration_++;
-        RebuildBuckets();
-        return;
-      }
-    }
-
-    std::size_t targetEntryIndex = kInvalidIndex;
-    if (entryCount_ < entries_.size()) {
-      for (std::size_t slot = 0; slot < entries_.size(); ++slot) {
-        if (!entries_[slot].valid) {
-          targetEntryIndex = slot;
-          break;
-        }
-      }
-      if (targetEntryIndex != kInvalidIndex) {
-        ++entryCount_;
-      }
-    } else {
-      std::uint64_t oldestGeneration = std::numeric_limits<std::uint64_t>::max();
-      for (std::size_t slot = 0; slot < entries_.size(); ++slot) {
-        const Entry& candidate = entries_[slot];
-        if (!candidate.valid) {
-          continue;
-        }
-        if (candidate.generation < oldestGeneration) {
-          oldestGeneration = candidate.generation;
-          targetEntryIndex = slot;
+        if (entry.valid && entry.processId == processId) {
+          entry.lookupOk = lookupOk;
+          entry.processName = std::move(processName);
+          TouchLruEntry(existingEntry);
+          RebuildBuckets();
+          return;
         }
       }
     }
 
+    const std::size_t targetEntryIndex = AcquireEntryForStore();
     if (targetEntryIndex == kInvalidIndex) {
       return;
     }
@@ -118,7 +178,7 @@ class ProcessNameCache final {
     entry.valid = true;
     entry.lookupOk = lookupOk;
     entry.processName = std::move(processName);
-    entry.generation = nextGeneration_++;
+    AttachEntryToLruTail(targetEntryIndex);
     RebuildBuckets();
   }
 
@@ -171,8 +231,11 @@ class ProcessNameCache final {
 
   std::array<Entry, kCapacity> entries_{};
   std::array<Bucket, kHashBucketCount> buckets_{};
+  std::size_t freeEntryHead_ = kInvalidIndex;
+  std::size_t lruHead_ = kInvalidIndex;
+  std::size_t lruTail_ = kInvalidIndex;
   std::size_t entryCount_ = 0;
-  std::uint64_t nextGeneration_ = 1;
+  bool entryListsInitialized_ = false;
 };
 
 }  // namespace wallpaper

@@ -558,6 +558,19 @@ TEST_CASE(Win11Cleanup_ProcessNameCacheUsesOpenAddressingHashBuckets) {
                            {"for (const Entry& entry : entries_)", "for (Entry& entry : entries_)"});
 }
 
+TEST_CASE(Win11Cleanup_ProcessNameCacheUsesO1FreeListAndLruEntrySelection) {
+  const auto repoRoot = std::filesystem::current_path();
+  const auto processCacheHeader = repoRoot / "include" / "wallpaper" / "process_name_cache.h";
+  const std::string source = ReadTextFile(processCacheHeader);
+
+  EXPECT_TRUE(source.find("freeEntryHead_") != std::string::npos);
+  EXPECT_TRUE(source.find("lruHead_") != std::string::npos);
+  EXPECT_TRUE(source.find("lruTail_") != std::string::npos);
+  EXPECT_TRUE(source.find("AcquireEntryForStore(") != std::string::npos);
+  ExpectFileDoesNotContain(processCacheHeader,
+                           {"oldestGeneration", "nextGeneration_", "entry.generation"});
+}
+
 TEST_CASE(Win11Cleanup_ResourceArbiterDoesNotKeepUnusedForegroundStateApi) {
   const auto repoRoot = std::filesystem::current_path();
   const auto resourceArbiterHeader = repoRoot / "include" / "wallpaper" / "resource_arbiter.h";
