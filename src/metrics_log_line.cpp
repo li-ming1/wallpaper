@@ -1,7 +1,9 @@
 #include "wallpaper/metrics_log_line.h"
 
-#include <iomanip>
-#include <sstream>
+#include <array>
+#include <charconv>
+#include <cmath>
+#include <type_traits>
 
 namespace wallpaper {
 namespace {
@@ -80,6 +82,50 @@ const char* RuntimePowerStateToCsv(const RuntimePowerState state) {
   }
 }
 
+template <typename T>
+void AppendInteger(std::string* const out, const T value) {
+  if (out == nullptr) {
+    return;
+  }
+  std::array<char, 32> buffer{};
+  char* writeEnd = buffer.data();
+  if constexpr (std::is_signed_v<T> || std::is_unsigned_v<T>) {
+    const auto [ptr, ec] = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
+    if (ec != std::errc{}) {
+      out->push_back('0');
+      return;
+    }
+    writeEnd = ptr;
+  } else {
+    out->push_back('0');
+    return;
+  }
+  out->append(buffer.data(), static_cast<std::size_t>(writeEnd - buffer.data()));
+}
+
+void AppendFixed3(std::string* const out, const double value) {
+  if (out == nullptr) {
+    return;
+  }
+  if (!std::isfinite(value)) {
+    out->append("0.000");
+    return;
+  }
+  const double scaled = value * 1000.0;
+  const auto roundedScaled = static_cast<long long>(scaled >= 0.0 ? scaled + 0.5 : scaled - 0.5);
+  unsigned long long absScaled = static_cast<unsigned long long>(roundedScaled);
+  if (roundedScaled < 0) {
+    out->push_back('-');
+    absScaled = static_cast<unsigned long long>(-roundedScaled);
+  }
+  AppendInteger(out, absScaled / 1000ULL);
+  out->push_back('.');
+  const auto fractional = static_cast<unsigned int>(absScaled % 1000ULL);
+  out->push_back(static_cast<char>('0' + (fractional / 100U)));
+  out->push_back(static_cast<char>('0' + ((fractional / 10U) % 10U)));
+  out->push_back(static_cast<char>('0' + (fractional % 10U)));
+}
+
 }  // namespace
 
 std::string BuildMetricsCsvHeader() {
@@ -96,16 +142,46 @@ std::string BuildMetricsCsvLine(const std::int64_t unixMs, const RuntimeMetrics&
                                 const int longRunLevel, const int decodeHotSleepMs,
                                 const DecodeInteropStage decodeInteropStage,
                                 const std::int32_t decodeInteropHresult) {
-  std::ostringstream out;
-  out << unixMs << ',' << sessionId << ',' << targetFps << ',' << effectiveFps << ','
-      << DecodeModeToCsv(decodeMode) << ','
-      << DecodePathToCsv(decodePath) << ',' << metrics.decodeOutputPixels << ','
-      << RuntimeThreadQosToCsv(metrics.threadQos) << ',' << (metrics.occluded ? 1 : 0) << ','
-      << RuntimePowerStateToCsv(metrics.powerState) << ',' << std::fixed << std::setprecision(3)
-      << metrics.cpuPercent << ',' << metrics.privateBytes << ',' << metrics.workingSetBytes
-      << ',' << metrics.presentP95Ms << ',' << longRunLevel << ',' << decodeHotSleepMs << ','
-      << DecodeInteropStageToCsv(decodeInteropStage) << ',' << decodeInteropHresult << '\n';
-  return out.str();
+  std::string line;
+  line.reserve(256 + sessionId.size());
+
+  AppendInteger(&line, unixMs);
+  line.push_back(',');
+  line.append(sessionId);
+  line.push_back(',');
+  AppendInteger(&line, targetFps);
+  line.push_back(',');
+  AppendInteger(&line, effectiveFps);
+  line.push_back(',');
+  line.append(DecodeModeToCsv(decodeMode));
+  line.push_back(',');
+  line.append(DecodePathToCsv(decodePath));
+  line.push_back(',');
+  AppendInteger(&line, metrics.decodeOutputPixels);
+  line.push_back(',');
+  line.append(RuntimeThreadQosToCsv(metrics.threadQos));
+  line.push_back(',');
+  line.push_back(metrics.occluded ? '1' : '0');
+  line.push_back(',');
+  line.append(RuntimePowerStateToCsv(metrics.powerState));
+  line.push_back(',');
+  AppendFixed3(&line, metrics.cpuPercent);
+  line.push_back(',');
+  AppendInteger(&line, metrics.privateBytes);
+  line.push_back(',');
+  AppendInteger(&line, metrics.workingSetBytes);
+  line.push_back(',');
+  AppendFixed3(&line, metrics.presentP95Ms);
+  line.push_back(',');
+  AppendInteger(&line, longRunLevel);
+  line.push_back(',');
+  AppendInteger(&line, decodeHotSleepMs);
+  line.push_back(',');
+  line.append(DecodeInteropStageToCsv(decodeInteropStage));
+  line.push_back(',');
+  AppendInteger(&line, decodeInteropHresult);
+  line.push_back('\n');
+  return line;
 }
 
 }  // namespace wallpaper

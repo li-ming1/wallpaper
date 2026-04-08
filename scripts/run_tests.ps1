@@ -108,6 +108,7 @@ $coreSources = @(
   "src/long_run_load_policy.cpp",
   "src/metrics_log_line.cpp",
   "src/metrics_log_file.cpp",
+  "src/monitor_rect_cache.cpp",
   "src/monitor_layout_policy.cpp",
   "src/nv12_layout_policy.cpp",
   "src/pause_suspend_policy.cpp",

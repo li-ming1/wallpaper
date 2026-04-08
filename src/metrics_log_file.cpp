@@ -8,6 +8,7 @@
 #include <chrono>
 #include <ctime>
 #include <fstream>
+#include <unordered_set>
 #include <system_error>
 #include <vector>
 
@@ -259,8 +260,15 @@ void MetricsLogFile::PruneShards(const std::filesystem::path& activePath) const 
     }
   }
 
+  std::unordered_set<std::filesystem::path> retainedPaths;
+  retainedPaths.reserve(retainSet.Items().size() + static_cast<std::size_t>(1));
+  retainedPaths.insert(activePath);
+  for (const MetricsShardCandidate& retained : retainSet.Items()) {
+    retainedPaths.insert(retained.path);
+  }
+
   for (const MetricsShardCandidate& candidate : candidates) {
-    if (candidate.path == activePath || retainSet.Contains(candidate.key, candidate.path)) {
+    if (retainedPaths.find(candidate.path) != retainedPaths.end()) {
       continue;
     }
     std::error_code removeEc;

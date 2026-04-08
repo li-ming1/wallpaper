@@ -1,33 +1,11 @@
 #include "decode_pipeline_internal.h"
 
+#include "wallpaper/monitor_rect_cache.h"
 #include "wallpaper/monitor_layout_policy.h"
 
 namespace wallpaper {
 
 namespace {
-
-BOOL CALLBACK CollectMonitorRect(HMONITOR, HDC, LPRECT monitorRect, LPARAM userData) {
-  if (monitorRect == nullptr || userData == 0) {
-    return TRUE;
-  }
-  auto* monitors = reinterpret_cast<DisplayRectPlan*>(userData);
-  if (!monitors->PushBack(DisplayRect{
-      monitorRect->left,
-      monitorRect->top,
-      monitorRect->right,
-      monitorRect->bottom,
-  })) {
-    return FALSE;
-  }
-  return TRUE;
-}
-
-[[nodiscard]] DisplayRectPlan EnumerateMonitorRects() {
-  DisplayRectPlan monitors;
-  EnumDisplayMonitors(nullptr, nullptr, CollectMonitorRect,
-                      reinterpret_cast<LPARAM>(&monitors));
-  return monitors;
-}
 
 }  // namespace
 
@@ -85,8 +63,14 @@ void DecodePipelineStub::QueryDesktopFrameHint(UINT32* outWidth, UINT32* outHeig
       GetSystemMetrics(SM_XVIRTUALSCREEN) + GetSystemMetrics(SM_CXVIRTUALSCREEN),
       GetSystemMetrics(SM_YVIRTUALSCREEN) + GetSystemMetrics(SM_CYVIRTUALSCREEN),
   };
+  const MonitorRectSnapshot monitorSnapshot = QueryMonitorRectSnapshotCached();
+  const DisplayRect effectiveVirtualDesktop =
+      monitorSnapshot.virtualDesktop.right > monitorSnapshot.virtualDesktop.left &&
+              monitorSnapshot.virtualDesktop.bottom > monitorSnapshot.virtualDesktop.top
+          ? monitorSnapshot.virtualDesktop
+          : virtualDesktop;
   const DisplaySize hintSize =
-      SelectRepeatedFrameRenderSize(virtualDesktop, EnumerateMonitorRects());
+      SelectRepeatedFrameRenderSize(effectiveVirtualDesktop, monitorSnapshot.monitors);
   if (hintSize.width > 0 && hintSize.height > 0) {
     *outWidth = static_cast<UINT32>(hintSize.width);
     *outHeight = static_cast<UINT32>(hintSize.height);
@@ -486,7 +470,7 @@ void DecodePipelineStub::ReleaseMfLocked() {
   mfLastRawTimestamp100ns_ = -1;
   mfLastOutputTimestamp100ns_ = -1;
   ResetDecodeAsyncRead(&decodeAsyncReadState_);
-  samplePublishStrategyCache_.Reset();
+  samplePublishCachedStrategy_.store(SamplePublishStrategy::kUnknown, std::memory_order_release);
   interopStage_ = DecodeInteropStage::kNotAttempted;
   interopHresult_ = 0;
   ReleaseSharedNv12BridgeTexturesLocked();
@@ -884,12 +868,10 @@ DecodePipelineStub::PublishResult DecodePipelineStub::PublishSampleToBridgeUnloc
   };
 
   const auto rememberSuccessfulStrategy = [&](const SamplePublishStrategy strategy) {
-    std::lock_guard<std::mutex> lock(mu_);
-    samplePublishStrategyCache_.RememberSuccess(strategy);
+    samplePublishCachedStrategy_.store(strategy, std::memory_order_release);
   };
   const auto invalidateCachedStrategy = [&]() {
-    std::lock_guard<std::mutex> lock(mu_);
-    samplePublishStrategyCache_.Reset();
+    samplePublishCachedStrategy_.store(SamplePublishStrategy::kUnknown, std::memory_order_release);
   };
 
   SamplePublishCapabilities publishCapabilities;
@@ -899,10 +881,15 @@ DecodePipelineStub::PublishResult DecodePipelineStub::PublishSampleToBridgeUnloc
                                    : SamplePublishFormat::kRgba;
 
   SamplePublishStrategyPlan publishPlan;
-  {
-    std::lock_guard<std::mutex> lock(mu_);
-    publishPlan = samplePublishStrategyCache_.BuildPlan(publishCapabilities);
+  const SamplePublishStrategy cachedStrategy =
+      samplePublishCachedStrategy_.load(std::memory_order_acquire);
+  if (IsSamplePublishStrategyCompatible(cachedStrategy, publishCapabilities)) {
+    AppendUniqueSamplePublishStrategy(&publishPlan, cachedStrategy);
   }
+  AppendUniqueSamplePublishStrategy(
+      &publishPlan, SelectPrimarySamplePublishStrategy(publishCapabilities));
+  AppendUniqueSamplePublishStrategy(
+      &publishPlan, SelectSecondarySamplePublishStrategy(publishCapabilities));
 
   const auto publishGpuDxgiFrame = [&]() -> PublishResult {
     IMFMediaBuffer* indexedBuffer = nullptr;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <condition_variable>
@@ -86,9 +87,8 @@ class App final {
   std::condition_variable decodePumpWaitCv_;
   bool decodePumpWakeRequested_ = false;
   void* decodeFrameReadyEvent_ = nullptr;
-  std::mutex decodedTokenMu_;
-  FrameToken latestDecodedToken_{};
-  bool hasLatestDecodedToken_ = false;
+  std::array<FrameToken, 2> decodedTokenSlots_{};
+  std::atomic<std::uint32_t> decodedTokenPublishedSlot_{0};
   std::atomic<std::uint64_t> latestDecodedSequence_{0};
   std::atomic<std::uint64_t> latestPresentedSequence_{0};
 

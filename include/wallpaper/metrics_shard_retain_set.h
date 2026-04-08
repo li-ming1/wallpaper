@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <filesystem>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -26,10 +27,11 @@ class MetricsShardRetainSet final {
       return;
     }
 
-    const auto insertAt = std::find_if(retained_.begin(), retained_.end(),
-                                       [&candidate](const MetricsShardCandidate& current) {
-                                         return candidate.key > current.key;
-                                       });
+    const auto insertAt = std::lower_bound(
+        retained_.begin(), retained_.end(), candidate.key,
+        [](const MetricsShardCandidate& current, const std::string& key) {
+          return current.key > key;
+        });
     if (insertAt == retained_.end() && retained_.size() >= keepCount_) {
       return;
     }
@@ -42,10 +44,23 @@ class MetricsShardRetainSet final {
 
   [[nodiscard]] bool Contains(const std::string_view key,
                               const std::filesystem::path& path) const {
-    return std::any_of(retained_.begin(), retained_.end(),
-                       [&key, &path](const MetricsShardCandidate& candidate) {
-                         return candidate.key == key && candidate.path == path;
-                       });
+    const std::string lookupKey(key);
+    auto it = std::lower_bound(
+        retained_.begin(), retained_.end(), lookupKey,
+        [](const MetricsShardCandidate& current, const std::string& currentKey) {
+          return current.key > currentKey;
+        });
+    while (it != retained_.end() && it->key == lookupKey) {
+      if (it->path == path) {
+        return true;
+      }
+      ++it;
+    }
+    return false;
+  }
+
+  [[nodiscard]] std::span<const MetricsShardCandidate> Items() const {
+    return retained_;
   }
 
  private:

@@ -155,7 +155,8 @@ class DecodePipelineStub final : public IDecodePipeline {
   DecodeAsyncReadState decodeAsyncReadState_{};
   IMFSample* asyncReadySample_ = nullptr;
   std::int64_t asyncReadyRawTimestamp100ns_ = 0;
-  SamplePublishStrategyCache samplePublishStrategyCache_{};
+  std::atomic<SamplePublishStrategy> samplePublishCachedStrategy_{
+      SamplePublishStrategy::kUnknown};
   ID3D11Device* sharedNv12BridgeDevice_ = nullptr;
   ID3D11DeviceContext* sharedNv12BridgeContext_ = nullptr;
   std::uint64_t sharedNv12BridgeDeviceRevision_ = 0;

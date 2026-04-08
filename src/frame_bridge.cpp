@@ -11,11 +11,12 @@ namespace {
 
 constexpr std::size_t kFrameSlotCount = 3;
 
-std::array<LatestFrame, kFrameSlotCount> g_frameSlots{};
+std::array<std::atomic<std::shared_ptr<const LatestFrame>>, kFrameSlotCount> g_frameSlots{};
 std::atomic<std::uint64_t> g_latestSequence{0};
-std::mutex g_frameSlotsMu;
-std::size_t g_latestSlot = 0;
-bool g_hasLatestFrame = false;
+std::atomic<std::uint64_t> g_slotsVersion{0};
+std::atomic<std::uint32_t> g_latestSlot{0};
+std::atomic<bool> g_hasLatestFrame{false};
+std::mutex g_frameSlotsWriteMu;
 
 [[nodiscard]] LatestFrame MakeFrameBase(const int width, const int height, const int strideBytes,
                                         const std::int64_t timestamp100ns,
@@ -45,14 +46,62 @@ bool g_hasLatestFrame = false;
   return true;
 }
 
+void BeginFrameSlotsWrite() noexcept {
+  g_slotsVersion.fetch_add(1, std::memory_order_acq_rel);
+}
+
+void EndFrameSlotsWrite() noexcept {
+  g_slotsVersion.fetch_add(1, std::memory_order_release);
+}
+
+[[nodiscard]] bool TryReadLatestFrameSnapshot(LatestFrame* const outFrame) {
+  if (outFrame == nullptr) {
+    return false;
+  }
+
+  for (int attempt = 0; attempt < 8; ++attempt) {
+    const std::uint64_t versionBefore = g_slotsVersion.load(std::memory_order_acquire);
+    if ((versionBefore & 1U) != 0U) {
+      continue;
+    }
+    if (!g_hasLatestFrame.load(std::memory_order_acquire)) {
+      return false;
+    }
+    const std::uint32_t slotIndex = g_latestSlot.load(std::memory_order_acquire);
+    if (slotIndex >= kFrameSlotCount) {
+      return false;
+    }
+    const std::shared_ptr<const LatestFrame> snapshot =
+        g_frameSlots[slotIndex].load(std::memory_order_acquire);
+    const std::uint64_t versionAfter = g_slotsVersion.load(std::memory_order_acquire);
+    if (versionBefore != versionAfter || (versionAfter & 1U) != 0U) {
+      continue;
+    }
+    if (snapshot == nullptr || !IsReadableFrame(*snapshot)) {
+      return false;
+    }
+    *outFrame = *snapshot;
+    return true;
+  }
+  return false;
+}
+
 void PublishFrame(LatestFrame frame) {
-  std::lock_guard<std::mutex> lock(g_frameSlotsMu);
-  const std::size_t currentSlot = g_hasLatestFrame ? g_latestSlot : (kFrameSlotCount - 1U);
+  std::lock_guard<std::mutex> lock(g_frameSlotsWriteMu);
+  BeginFrameSlotsWrite();
+  const std::uint32_t currentSlot =
+      g_hasLatestFrame.load(std::memory_order_relaxed)
+          ? g_latestSlot.load(std::memory_order_relaxed)
+          : static_cast<std::uint32_t>(kFrameSlotCount - 1U);
   const std::size_t nextSlot = AdvancePublishSlot(currentSlot, kFrameSlotCount);
-  g_frameSlots[nextSlot] = std::move(frame);
-  g_latestSlot = nextSlot;
-  g_hasLatestFrame = true;
-  g_latestSequence.store(g_frameSlots[nextSlot].sequence, std::memory_order_release);
+  const std::uint64_t publishedSequence = frame.sequence;
+  g_frameSlots[nextSlot].store(
+      std::static_pointer_cast<const LatestFrame>(std::make_shared<LatestFrame>(std::move(frame))),
+      std::memory_order_release);
+  g_latestSlot.store(static_cast<std::uint32_t>(nextSlot), std::memory_order_release);
+  g_hasLatestFrame.store(true, std::memory_order_release);
+  g_latestSequence.store(publishedSequence, std::memory_order_release);
+  EndFrameSlotsWrite();
 }
 
 }  // namespace
@@ -140,20 +189,7 @@ void PublishLatestGpuNv12Frame(const int width, const int height,
 }
 
 bool TryGetLatestFrame(LatestFrame* outFrame) {
-  if (outFrame == nullptr) {
-    return false;
-  }
-
-  std::lock_guard<std::mutex> lock(g_frameSlotsMu);
-  if (!g_hasLatestFrame) {
-    return false;
-  }
-  const LatestFrame& latest = g_frameSlots[g_latestSlot];
-  if (!IsReadableFrame(latest)) {
-    return false;
-  }
-  *outFrame = latest;
-  return true;
+  return TryReadLatestFrameSnapshot(outFrame);
 }
 
 bool TryGetLatestFrameIfNewer(const std::uint64_t lastSeenSequence, LatestFrame* outFrame) {
@@ -163,16 +199,14 @@ bool TryGetLatestFrameIfNewer(const std::uint64_t lastSeenSequence, LatestFrame*
   if (g_latestSequence.load(std::memory_order_acquire) <= lastSeenSequence) {
     return false;
   }
-
-  std::lock_guard<std::mutex> lock(g_frameSlotsMu);
-  if (!g_hasLatestFrame) {
+  LatestFrame latest;
+  if (!TryReadLatestFrameSnapshot(&latest)) {
     return false;
   }
-  const LatestFrame& latest = g_frameSlots[g_latestSlot];
-  if (latest.sequence <= lastSeenSequence || !IsReadableFrame(latest)) {
+  if (latest.sequence <= lastSeenSequence) {
     return false;
   }
-  *outFrame = latest;
+  *outFrame = std::move(latest);
   return true;
 }
 
@@ -181,26 +215,40 @@ void ReleaseLatestFrameIfSequenceConsumed(const std::uint64_t consumedSequence) 
     return;
   }
 
-  std::lock_guard<std::mutex> lock(g_frameSlotsMu);
-  if (!g_hasLatestFrame) {
+  std::lock_guard<std::mutex> lock(g_frameSlotsWriteMu);
+  BeginFrameSlotsWrite();
+  if (!g_hasLatestFrame.load(std::memory_order_relaxed)) {
+    EndFrameSlotsWrite();
     return;
   }
-  if (g_frameSlots[g_latestSlot].sequence != consumedSequence) {
+  const std::uint32_t slotIndex = g_latestSlot.load(std::memory_order_relaxed);
+  if (slotIndex >= kFrameSlotCount) {
+    EndFrameSlotsWrite();
     return;
   }
-  g_frameSlots[g_latestSlot] = LatestFrame{};
-  g_hasLatestFrame = false;
+  const std::shared_ptr<const LatestFrame> latest =
+      g_frameSlots[slotIndex].load(std::memory_order_relaxed);
+  if (latest == nullptr || latest->sequence != consumedSequence) {
+    EndFrameSlotsWrite();
+    return;
+  }
+  g_frameSlots[slotIndex].store(std::shared_ptr<const LatestFrame>{}, std::memory_order_release);
+  g_hasLatestFrame.store(false, std::memory_order_release);
   g_latestSequence.store(0, std::memory_order_release);
+  EndFrameSlotsWrite();
 }
 
 void ClearLatestFrame() {
-  std::lock_guard<std::mutex> lock(g_frameSlotsMu);
-  for (LatestFrame& slot : g_frameSlots) {
-    slot = LatestFrame{};
+  std::lock_guard<std::mutex> lock(g_frameSlotsWriteMu);
+  BeginFrameSlotsWrite();
+  for (std::size_t slotIndex = 0; slotIndex < g_frameSlots.size(); ++slotIndex) {
+    g_frameSlots[slotIndex].store(std::shared_ptr<const LatestFrame>{},
+                                  std::memory_order_release);
   }
-  g_hasLatestFrame = false;
-  g_latestSlot = 0;
+  g_hasLatestFrame.store(false, std::memory_order_release);
+  g_latestSlot.store(0, std::memory_order_release);
   g_latestSequence.store(0, std::memory_order_release);
+  EndFrameSlotsWrite();
 }
 
 }  // namespace wallpaper::frame_bridge

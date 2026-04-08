@@ -104,9 +104,11 @@ void App::StartDecodePump() {
 
       FrameToken token{};
       if (decodePipeline_->TryAcquireLatestFrame(&token)) {
-        std::lock_guard<std::mutex> lock(decodedTokenMu_);
-        latestDecodedToken_ = token;
-        hasLatestDecodedToken_ = true;
+        const std::uint32_t currentPublishedSlot =
+            decodedTokenPublishedSlot_.load(std::memory_order_relaxed);
+        const std::uint32_t writeSlot = currentPublishedSlot ^ 1U;
+        decodedTokenSlots_[writeSlot] = token;
+        decodedTokenPublishedSlot_.store(writeSlot, std::memory_order_release);
         latestDecodedSequence_.store(token.sequence, std::memory_order_release);
         if (decodeFrameReadyEvent_ != nullptr) {
           (void)SetEvent(reinterpret_cast<HANDLE>(decodeFrameReadyEvent_));

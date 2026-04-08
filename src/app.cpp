@@ -468,11 +468,9 @@ void App::ResetPlaybackState(const bool resetLongRunState) {
   decodeWarmupActive_.store(false);
   decodeOpenLongRunLevel_ = 0;
   decodeOpenPreferHardwareTransforms_ = true;
-  {
-    std::lock_guard<std::mutex> lock(decodedTokenMu_);
-    hasLatestDecodedToken_ = false;
-    latestDecodedToken_ = FrameToken{};
-  }
+  decodedTokenSlots_[0] = FrameToken{};
+  decodedTokenSlots_[1] = FrameToken{};
+  decodedTokenPublishedSlot_.store(0, std::memory_order_release);
   latestDecodedSequence_.store(0, std::memory_order_release);
   latestPresentedSequence_.store(0, std::memory_order_release);
 }
@@ -507,6 +505,10 @@ bool App::StartVideoPipelineForPath(const std::string& path, const int longRunLo
   }
   decodeFrameReadyNotifierAvailable_ = decodePipeline_->SupportsFrameReadyNotifier();
   decodeOpened_.store(true);
+  decodeRunning_.store(false);
+  ResetPlaybackState(resetLongRunState);
+  decodeOpenLongRunLevel_ = longRunLoadLevel;
+  decodeOpenPreferHardwareTransforms_ = effectivePreferHardwareTransforms;
   if (startDecodeImmediately) {
     if (!decodePipeline_->Start()) {
       decodePipeline_->Stop();
@@ -520,9 +522,6 @@ bool App::StartVideoPipelineForPath(const std::string& path, const int longRunLo
   } else {
     decodeRunning_.store(false);
   }
-  ResetPlaybackState(resetLongRunState);
-  decodeOpenLongRunLevel_ = longRunLoadLevel;
-  decodeOpenPreferHardwareTransforms_ = effectivePreferHardwareTransforms;
   if (startDecodeImmediately) {
     WakeDecodePump();
   }
@@ -848,14 +847,14 @@ void App::Tick() {
   if (ShouldAttemptDecodedTokenConsume(
           hasLastPresentedFrame_, hasLastPresentedFrame_ ? lastPresentedFrame_.sequence : 0,
           latestDecodedSequence)) {
-    std::lock_guard<std::mutex> lock(decodedTokenMu_);
-    if (hasLatestDecodedToken_) {
-      const bool sequenceAdvanced =
-          !hasLastPresentedFrame_ || latestDecodedToken_.sequence != lastPresentedFrame_.sequence;
-      if (sequenceAdvanced) {
-        frame = latestDecodedToken_;
-        hasNewDecodedToken = true;
-      }
+    const std::uint32_t readSlot = decodedTokenPublishedSlot_.load(std::memory_order_acquire);
+    const FrameToken latestDecodedToken = decodedTokenSlots_[readSlot];
+    const bool sequenceAdvanced =
+        latestDecodedToken.sequence != 0 &&
+        (!hasLastPresentedFrame_ || latestDecodedToken.sequence != lastPresentedFrame_.sequence);
+    if (sequenceAdvanced) {
+      frame = latestDecodedToken;
+      hasNewDecodedToken = true;
     }
   }
 

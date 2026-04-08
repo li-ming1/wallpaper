@@ -255,6 +255,199 @@ TEST_CASE(Win11Cleanup_DecodePublishConvertsContiguousBufferOncePerFramePath) {
             static_cast<std::size_t>(1));
 }
 
+TEST_CASE(Win11Cleanup_FrameBridgeUsesSeqLockReadPath) {
+  const auto repoRoot = std::filesystem::current_path();
+  const std::string frameBridgeSource = ReadTextFile(repoRoot / "src" / "frame_bridge.cpp");
+
+  EXPECT_TRUE(frameBridgeSource.find("std::atomic<std::uint64_t> g_slotsVersion") !=
+              std::string::npos);
+  EXPECT_TRUE(frameBridgeSource.find("TryReadLatestFrameSnapshot(") != std::string::npos);
+  ExpectFileDoesNotContain(repoRoot / "src" / "frame_bridge.cpp",
+                           {"#include <shared_mutex>", "std::shared_mutex g_frameSlotsMu;",
+                            "std::shared_lock<std::shared_mutex>"});
+}
+
+TEST_CASE(Win11Cleanup_AsyncFileWriterReusesOpenStreams) {
+  const auto repoRoot = std::filesystem::current_path();
+  const std::string asyncHeader = ReadTextFile(repoRoot / "include" / "wallpaper" / "async_file_writer.h");
+  const std::string asyncSource = ReadTextFile(repoRoot / "src" / "async_file_writer.cpp");
+
+  EXPECT_TRUE(asyncHeader.find("streamCache_") != std::string::npos);
+  EXPECT_TRUE(asyncSource.find("std::ofstream out(task.path, mode);") == std::string::npos);
+}
+
+TEST_CASE(Win11Cleanup_AsyncFileWriterStreamCacheUsesHashIndex) {
+  const auto repoRoot = std::filesystem::current_path();
+  const auto asyncHeader = repoRoot / "include" / "wallpaper" / "async_file_writer.h";
+  const auto asyncSource = repoRoot / "src" / "async_file_writer.cpp";
+  const std::string asyncHeaderText = ReadTextFile(asyncHeader);
+  const std::string asyncSourceText = ReadTextFile(asyncSource);
+
+  EXPECT_TRUE(asyncHeaderText.find("std::unordered_map<std::filesystem::path") != std::string::npos);
+  EXPECT_TRUE(asyncHeaderText.find("streamCacheIndex_") != std::string::npos);
+  ExpectFileDoesNotContain(asyncSource, {"for (StreamCacheEntry& entry : streamCache_)"});
+  EXPECT_TRUE(asyncSourceText.find("streamCacheIndex_.find(") != std::string::npos);
+}
+
+TEST_CASE(Win11Cleanup_AsyncFileWriterStreamCacheUsesO1FreeListAndLru) {
+  const auto repoRoot = std::filesystem::current_path();
+  const auto asyncHeader = repoRoot / "include" / "wallpaper" / "async_file_writer.h";
+  const auto asyncSource = repoRoot / "src" / "async_file_writer.cpp";
+  const std::string asyncHeaderText = ReadTextFile(asyncHeader);
+  const std::string asyncSourceText = ReadTextFile(asyncSource);
+
+  EXPECT_TRUE(asyncHeaderText.find("freeCacheHead_") != std::string::npos);
+  EXPECT_TRUE(asyncHeaderText.find("lruHead_") != std::string::npos);
+  EXPECT_TRUE(asyncHeaderText.find("lruTail_") != std::string::npos);
+  EXPECT_TRUE(asyncSourceText.find("AcquireStreamCacheSlot(") != std::string::npos);
+  ExpectFileDoesNotContain(asyncSource,
+                           {"FindFreeStreamCacheIndex(", "FindEvictionStreamCacheIndex("});
+}
+
+TEST_CASE(Win11Cleanup_MetricsLogLineDoesNotUseOStringstream) {
+  const auto repoRoot = std::filesystem::current_path();
+  const auto metricsLogLineSource = repoRoot / "src" / "metrics_log_line.cpp";
+
+  ExpectFileDoesNotContain(metricsLogLineSource, {"std::ostringstream"});
+}
+
+TEST_CASE(Win11Cleanup_MetricsLogLineUsesCharconvFormatting) {
+  const auto repoRoot = std::filesystem::current_path();
+  const auto metricsLogLineSource = repoRoot / "src" / "metrics_log_line.cpp";
+  const std::string source = ReadTextFile(metricsLogLineSource);
+
+  EXPECT_TRUE(source.find("#include <charconv>") != std::string::npos);
+  EXPECT_TRUE(source.find("std::to_chars(") != std::string::npos);
+  ExpectFileDoesNotContain(metricsLogLineSource, {"std::snprintf("});
+}
+
+TEST_CASE(Win11Cleanup_DecodedTokenBridgeUsesSharedMutexReadPath) {
+  const auto repoRoot = std::filesystem::current_path();
+  const std::string appHeader = ReadTextFile(repoRoot / "include" / "wallpaper" / "app.h");
+  const std::string appSource = ReadTextFile(repoRoot / "src" / "app.cpp");
+  const std::string appDecodeControl = ReadTextFile(repoRoot / "src" / "app_decode_control.cpp");
+
+  EXPECT_TRUE(appHeader.find("decodedTokenSlots_") != std::string::npos);
+  EXPECT_TRUE(appHeader.find("decodedTokenPublishedSlot_") != std::string::npos);
+  ExpectFileDoesNotContain(repoRoot / "include" / "wallpaper" / "app.h",
+                           {"decodedTokenMu_", "std::shared_mutex"});
+  ExpectFileDoesNotContain(repoRoot / "src" / "app.cpp",
+                           {"decodedTokenMu_", "std::shared_lock<std::shared_mutex>"});
+  ExpectFileDoesNotContain(repoRoot / "src" / "app_decode_control.cpp",
+                           {"decodedTokenMu_", "std::unique_lock<std::shared_mutex>"});
+}
+
+TEST_CASE(Win11Cleanup_PresentSampleWindowUsesStreamingP95Estimator) {
+  const auto repoRoot = std::filesystem::current_path();
+  const auto presentSampleWindowHeader = repoRoot / "include" / "wallpaper" / "present_sample_window.h";
+  ExpectFileDoesNotContain(presentSampleWindowHeader, {"std::nth_element("});
+}
+
+TEST_CASE(Win11Cleanup_CpuFrameDownscaleHasSimdFastPath) {
+  const auto repoRoot = std::filesystem::current_path();
+  const std::string source = ReadTextFile(repoRoot / "src" / "cpu_frame_downscale.cpp");
+
+  EXPECT_TRUE(source.find("#include <immintrin.h>") != std::string::npos);
+  EXPECT_TRUE(source.find("_mm_loadu_si128") != std::string::npos);
+  EXPECT_TRUE(source.find("_mm_storeu_si128") != std::string::npos);
+}
+
+TEST_CASE(Win11Cleanup_CpuFrameDownscaleUsesPrecomputedNearestIndexTables) {
+  const auto repoRoot = std::filesystem::current_path();
+  const std::string source = ReadTextFile(repoRoot / "src" / "cpu_frame_downscale.cpp");
+
+  EXPECT_TRUE(source.find("BuildNearestSourceIndexTable(") != std::string::npos);
+  EXPECT_TRUE(source.find("const std::vector<int>& xIndices") != std::string::npos);
+  EXPECT_TRUE(source.find("const std::vector<int>& yIndices") != std::string::npos);
+  ExpectFileDoesNotContain(repoRoot / "src" / "cpu_frame_downscale.cpp",
+                           {"NearestScaleStepper xStepper(", "NearestScaleStepper uvXStepper("});
+}
+
+TEST_CASE(Win11Cleanup_MonitorEnumerationUsesSharedSnapshotCache) {
+  const auto repoRoot = std::filesystem::current_path();
+  const auto decodeMfSource = repoRoot / "src" / "win" / "decode_pipeline_mf.cpp";
+  const auto wallpaperHostSource = repoRoot / "src" / "win" / "wallpaper_host_win.cpp";
+
+  const std::string decodeText = ReadTextFile(decodeMfSource);
+  const std::string hostText = ReadTextFile(wallpaperHostSource);
+
+  EXPECT_TRUE(decodeText.find("QueryMonitorRectSnapshotCached(") != std::string::npos);
+  EXPECT_TRUE(hostText.find("QueryMonitorRectSnapshotCached(") != std::string::npos);
+  ExpectFileDoesNotContain(decodeMfSource, {"EnumDisplayMonitors("});
+  ExpectFileDoesNotContain(wallpaperHostSource, {"EnumDisplayMonitors("});
+}
+
+TEST_CASE(Win11Cleanup_MonitorRectCacheUsesAtomicSnapshotReadPath) {
+  const auto repoRoot = std::filesystem::current_path();
+  const auto monitorCacheSource = repoRoot / "src" / "monitor_rect_cache.cpp";
+  const std::string source = ReadTextFile(monitorCacheSource);
+
+  EXPECT_TRUE(source.find("std::atomic<std::shared_ptr<const MonitorRectCacheState>>") !=
+              std::string::npos);
+  EXPECT_TRUE(source.find("TryReadFreshCacheSnapshot(") != std::string::npos);
+  ExpectFileDoesNotContain(monitorCacheSource,
+                           {"#include <shared_mutex>", "std::shared_mutex", "std::shared_lock"});
+}
+
+TEST_CASE(Win11Cleanup_MetricsLogPruneUsesHashMembershipCheck) {
+  const auto repoRoot = std::filesystem::current_path();
+  const auto metricsLogSource = repoRoot / "src" / "metrics_log_file.cpp";
+  const auto retainSetHeader = repoRoot / "include" / "wallpaper" / "metrics_shard_retain_set.h";
+  const std::string source = ReadTextFile(metricsLogSource);
+  const std::string retainSource = ReadTextFile(retainSetHeader);
+
+  EXPECT_TRUE(source.find("std::unordered_set<std::filesystem::path> retainedPaths") !=
+              std::string::npos);
+  EXPECT_TRUE(retainSource.find("std::span<const MetricsShardCandidate> Items() const") !=
+              std::string::npos);
+}
+
+TEST_CASE(Win11Cleanup_WallpaperHostDownscaleUsesPrecomputedNearestIndexTables) {
+  const auto repoRoot = std::filesystem::current_path();
+  const auto wallpaperHostSource = repoRoot / "src" / "win" / "wallpaper_host_win.cpp";
+  const std::string source = ReadTextFile(wallpaperHostSource);
+
+  EXPECT_TRUE(source.find("BuildNearestSourceIndexTable(") != std::string::npos);
+  ExpectFileDoesNotContain(wallpaperHostSource, {"NearestScaleStepper xStepper("});
+}
+
+TEST_CASE(Win11Cleanup_DownscaleUsesThreadLocalNearestIndexTableCache) {
+  const auto repoRoot = std::filesystem::current_path();
+  const std::string cpuDownscale = ReadTextFile(repoRoot / "src" / "cpu_frame_downscale.cpp");
+  const std::string wallpaperHost = ReadTextFile(repoRoot / "src" / "win" / "wallpaper_host_win.cpp");
+
+  EXPECT_TRUE(cpuDownscale.find("thread_local NearestIndexTableCache") != std::string::npos);
+  EXPECT_TRUE(wallpaperHost.find("thread_local NearestIndexTableCache") != std::string::npos);
+}
+
+TEST_CASE(Win11Cleanup_RgbaDownscalePrecomputesSourceByteOffsets) {
+  const auto repoRoot = std::filesystem::current_path();
+  const std::string cpuDownscale = ReadTextFile(repoRoot / "src" / "cpu_frame_downscale.cpp");
+  const std::string wallpaperHost = ReadTextFile(repoRoot / "src" / "win" / "wallpaper_host_win.cpp");
+
+  EXPECT_TRUE(cpuDownscale.find("BuildRgbaSourceByteOffsetTable(") != std::string::npos);
+  EXPECT_TRUE(wallpaperHost.find("BuildRgbaSourceByteOffsetTable(") != std::string::npos);
+  ExpectFileDoesNotContain(repoRoot / "src" / "cpu_frame_downscale.cpp",
+                           {"static_cast<std::size_t>(x) * 4U"});
+  ExpectFileDoesNotContain(repoRoot / "src" / "win" / "wallpaper_host_win.cpp",
+                           {"static_cast<std::size_t>(x) * 4U"});
+}
+
+TEST_CASE(Win11Cleanup_DecodeSampleStrategyCacheUsesAtomicFastPath) {
+  const auto repoRoot = std::filesystem::current_path();
+  const std::string decodeHeader =
+      ReadTextFile(repoRoot / "src" / "win" / "decode_pipeline_internal.h");
+  const std::string decodeSource = ReadTextFile(repoRoot / "src" / "win" / "decode_pipeline_mf.cpp");
+
+  EXPECT_TRUE(decodeHeader.find("samplePublishCachedStrategy_") != std::string::npos);
+  EXPECT_TRUE(decodeSource.find("samplePublishCachedStrategy_.load(") != std::string::npos);
+  EXPECT_TRUE(decodeSource.find("samplePublishCachedStrategy_.store(") != std::string::npos);
+  ExpectFileDoesNotContain(repoRoot / "src" / "win" / "decode_pipeline_mf.cpp",
+                           {"samplePublishStrategyCache_.BuildPlan(",
+                            "samplePublishStrategyCache_.RememberSuccess(",
+                            "samplePublishStrategyCache_.Reset();"});
+}
+
 TEST_CASE(Win11Cleanup_MetricsSamplerModuleRemovedFromProductionTree) {
   const auto repoRoot = std::filesystem::current_path();
   const auto metricsSamplerHeader = repoRoot / "include" / "wallpaper" / "metrics_sampler.h";
@@ -351,6 +544,18 @@ TEST_CASE(Win11Cleanup_AppOnlyCreatesMetricsWriterWhenDebugMetricsEnabled) {
   EXPECT_TRUE(appSource.find("metricsWriter_ = std::make_unique<AsyncFileWriter>(256);") !=
               std::string::npos);
   EXPECT_TRUE(appSource.find("metricsWriter_.reset();") != std::string::npos);
+}
+
+TEST_CASE(Win11Cleanup_ProcessNameCacheUsesOpenAddressingHashBuckets) {
+  const auto repoRoot = std::filesystem::current_path();
+  const auto processCacheHeader = repoRoot / "include" / "wallpaper" / "process_name_cache.h";
+  const std::string source = ReadTextFile(processCacheHeader);
+
+  EXPECT_TRUE(source.find("kHashBucketCount") != std::string::npos);
+  EXPECT_TRUE(source.find("buckets_") != std::string::npos);
+  EXPECT_TRUE(source.find("RebuildBuckets(") != std::string::npos);
+  ExpectFileDoesNotContain(processCacheHeader,
+                           {"for (const Entry& entry : entries_)", "for (Entry& entry : entries_)"});
 }
 
 TEST_CASE(Win11Cleanup_ResourceArbiterDoesNotKeepUnusedForegroundStateApi) {
