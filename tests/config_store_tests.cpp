@@ -245,3 +245,58 @@ TEST_CASE(ConfigStore_SaveExpectedFallsBackToSyncWhenAsyncWriterUnavailable) {
 
   std::filesystem::remove(path);
 }
+
+TEST_CASE(ConfigStore_LoadIgnoresNestedObjectKeys) {
+  const auto path =
+      std::filesystem::temp_directory_path() / "wallpaper_nested_keys_config.json";
+  const std::string nestedJson =
+      "{\n"
+      "  \"videoPath\": \"D:/videos/demo.mp4\",\n"
+      "  \"meta\": {\n"
+      "    \"autoStart\": true,\n"
+      "    \"debugMetrics\": true,\n"
+      "    \"pauseWhenNotDesktopContext\": false,\n"
+      "    \"playbackProfile\": \"low_cpu\"\n"
+      "  }\n"
+      "}\n";
+  {
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    out << nestedJson;
+  }
+
+  wallpaper::ConfigStore store(path);
+  const auto cfg = store.Load();
+  EXPECT_EQ(cfg.videoPath, "D:/videos/demo.mp4");
+  EXPECT_FALSE(cfg.autoStart);
+  EXPECT_FALSE(cfg.debugMetrics);
+  EXPECT_TRUE(cfg.pauseWhenNotDesktopContext);
+  EXPECT_EQ(static_cast<int>(cfg.playbackProfile),
+            static_cast<int>(wallpaper::PlaybackProfile::kBalanced));
+
+  std::filesystem::remove(path);
+}
+
+TEST_CASE(ConfigStore_LoadExpectedFailsOnMalformedJson) {
+  const auto path =
+      std::filesystem::temp_directory_path() / "wallpaper_malformed_config.json";
+  const std::string malformedJson =
+      "{\n"
+      "  \"videoPath\": \"D:/videos/demo.mp4\",\n"
+      "  \"autoStart\": tru,\n"
+      "  \"pauseWhenNotDesktopContext\": false\n"
+      "}\n";
+  {
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    out << malformedJson;
+  }
+
+  wallpaper::ConfigStore store(path);
+  const auto loaded = store.LoadExpected();
+  EXPECT_TRUE(!loaded.has_value());
+  if (!loaded.has_value()) {
+    EXPECT_EQ(static_cast<int>(loaded.error()),
+              static_cast<int>(wallpaper::ConfigStoreError::kParseFailed));
+  }
+
+  std::filesystem::remove(path);
+}

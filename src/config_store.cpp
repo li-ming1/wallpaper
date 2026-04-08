@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cctype>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <string>
 
@@ -100,30 +101,21 @@ std::size_t SkipWs(const std::string& json, std::size_t index) {
   return index;
 }
 
-bool ExtractString(const std::string& json, const std::string& key, std::string* out) {
-  // 只解析固定配置格式，避免引入重量级 JSON 依赖，优先启动时延和内存占用。
-  const std::string needle = "\"" + key + "\"";
-  const auto keyPos = json.find(needle);
-  if (keyPos == std::string::npos) {
+bool ParseJsonString(const std::string& json, std::size_t* const pos, std::string* const out) {
+  if (pos == nullptr || *pos >= json.size() || json[*pos] != '"') {
     return false;
   }
-
-  auto pos = json.find(':', keyPos + needle.size());
-  if (pos == std::string::npos) {
-    return false;
-  }
-  pos = SkipWs(json, pos + 1);
-  if (pos >= json.size() || json[pos] != '"') {
-    return false;
-  }
-  ++pos;
+  ++(*pos);
 
   std::string raw;
   bool escaped = false;
-  while (pos < json.size()) {
-    const char ch = json[pos++];
+  while (*pos < json.size()) {
+    const char ch = json[*pos];
+    ++(*pos);
     if (!escaped && ch == '"') {
-      *out = UnescapeJson(raw);
+      if (out != nullptr) {
+        *out = UnescapeJson(raw);
+      }
       return true;
     }
     if (!escaped && ch == '\\') {
@@ -137,26 +129,245 @@ bool ExtractString(const std::string& json, const std::string& key, std::string*
   return false;
 }
 
-bool ExtractBool(const std::string& json, const std::string& key, bool* out) {
-  const std::string needle = "\"" + key + "\"";
-  const auto keyPos = json.find(needle);
-  if (keyPos == std::string::npos) {
+bool ParseJsonBool(const std::string& json, std::size_t* const pos, bool* const out) {
+  if (pos == nullptr || *pos >= json.size()) {
     return false;
   }
-  auto pos = json.find(':', keyPos + needle.size());
-  if (pos == std::string::npos) {
-    return false;
-  }
-  pos = SkipWs(json, pos + 1);
-  if (json.compare(pos, 4, "true") == 0) {
-    *out = true;
+  if (json.compare(*pos, 4, "true") == 0) {
+    if (out != nullptr) {
+      *out = true;
+    }
+    *pos += 4;
     return true;
   }
-  if (json.compare(pos, 5, "false") == 0) {
-    *out = false;
+  if (json.compare(*pos, 5, "false") == 0) {
+    if (out != nullptr) {
+      *out = false;
+    }
+    *pos += 5;
     return true;
   }
   return false;
+}
+
+bool ParseJsonNull(const std::string& json, std::size_t* const pos) {
+  if (pos == nullptr || *pos >= json.size()) {
+    return false;
+  }
+  if (json.compare(*pos, 4, "null") != 0) {
+    return false;
+  }
+  *pos += 4;
+  return true;
+}
+
+bool ParseJsonNumber(const std::string& json, std::size_t* const pos) {
+  if (pos == nullptr || *pos >= json.size()) {
+    return false;
+  }
+
+  std::size_t index = *pos;
+  if (json[index] == '-') {
+    ++index;
+    if (index >= json.size()) {
+      return false;
+    }
+  }
+
+  if (json[index] == '0') {
+    ++index;
+  } else if (std::isdigit(static_cast<unsigned char>(json[index])) != 0) {
+    while (index < json.size() &&
+           std::isdigit(static_cast<unsigned char>(json[index])) != 0) {
+      ++index;
+    }
+  } else {
+    return false;
+  }
+
+  if (index < json.size() && json[index] == '.') {
+    ++index;
+    const std::size_t fractionBegin = index;
+    while (index < json.size() &&
+           std::isdigit(static_cast<unsigned char>(json[index])) != 0) {
+      ++index;
+    }
+    if (index == fractionBegin) {
+      return false;
+    }
+  }
+
+  if (index < json.size() && (json[index] == 'e' || json[index] == 'E')) {
+    ++index;
+    if (index < json.size() && (json[index] == '+' || json[index] == '-')) {
+      ++index;
+    }
+    const std::size_t exponentBegin = index;
+    while (index < json.size() &&
+           std::isdigit(static_cast<unsigned char>(json[index])) != 0) {
+      ++index;
+    }
+    if (index == exponentBegin) {
+      return false;
+    }
+  }
+
+  *pos = index;
+  return true;
+}
+
+bool SkipJsonValue(const std::string& json, std::size_t* const pos) {
+  if (pos == nullptr || *pos >= json.size()) {
+    return false;
+  }
+  const char ch = json[*pos];
+  if (ch == '"') {
+    return ParseJsonString(json, pos, nullptr);
+  }
+  if (ch == '{' || ch == '[') {
+    std::string stack;
+    stack.push_back(ch == '{' ? '}' : ']');
+    ++(*pos);
+    bool inString = false;
+    bool escaped = false;
+    while (*pos < json.size()) {
+      const char current = json[*pos];
+      ++(*pos);
+      if (inString) {
+        if (!escaped && current == '"') {
+          inString = false;
+        } else {
+          escaped = !escaped && current == '\\';
+        }
+        continue;
+      }
+      if (current == '"') {
+        inString = true;
+        escaped = false;
+        continue;
+      }
+      if (current == '{') {
+        stack.push_back('}');
+        continue;
+      }
+      if (current == '[') {
+        stack.push_back(']');
+        continue;
+      }
+      if (!stack.empty() && current == stack.back()) {
+        stack.pop_back();
+        if (stack.empty()) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+  bool parsedBool = false;
+  if (ParseJsonBool(json, pos, &parsedBool)) {
+    return true;
+  }
+  if (ParseJsonNull(json, pos)) {
+    return true;
+  }
+  return ParseJsonNumber(json, pos);
+}
+
+struct ParsedConfigFields final {
+  std::optional<std::string> videoPath;
+  std::optional<PlaybackProfile> playbackProfile;
+  std::optional<bool> autoStart;
+  std::optional<bool> pauseWhenNotDesktopContext;
+  std::optional<bool> debugMetrics;
+};
+
+bool ParseTopLevelConfig(const std::string& json, ParsedConfigFields* const out) {
+  if (out == nullptr) {
+    return false;
+  }
+  std::size_t pos = SkipWs(json, 0);
+  if (pos >= json.size() || json[pos] != '{') {
+    return false;
+  }
+  ++pos;
+
+  for (;;) {
+    pos = SkipWs(json, pos);
+    if (pos >= json.size()) {
+      return false;
+    }
+    if (json[pos] == '}') {
+      ++pos;
+      return SkipWs(json, pos) == json.size();
+    }
+
+    std::string key;
+    if (!ParseJsonString(json, &pos, &key)) {
+      return false;
+    }
+    pos = SkipWs(json, pos);
+    if (pos >= json.size() || json[pos] != ':') {
+      return false;
+    }
+    ++pos;
+    pos = SkipWs(json, pos);
+    if (pos >= json.size()) {
+      return false;
+    }
+
+    if (key == "videoPath") {
+      std::string value;
+      if (!ParseJsonString(json, &pos, &value)) {
+        return false;
+      }
+      out->videoPath = std::move(value);
+    } else if (key == "playbackProfile") {
+      std::string value;
+      if (!ParseJsonString(json, &pos, &value)) {
+        return false;
+      }
+      PlaybackProfile parsedProfile = PlaybackProfile::kBalanced;
+      if (TryParsePlaybackProfile(value, &parsedProfile)) {
+        out->playbackProfile = parsedProfile;
+      }
+    } else if (key == "autoStart") {
+      bool value = false;
+      if (!ParseJsonBool(json, &pos, &value)) {
+        return false;
+      }
+      out->autoStart = value;
+    } else if (key == "pauseWhenNotDesktopContext") {
+      bool value = false;
+      if (!ParseJsonBool(json, &pos, &value)) {
+        return false;
+      }
+      out->pauseWhenNotDesktopContext = value;
+    } else if (key == "debugMetrics") {
+      bool value = false;
+      if (!ParseJsonBool(json, &pos, &value)) {
+        return false;
+      }
+      out->debugMetrics = value;
+    } else {
+      if (!SkipJsonValue(json, &pos)) {
+        return false;
+      }
+    }
+
+    pos = SkipWs(json, pos);
+    if (pos >= json.size()) {
+      return false;
+    }
+    if (json[pos] == ',') {
+      ++pos;
+      continue;
+    }
+    if (json[pos] == '}') {
+      ++pos;
+      return SkipWs(json, pos) == json.size();
+    }
+    return false;
+  }
 }
 
 }  // namespace
@@ -175,26 +386,24 @@ std::expected<Config, ConfigStoreError> ConfigStore::LoadExpected() const {
     return std::unexpected(ConfigStoreError::kFileOpenFailed);
   }
 
-  std::string value;
-  if (ExtractString(json, "videoPath", &value)) {
-    config.videoPath = value;
+  ParsedConfigFields parsed;
+  if (!ParseTopLevelConfig(json, &parsed)) {
+    return std::unexpected(ConfigStoreError::kParseFailed);
   }
-  if (ExtractString(json, "playbackProfile", &value)) {
-    PlaybackProfile parsedProfile = PlaybackProfile::kBalanced;
-    if (TryParsePlaybackProfile(value, &parsedProfile)) {
-      config.playbackProfile = parsedProfile;
-    }
+  if (parsed.videoPath.has_value()) {
+    config.videoPath = *parsed.videoPath;
   }
-
-  bool flag = false;
-  if (ExtractBool(json, "autoStart", &flag)) {
-    config.autoStart = flag;
+  if (parsed.playbackProfile.has_value()) {
+    config.playbackProfile = *parsed.playbackProfile;
   }
-  if (ExtractBool(json, "pauseWhenNotDesktopContext", &flag)) {
-    config.pauseWhenNotDesktopContext = flag;
+  if (parsed.autoStart.has_value()) {
+    config.autoStart = *parsed.autoStart;
   }
-  if (ExtractBool(json, "debugMetrics", &flag)) {
-    config.debugMetrics = flag;
+  if (parsed.pauseWhenNotDesktopContext.has_value()) {
+    config.pauseWhenNotDesktopContext = *parsed.pauseWhenNotDesktopContext;
+  }
+  if (parsed.debugMetrics.has_value()) {
+    config.debugMetrics = *parsed.debugMetrics;
   }
 
   return config;
