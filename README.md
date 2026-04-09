@@ -95,6 +95,17 @@ pacman -S --needed mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-binutils
 powershell -ExecutionPolicy Bypass -File .\scripts\build_app.ps1 -BuildDir build
 ```
 
+在任意目录下也可直接指定脚本绝对路径（输出仍为项目内 `build/`）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File D:\vs2022cs\c++pro\wallpaper\scripts\build_app.ps1 -BuildDir build
+```
+
+若仅需“在 `build` 目录下编译应用”（不编译测试），使用上面任一命令即可；成功后会生成：
+
+- `build/wallpaper_app.exe`
+- `build/app_icon_res.o`
+
 常用参数：
 
 - `-BuildDir <dir>`：指定输出目录（默认 `build`）。

@@ -6,6 +6,11 @@
 *.pdb
 *.ilk
 *.log
+/CMakeFiles/
+/CMakeCache.txt
+/cmake_install.cmake
+/compile_commands.json
+/Makefile
 
 # IDE / editor
 /.vs/
@@ -24,3 +29,7 @@ Desktop.ini
 /progress.md
 /task_plan.md
 /test_videos/
+/AGENTS.md
+/config.json
+/metrics.csv
+/metrics_*.csv
